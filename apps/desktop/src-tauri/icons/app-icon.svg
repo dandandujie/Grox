@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <radialGradient id="surface" cx="50%" cy="46%" r="68%">
+      <stop offset="0" stop-color="#151515"/>
+      <stop offset="0.7" stop-color="#080808"/>
+      <stop offset="1" stop-color="#020202"/>
+    </radialGradient>
+    <radialGradient id="ambient" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fff" stop-opacity=".18"/>
+      <stop offset=".45" stop-color="#fff" stop-opacity=".045"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="disk" x1="14" y1="72" x2="86" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".96"/>
+      <stop offset=".28" stop-color="#fff" stop-opacity=".76"/>
+      <stop offset=".58" stop-color="#fff" stop-opacity=".26"/>
+      <stop offset="1" stop-color="#fff" stop-opacity=".1"/>
+    </linearGradient>
+    <linearGradient id="halo" x1="27" y1="43" x2="74" y2="43" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".78"/>
+      <stop offset=".54" stop-color="#fff" stop-opacity=".48"/>
+      <stop offset="1" stop-color="#fff" stop-opacity=".22"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="1" y="1" width="98" height="98" rx="21" fill="url(#surface)"/>
+  <rect x="1.5" y="1.5" width="97" height="97" rx="20.5" stroke="#fff" stroke-opacity=".07"/>
+  <circle cx="50" cy="50" r="48" fill="url(#ambient)"/>
+
+  <circle cx="50" cy="50" r="34.5" stroke="#fff" stroke-width=".7" stroke-dasharray="1.4 7.2" stroke-opacity=".3" transform="rotate(-13 50 50)"/>
+  <circle cx="50" cy="50" r="40" stroke="#fff" stroke-width=".6" stroke-dasharray="2.4 10.5" stroke-opacity=".18" transform="rotate(19 50 50)"/>
+
+  <ellipse cx="50" cy="50" rx="44" ry="13.5" stroke="url(#disk)" stroke-width="5.6" stroke-linecap="round" transform="rotate(-16 50 50)"/>
+  <path d="M26.5 42.5Q50 24 73.5 42.5" stroke="url(#halo)" stroke-width="2.2" stroke-linecap="round"/>
+
+  <circle cx="50" cy="50" r="24.5" stroke="#fff" stroke-width="4.5" stroke-opacity=".13"/>
+  <circle cx="50" cy="50" r="24.5" stroke="#fff" stroke-width="1.5" stroke-opacity=".95"/>
+  <circle cx="50" cy="50" r="21" fill="#000"/>
+</svg>

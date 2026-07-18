@@ -1,0 +1,23 @@
+[package]
+name = "grox-desktop"
+version = "0.1.0"
+description = "Grox desktop agent powered by Grok Build"
+edition = "2021"
+rust-version = "1.77"
+
+# Keep this crate OUT of the grok-build workspace (root Cargo.toml is
+# auto-generated and treated as read-only). The empty table makes this
+# project its own workspace root.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "process", "sync"] }
+url = "2"
+base64 = "0.22"
+rfd = "0.15"

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Grox",
+  "version": "0.1.0",
+  "identifier": "dev.grox.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Grox",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1080,
+        "minHeight": 700,
+        "center": true,
+        "decorations": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "backgroundColor": "#0a0a0a"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420; frame-src http://localhost:* http://127.0.0.1:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "externalBin": ["binaries/grok"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "基于 Grok Build 的桌面端 Agent",
+    "longDescription": "Grox 是以 xai-org/grok-build 为核心打造的桌面端 Agent，支持真实 ACP 会话、工具授权与任务恢复。",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

@@ -20,6 +20,7 @@ fn check_protoc_good(protoc: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn is_github_actions() -> bool {
     env::var_os("GITHUB_ACTIONS").is_some()
 }
@@ -48,46 +49,59 @@ pub fn find_protoc() -> anyhow::Result<Option<PathBuf>> {
         }
     }
 
-    // 2. Walk up directories looking for bin/protoc (dotslash wrapper).
-    let cwd = env::current_dir()?;
-    let mut dir = cwd.clone();
-    let mut dir_rel = PathBuf::new();
-    loop {
-        // Return relative path to make build more deterministic.
-        let protoc = dir_rel.join("bin/protoc");
-        if protoc.try_exists()? {
-            match check_protoc_good(&protoc) {
-                Ok(()) => return Ok(Some(protoc)),
-                Err(e) => {
-                    // bin/protoc exists but can't execute — likely the dotslash wrapper
-                    // in an environment without dotslash (e.g. Bazel remote execution).
-                    // Fall through to PATH-based lookup below.
-                    eprintln!(
-                        "bin/protoc found at `{}` but failed to execute: {e:#}; \
+    // The repository's bin/protoc is a DotSlash wrapper and cannot execute on
+    // Windows. Keep Windows builds self-contained instead of requiring every
+    // desktop contributor to install a system protobuf compiler.
+    #[cfg(windows)]
+    {
+        let protoc = protoc_bin_vendored_win32::protoc_bin_path();
+        check_protoc_good(&protoc)?;
+        return Ok(Some(protoc));
+    }
+
+    #[cfg(not(windows))]
+    {
+        // 2. Walk up directories looking for bin/protoc (dotslash wrapper).
+        let cwd = env::current_dir()?;
+        let mut dir = cwd.clone();
+        let mut dir_rel = PathBuf::new();
+        loop {
+            // Return relative path to make build more deterministic.
+            let protoc = dir_rel.join("bin/protoc");
+            if protoc.try_exists()? {
+                match check_protoc_good(&protoc) {
+                    Ok(()) => return Ok(Some(protoc)),
+                    Err(e) => {
+                        // bin/protoc exists but can't execute — likely the dotslash wrapper
+                        // in an environment without dotslash (e.g. Bazel remote execution).
+                        // Fall through to PATH-based lookup below.
+                        eprintln!(
+                            "bin/protoc found at `{}` but failed to execute: {e:#}; \
                          trying protoc from PATH as fallback",
-                        protoc.display()
-                    );
-                    break;
+                            protoc.display()
+                        );
+                        break;
+                    }
                 }
             }
+            if !dir.pop() {
+                break;
+            }
+            dir_rel.push("..");
         }
-        if !dir.pop() {
-            break;
+
+        // 3. Try protoc from PATH (system install or other tooling).
+        if check_protoc_good(Path::new("protoc")).is_ok() {
+            return Ok(Some(PathBuf::from("protoc")));
         }
-        dir_rel.push("..");
-    }
 
-    // 3. Try protoc from PATH (system install or other tooling).
-    if check_protoc_good(Path::new("protoc")).is_ok() {
-        return Ok(Some(PathBuf::from("protoc")));
+        // 4. Not found anywhere.
+        if is_github_actions() {
+            return Err(anyhow::anyhow!(
+                "`protoc` not found (checked $PROTOC env, bin/protoc, and PATH)"
+            ));
+        }
+        eprintln!("`protoc` not found; likely it is missing in docker image");
+        Ok(None)
     }
-
-    // 4. Not found anywhere.
-    if is_github_actions() {
-        return Err(anyhow::anyhow!(
-            "`protoc` not found (checked $PROTOC env, bin/protoc, and PATH)"
-        ));
-    }
-    eprintln!("`protoc` not found; likely it is missing in docker image");
-    Ok(None)
 }

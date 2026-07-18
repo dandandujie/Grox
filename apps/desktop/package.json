@@ -1,0 +1,42 @@
+{
+  "name": "grox-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "agent:dev": "node scripts/prepare-sidecar.mjs --debug",
+    "agent:sidecar": "node scripts/prepare-sidecar.mjs",
+    "desktop:dev": "pnpm agent:dev && pnpm tauri dev",
+    "desktop:build": "pnpm agent:sidecar && pnpm tauri build",
+    "tauri": "tauri",
+    "electron": "electron .",
+    "electron:dev": "node scripts/dev-electron.mjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild"]
+  },
+  "dependencies": {
+    "@fontsource/geist-mono": "^5.2.5",
+    "@fontsource/geist-sans": "^5.2.5",
+    "@tauri-apps/api": "2.10.1",
+    "dompurify": "^3.2.6",
+    "marked": "^15.0.7",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "tailwindcss": "^4.1.4",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}

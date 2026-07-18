@@ -1,9 +1,12 @@
 pub mod find_protoc;
 
 use anyhow::Context;
+use std::fs;
+#[cfg(not(windows))]
+use std::iter;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::{Command, Stdio};
-use std::{fs, iter};
 
 /// Find the protoc well-known types include directory.
 ///
@@ -97,6 +100,7 @@ impl XaiProtoBuilder {
     // - everything is invalidated when anything inside include directories is changed
     // - also they compute paths incorrectly: assuming paths are relative to current directory
     //   rather than
+    #[cfg(not(windows))]
     fn emit_rerun_if_changed<'a>(
         protoc: Option<&Path>,
         protoc_include_dir: Option<&Path>,
@@ -211,12 +215,17 @@ impl XaiProtoBuilder {
         let protoc_include_dir = find_protoc_include_dir(protoc.as_deref());
 
         let mut builder = builder.emit_rerun_if_changed(false);
+        #[cfg(not(windows))]
         Self::emit_rerun_if_changed(
             protoc.as_deref(),
             protoc_include_dir.as_deref(),
             protos.iter().map(|p| p.as_ref()),
             includes.iter().map(|i| i.as_ref()),
         )?;
+        #[cfg(windows)]
+        for proto in protos {
+            println!("cargo:rerun-if-changed={}", proto.as_ref().display());
+        }
 
         let tempfile;
 
