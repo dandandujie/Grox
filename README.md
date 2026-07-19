@@ -1,8 +1,11 @@
-# Grox
+<img width="2160" height="1350" alt="image" src="https://github.com/user-attachments/assets/934de75b-dc3d-4cf7-9ad2-9c4e593abf72" /># Grox
 
 Grox 是以 [xai-org/grok-build](https://github.com/xai-org/grok-build) 为核心打造的桌面端 Agent。它通过 ACP（Agent Client Protocol）连接真实的 Grok Build 运行时，在 Tauri 桌面窗口中提供会话恢复、流式思考、工具调用、代码差异、权限审批、结构化问答和用量统计。
 
 当前仓库同时保留上游 Grok Build Rust 工作区与 Grox 桌面应用；桌面端位于 `apps/desktop`。
+<img width="2160" height="1350" alt="image" src="https://github.com/user-attachments/assets/4ad47a9a-b705-48dd-b20a-6e1f193fae7d" />
+<img width="1226" height="1010" alt="image" src="https://github.com/user-attachments/assets/08fa287b-9822-4bee-ba95-135fe0521c22" />
+
 
 ## 已实现能力
 
