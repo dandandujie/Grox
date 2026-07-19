@@ -15,12 +15,14 @@ export function ChipSelect({
   activeId,
   onSelect,
   width = 200,
+  disabled = false,
 }: {
   label: ReactNode;
   items: SelectItem[];
   activeId?: string;
   onSelect: (id: string) => void;
   width?: number;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -42,15 +44,15 @@ export function ChipSelect({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
-      <button className="chip" onClick={() => setOpen((v) => !v)}>
-        {label}
+    <div ref={ref} className="relative min-w-0">
+      <button disabled={disabled} className="chip max-w-[220px] min-w-0 disabled:cursor-wait disabled:opacity-60" onClick={() => setOpen((v) => !v)}>
+        <span className="min-w-0 truncate">{label}</span>
         <Icon name="chevronDown" size={9} className="text-faint" />
       </button>
       {open && (
         <div
-          className="absolute bottom-full left-0 z-40 mb-1.5 overflow-hidden rounded-[6px] border border-line2 bg-raise py-1 shadow-[0_8px_28px_rgba(0,0,0,0.55)] animate-fade-up"
-          style={{ width }}
+          className="absolute bottom-full left-0 z-40 mb-1.5 max-h-[min(360px,60vh)] overflow-y-auto overflow-x-hidden rounded-[6px] border border-line2 bg-raise py-1 shadow-[0_8px_28px_rgba(0,0,0,0.55)] animate-fade-up"
+          style={{ width: `min(${width}px, calc(100vw - 32px))` }}
         >
           {items.map((it) => (
             <button
@@ -59,15 +61,16 @@ export function ChipSelect({
                 onSelect(it.id);
                 setOpen(false);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+              title={it.hint ? `${it.label} — ${it.hint}` : it.label}
+              className={`grid w-full grid-cols-[6px_minmax(0,1fr)_minmax(0,0.9fr)] items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                 it.id === activeId ? "bg-high" : "hover:bg-high/60"
               }`}
             >
               <span
                 className={`h-1 w-1 shrink-0 rounded-full ${it.id === activeId ? "bg-acc" : "bg-transparent"}`}
               />
-              <span className="flex-1 font-mono text-[11px] text-fg2">{it.label}</span>
-              {it.hint && <span className="text-[10px] text-faint">{it.hint}</span>}
+              <span className="truncate font-mono text-[11px] text-fg2">{it.label}</span>
+              <span className="truncate text-right text-[10px] text-faint">{it.hint ?? ""}</span>
             </button>
           ))}
         </div>

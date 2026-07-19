@@ -107,7 +107,7 @@ infer = "0.15"
 image = { workspace = true, features = ["png", "jpeg", "gif", "webp"] }
 moka = { workspace = true, features = ["future"] }
 base64 = { workspace = true }
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 sha2 = { workspace = true }
 rand = { workspace = true }
 shlex = { workspace = true }

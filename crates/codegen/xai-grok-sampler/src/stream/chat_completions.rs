@@ -69,6 +69,8 @@ pub fn stream_chat_completions<'a>(
 
         let mut content_acc = String::new();
         let mut reasoning_acc = String::new();
+        let mut citations_acc: Vec<String> = Vec::new();
+        let mut backend_search_started = false;
         // Tool call deltas keyed by positional index. Each entry is
         // (id, name, arguments_buffer); the first chunk for an index
         // carries id+name and starts the arguments buffer, subsequent
@@ -139,6 +141,8 @@ pub fn stream_chat_completions<'a>(
                 usage = Some(u.into());
             }
 
+            let mut chunk_citations = chunk.citations.unwrap_or_default();
+
             // Track whether this chunk carried meaningful content.
             // Set inside the choices loop and checked at the end.
             let mut chunk_has_content = false;
@@ -151,6 +155,9 @@ pub fn stream_chat_completions<'a>(
                 }
 
                 let delta = choice.delta;
+                if let Some(citations) = delta.citations.clone() {
+                    chunk_citations.extend(citations);
+                }
 
                 if let Some(text) = delta.content
                     && !text.is_empty()
@@ -230,6 +237,21 @@ pub fn stream_chat_completions<'a>(
                 }
             }
 
+            let citations_before = citations_acc.len();
+            for citation in chunk_citations {
+                if !citation.is_empty() && !citations_acc.contains(&citation) {
+                    citations_acc.push(citation);
+                }
+            }
+            if citations_acc.len() > citations_before && !backend_search_started {
+                backend_search_started = true;
+                yield SamplingEvent::BackendToolCallStarted {
+                    request_id: request_id.clone(),
+                    call_id: format!("chat-search-{request_id}"),
+                    name: "backend_search".to_string(),
+                };
+            }
+
             if chunk_has_content {
                 last_content_chunk_at = Instant::now();
             } else if last_content_chunk_at.elapsed() > idle_timeout {
@@ -258,6 +280,15 @@ pub fn stream_chat_completions<'a>(
         // forgot to set it (mirrors the shell's behavior).
         if !tool_calls.is_empty() {
             finish_reason = Some(StopReason::ToolCalls);
+        }
+
+        if backend_search_started {
+            yield SamplingEvent::BackendToolCallCompleted {
+                request_id: request_id.clone(),
+                call_id: format!("chat-search-{request_id}"),
+                name: "backend_search".to_string(),
+                result: Some(serde_json::json!({ "citations": citations_acc })),
+            };
         }
 
         // Build the trailing Assistant + any reasoning sibling.
@@ -332,6 +363,7 @@ mod tests {
                 })
                 .collect(),
             usage: None,
+            citations: None,
             system_fingerprint: None,
         }
     }
@@ -341,6 +373,7 @@ mod tests {
             role: Some(Role::Assistant),
             content: Some(text.to_string()),
             reasoning_content: None,
+            citations: None,
             tool_calls: vec![],
             tool_call_id: None,
         }])
@@ -433,6 +466,7 @@ mod tests {
             role: Some(Role::Assistant),
             content: None,
             reasoning_content: Some("thinking...".into()),
+            citations: None,
             tool_calls: vec![],
             tool_call_id: None,
         }]);
@@ -491,12 +525,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_citations_emit_a_verified_backend_search_lifecycle() {
+        let mut cited = text_chunk("answer");
+        cited.citations = Some(vec![
+            "https://x.com/example/status/1".into(),
+            "https://example.com/source".into(),
+        ]);
+        let raw = stream::iter::<Vec<Result<ChatCompletionChunk, SamplingError>>>(vec![
+            Ok(cited),
+            Ok(final_chunk(FinishReason::Stop)),
+        ])
+        .boxed();
+
+        let events = collect(stream_chat_completions(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+        ))
+        .await;
+
+        let started = events.iter().find_map(|event| match event {
+            SamplingEvent::BackendToolCallStarted { call_id, name, .. } => Some((call_id, name)),
+            _ => None,
+        });
+        assert_eq!(
+            started.map(|(id, name)| (id.as_str(), name.as_str())),
+            Some(("chat-search-test-req", "backend_search"))
+        );
+
+        let completed = events.iter().find_map(|event| match event {
+            SamplingEvent::BackendToolCallCompleted { result, .. } => result.as_ref(),
+            _ => None,
+        });
+        assert_eq!(
+            completed.and_then(|value| value["citations"].as_array()),
+            Some(&vec![
+                serde_json::json!("https://x.com/example/status/1"),
+                serde_json::json!("https://example.com/source"),
+            ])
+        );
+        assert!(matches!(
+            events.last(),
+            Some(SamplingEvent::Completed { .. })
+        ));
+    }
+
+    #[tokio::test]
     async fn tool_call_stream_emits_deltas_and_assembles_final_call() {
         // First chunk has id + name + part of arguments.
         let chunk1 = make_chunk(vec![ChatChunkDelta {
             role: None,
             content: None,
             reasoning_content: None,
+            citations: None,
             tool_calls: vec![ChunkToolCallDelta {
                 index: 0,
                 id: Some("call_abc".into()),
@@ -513,6 +595,7 @@ mod tests {
             role: None,
             content: None,
             reasoning_content: None,
+            citations: None,
             tool_calls: vec![ChunkToolCallDelta {
                 index: 0,
                 id: None,

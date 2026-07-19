@@ -1,7 +1,7 @@
 {
   "name": "grox-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -17,13 +17,17 @@
     "electron:dev": "node scripts/dev-electron.mjs"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron", "esbuild"]
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.5",
     "@fontsource/geist-sans": "^5.2.5",
     "@tauri-apps/api": "2.10.1",
     "dompurify": "^3.2.6",
+    "highlight.js": "^11.11.1",
     "marked": "^15.0.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

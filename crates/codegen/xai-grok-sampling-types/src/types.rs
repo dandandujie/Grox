@@ -492,7 +492,7 @@ pub struct ChatResponseMessage {
     pub role: Role,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "reasoning", skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCallResponse>,
@@ -534,8 +534,11 @@ impl ToolCallFunction {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Usage {
+    #[serde(default)]
     pub prompt_tokens: u32,
+    #[serde(default)]
     pub completion_tokens: u32,
+    #[serde(default)]
     pub total_tokens: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_tokens_details: Option<PromptTokensDetails>,
@@ -571,13 +574,22 @@ pub struct CompletionTokensDetails {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatCompletionChunk {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub object: String,
+    #[serde(default)]
     pub created: u64,
+    #[serde(default)]
     pub model: String,
     pub choices: Vec<ChatChunkChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// Search citations returned by xAI-compatible providers. Some
+    /// Chat Completions implementations attach these to the final SSE
+    /// chunk instead of exposing a standard tool call lifecycle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citations: Option<Vec<String>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -588,9 +600,15 @@ pub struct ChatCompletionChunk {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatChunkChoice {
+    #[serde(default)]
     pub index: u32,
+    #[serde(default)]
     pub delta: ChatChunkDelta,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_helpers::option_finish_reason_lenient"
+    )]
     pub finish_reason: Option<FinishReason>,
 }
 
@@ -633,11 +651,19 @@ pub struct ToolCallFunctionDelta {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ChatChunkDelta {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::serde_helpers::option_role_lenient"
+    )]
     pub role: Option<Role>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(default, alias = "reasoning", skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    /// Provider-native search citations may also arrive on a choice delta.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citations: Option<Vec<String>>,
     /// Tool call deltas. Handles `null` in JSON as empty vec.
     #[serde(
         default,
@@ -1517,5 +1543,100 @@ mod tests {
         let inner: &dyn TraceContext = &*cloned_trace;
         let downcast = inner.as_any().downcast_ref::<TestTrace>().unwrap();
         assert_eq!(downcast.0, "trace-data");
+    }
+    #[test]
+    fn chunk_missing_metadata_fields_uses_defaults() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "choices": [{
+                "index": 0,
+                "delta": {"content": "hello"}
+            }]
+        }))
+        .unwrap();
+        assert_eq!(chunk.id, "");
+        assert_eq!(chunk.object, "");
+        assert_eq!(chunk.created, 0);
+        assert_eq!(chunk.model, "");
+        assert_eq!(chunk.choices.len(), 1);
+        assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn chunk_delta_reasoning_alias_populates_reasoning_content() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chunk-1",
+            "choices": [{
+                "index": 0,
+                "delta": {"reasoning": "thinking hard"}
+            }]
+        }))
+        .unwrap();
+        assert_eq!(
+            chunk.choices[0].delta.reasoning_content.as_deref(),
+            Some("thinking hard")
+        );
+    }
+
+    #[test]
+    fn chunk_unknown_finish_reason_deserializes_to_none() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chunk-1",
+            "choices": [{
+                "index": 0,
+                "delta": {"content": "done"},
+                "finish_reason": "max_tokens"
+            }]
+        }))
+        .unwrap();
+        assert_eq!(chunk.choices[0].finish_reason, None);
+
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chunk-1",
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "tool_calls"
+            }]
+        }))
+        .unwrap();
+        assert_eq!(chunk.choices[0].finish_reason, Some(FinishReason::ToolCalls));
+    }
+
+    #[test]
+    fn chunk_delta_empty_role_deserializes_to_none() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chunk-1",
+            "choices": [{
+                "index": 0,
+                "delta": {"role": "", "content": "hi"}
+            }]
+        }))
+        .unwrap();
+        assert_eq!(chunk.choices[0].delta.role, None);
+        assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("hi"));
+
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chunk-1",
+            "choices": [{
+                "index": 0,
+                "delta": {"role": "assistant"}
+            }]
+        }))
+        .unwrap();
+        assert_eq!(chunk.choices[0].delta.role, Some(Role::Assistant));
+    }
+
+    #[test]
+    fn chunk_partial_usage_defaults_missing_counters() {
+        let chunk: ChatCompletionChunk = serde_json::from_value(json!({
+            "id": "chunk-1",
+            "choices": [],
+            "usage": {"prompt_tokens": 3}
+        }))
+        .unwrap();
+        let usage = chunk.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 3);
+        assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.total_tokens, 0);
     }
 }

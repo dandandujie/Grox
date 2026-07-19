@@ -159,6 +159,10 @@ pub struct EndpointsConfig {
     /// Env: `GROK_MODELS_LIST_URL`. Overrides the default `{base}/models` list URL.
     #[serde(alias = "models_endpoint", skip_serializing_if = "Option::is_none")]
     pub models_list_url: Option<String>,
+    /// Env: `GROK_MODELS_API_BACKEND`. Selects the inference protocol for
+    /// models discovered from a custom OpenAI-compatible endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models_api_backend: Option<ApiBackend>,
     /// Env: `GROK_FEEDBACK_BASE_URL`. Where feedback submissions go.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feedback_base_url: Option<String>,
@@ -547,6 +551,14 @@ impl Default for EndpointsConfig {
             alpha_test_key: None,
             models_base_url: env_string("GROK_MODELS_BASE_URL"),
             models_list_url: env_string("GROK_MODELS_LIST_URL"),
+            models_api_backend: env_string("GROK_MODELS_API_BACKEND").and_then(|value| match value
+                .as_str()
+            {
+                "responses" => Some(ApiBackend::Responses),
+                "chat_completions" => Some(ApiBackend::ChatCompletions),
+                "messages" => Some(ApiBackend::Messages),
+                _ => None,
+            }),
             feedback_base_url: env_string("GROK_FEEDBACK_BASE_URL"),
             trace_upload_url: env_string("GROK_TRACE_UPLOAD_URL"),
             trace_upload_bucket: env_string("GROK_TRACE_UPLOAD_BUCKET"),
@@ -663,6 +675,14 @@ pub(crate) fn env_string(name: &str) -> Option<String> {
     }
 }
 pub use xai_grok_config::env_bool;
+const GROX_PRIVACY_MODE_ENV: &str = "GROX_PRIVACY_MODE";
+
+/// Grox is distributed as a privacy-first desktop client. This local kill
+/// switch deliberately outranks requirements, user config, and remote flags so
+/// no control-plane response can silently reactivate auxiliary data export.
+fn grox_privacy_mode_enabled() -> bool {
+    env_bool(GROX_PRIVACY_MODE_ENV) == Some(true)
+}
 /// Compaction-mode precedence (env > config > remote settings > default, with
 /// unrecognized values at each source falling through). `remote` sits just
 /// above the default, mirroring `feature_flag` in `resolve_bool_flag`. Pure so
@@ -2058,6 +2078,9 @@ impl Config {
         self.resolve_two_pass_compaction().value
     }
     pub(crate) fn resolve_telemetry_mode(&self) -> Resolved<TelemetryMode> {
+        if grox_privacy_mode_enabled() {
+            return Resolved::new(TelemetryMode::Disabled, ConfigSource::Env);
+        }
         if let Some(mode) = self.requirements.telemetry.pinned() {
             return Resolved::new(mode, ConfigSource::Requirement);
         }
@@ -2080,6 +2103,9 @@ impl Config {
         Resolved::new(TelemetryMode::Disabled, ConfigSource::Default)
     }
     pub(crate) fn resolve_trace_upload(&self) -> Resolved<bool> {
+        if grox_privacy_mode_enabled() {
+            return Resolved::new(false, ConfigSource::Env);
+        }
         let mode = self.resolve_telemetry_mode();
         let ff = if mode.value.is_disabled() {
             None
@@ -2146,6 +2172,9 @@ impl Config {
         )
     }
     pub(crate) fn resolve_feedback(&self) -> Resolved<bool> {
+        if grox_privacy_mode_enabled() {
+            return Resolved::new(false, ConfigSource::Env);
+        }
         let ff = self
             .remote_settings
             .as_ref()
@@ -2914,6 +2943,9 @@ impl SyncBoolFlag {
 /// Sync slice of [`Config::resolve_telemetry_mode`] for use before the tokio
 /// runtime (e.g. `init_sentry`). `true` only when explicitly off.
 pub fn is_telemetry_disabled_sync() -> bool {
+    if grox_privacy_mode_enabled() {
+        return true;
+    }
     !SyncBoolFlag::new(telemetry_enabled_from_toml)
         .disable_env("DISABLE_TELEMETRY")
         .enable_env(grok_telemetry_env_enabled)
@@ -2923,6 +2955,9 @@ pub fn is_telemetry_disabled_sync() -> bool {
 /// *explicitly* off; absence is not disabled (`.default(true)`) so remote-only
 /// enablement still builds the OTLP exporter (the runtime gate then governs it).
 pub fn is_telemetry_explicitly_disabled_sync() -> bool {
+    if grox_privacy_mode_enabled() {
+        return true;
+    }
     !SyncBoolFlag::new(telemetry_enabled_from_toml)
         .disable_env("DISABLE_TELEMETRY")
         .enable_env(grok_telemetry_env_enabled)
@@ -2932,6 +2967,9 @@ pub fn is_telemetry_explicitly_disabled_sync() -> bool {
 /// Sync sibling of [`is_telemetry_disabled_sync`] scoped to Sentry. Inherits
 /// from telemetry when no Sentry-specific signal is set.
 pub fn is_error_reporting_disabled_sync() -> bool {
+    if grox_privacy_mode_enabled() {
+        return true;
+    }
     !SyncBoolFlag::new(error_reporting_enabled_from_toml)
         .disable_env("DISABLE_ERROR_REPORTING")
         .enable_env(|| env_bool("GROK_ERROR_REPORTING"))
@@ -2980,6 +3018,9 @@ pub(crate) fn read_requirements_toml() -> Option<toml::Value> {
 /// `internal_pipeline_consumed_otel_vars` simultaneously blocks the external
 /// stream — exactly the split this design forbids.
 pub(crate) fn external_otel_master_switch_resolved() -> bool {
+    if grox_privacy_mode_enabled() {
+        return false;
+    }
     external_otel_master_switch_from(
         xai_grok_config::load_merged_requirements().as_ref(),
         env_bool("GROK_EXTERNAL_OTEL"),
@@ -3016,6 +3057,9 @@ pub(crate) fn external_otel_master_switch_from(
 pub fn resolve_external_otel_config(
     client: xai_grok_telemetry::external::config::ExternalClientInfo,
 ) -> Option<xai_grok_telemetry::external::ExternalOtelConfig> {
+    if grox_privacy_mode_enabled() {
+        return None;
+    }
     resolve_external_otel_config_with(
         crate::config::load_effective_config().ok().as_ref(),
         xai_grok_config::load_merged_requirements().as_ref(),
@@ -3147,6 +3191,11 @@ pub fn resolve_model_list(
         tracing::debug!(count = prefetched.len(), "loaded prefetched models");
         let default_cw = DEFAULT_CONTEXT_WINDOW;
         for (key, entry) in prefetched.iter_mut() {
+            if cfg.endpoints.has_custom_endpoint()
+                && let Some(api_backend) = &cfg.endpoints.models_api_backend
+            {
+                entry.info.api_backend = api_backend.clone();
+            }
             let donor = resolved.get(key);
             if let Some(donor) = donor {
                 if entry.info.context_window.get() == default_cw
@@ -7833,6 +7882,45 @@ reasoning_effort = "low"
     }
     #[test]
     #[serial]
+    fn grox_privacy_mode_overrides_local_remote_and_requirement_enables() {
+        let _privacy = EnvGuard::set(GROX_PRIVACY_MODE_ENV, "1");
+        let mut cfg = Config::default();
+        cfg.features.telemetry = Some(TelemetryMode::Enabled);
+        cfg.telemetry.trace_upload = Some(true);
+        cfg.features.feedback = Some(true);
+        cfg.remote_settings = Some(crate::util::config::RemoteSettings {
+            telemetry_enabled: Some(true),
+            trace_upload_enabled: Some(true),
+            feedback_enabled: Some(true),
+            ..Default::default()
+        });
+        cfg.requirements.telemetry.pin(
+            TelemetryMode::Enabled,
+            crate::config::RequirementSource::Unknown,
+        );
+        cfg.requirements
+            .trace_upload
+            .pin(true, crate::config::RequirementSource::Unknown);
+        cfg.requirements
+            .feedback
+            .pin(true, crate::config::RequirementSource::Unknown);
+
+        assert!(!cfg.is_telemetry_enabled());
+        assert!(!cfg.is_trace_upload_enabled());
+        assert!(!cfg.is_feedback_enabled());
+        assert!(is_telemetry_disabled_sync());
+        assert!(is_telemetry_explicitly_disabled_sync());
+        assert!(is_error_reporting_disabled_sync());
+        assert!(!external_otel_master_switch_resolved());
+        assert!(
+            resolve_external_otel_config(
+                xai_grok_telemetry::external::config::ExternalClientInfo::default(),
+            )
+            .is_none()
+        );
+    }
+    #[test]
+    #[serial]
     fn resolve_feedback_defaults_to_true_when_unset() {
         unsafe { std::env::remove_var("GROK_FEEDBACK_ENABLED") };
         unsafe { std::env::remove_var("GROK_TELEMETRY_ENABLED") };
@@ -10923,6 +11011,31 @@ default = "grok-4.5"
                 );
             }
         }
+    }
+    #[test]
+    fn custom_endpoint_protocol_overrides_prefetched_model_backend() {
+        let cfg = Config {
+            endpoints: EndpointsConfig {
+                models_base_url: Some("https://gateway.example/v1".to_owned()),
+                models_api_backend: Some(ApiBackend::Responses),
+                ..EndpointsConfig::default()
+            },
+            ..Config::default()
+        };
+        let mut prefetched = IndexMap::new();
+        prefetched.insert(
+            "grok-chat-fast".to_owned(),
+            prefetch_model_entry(
+                "grok-chat-fast",
+                DEFAULT_CONTEXT_WINDOW,
+                ApiBackend::ChatCompletions,
+            ),
+        );
+        let resolved = resolve_model_list(&cfg, Some(prefetched));
+        assert_eq!(
+            resolved["grok-chat-fast"].info.api_backend,
+            ApiBackend::Responses,
+        );
     }
     #[test]
     fn hub_config_default_has_no_url() {

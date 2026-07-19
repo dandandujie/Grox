@@ -195,7 +195,7 @@ prometheus = { version = "0.14", features = ["process"] }
 prost = "0.14"
 prost-build = "0.14"
 pulldown-cmark = "0.13"
-quick-xml = "0.38"
+quick-xml = "0.41"
 rand = "0.9"
 ratatui = { version = "0.29" }
 ratatui-core = "0.1"

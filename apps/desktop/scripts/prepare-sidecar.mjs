@@ -21,8 +21,12 @@ const host = rustc.stdout.match(/^host:\s+(.+)$/m)?.[1]?.trim();
 if (!host) throw new Error("rustc -vV 未返回 host triple");
 const target = requestedTarget || host;
 
+// MSVC cannot emit a PDB for the full debug Grok binary (LNK1318 / PDB LIMIT).
+// `cargo rustc` applies debuginfo=0 only to the final Windows executable, so
+// dependency artifacts remain reusable and Tauri development stays fast.
+const windowsDebug = debug && target.includes("windows");
 const cargoArgs = [
-  "build",
+  windowsDebug ? "rustc" : "build",
   "--locked",
   "--manifest-path",
   cargoManifest,
@@ -33,6 +37,17 @@ if (!debug) {
   cargoArgs.push("--profile", "release-dist", "--features", "release-dist");
 }
 if (requestedTarget) cargoArgs.push("--target", requestedTarget);
+if (windowsDebug) {
+  cargoArgs.push(
+    "--bin",
+    "xai-grok-pager",
+    "--",
+    "-C",
+    "debuginfo=0",
+    "-C",
+    "link-arg=/DEBUG:NONE",
+  );
+}
 const build = spawnSync(
   "cargo",
   cargoArgs,

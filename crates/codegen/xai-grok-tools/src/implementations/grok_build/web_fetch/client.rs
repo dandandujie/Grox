@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures_util::StreamExt as _;
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, USER_AGENT};
 use url::Url;
 
@@ -94,17 +95,20 @@ impl WebFetchClient {
             }
         }
 
-        // SSRF check.
-        ssrf::check_ssrf(&url).await?;
+        // Resolve, validate, and pin DNS before the request. Performing only a
+        // preflight lookup leaves a DNS-rebinding window between validation
+        // and reqwest's own connection lookup.
+        let resolved_addrs = ssrf::resolve_and_check(&url).await?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| WebFetchError::SingleLabelHost {
+                host: String::new(),
+            })?;
 
         // Make request and build output.
-        let http = self.http.get_or_rebuild()?;
+        let http = self.http.for_resolved_host(host, &resolved_addrs)?;
         let result = match fetch_url(&http, &url, self.params.max_content_length()).await {
             Ok(result) => result,
-            Err(e @ WebFetchError::HttpRequest(_)) => {
-                self.http.invalidate();
-                return Err(e);
-            }
             Err(e) => return Err(e),
         };
 
@@ -370,6 +374,15 @@ async fn fetch_url(
                 let next_url = current_url
                     .join(location_str)
                     .map_err(|e| WebFetchError::InvalidRedirect(format!("{e}")))?;
+                if !matches!(next_url.scheme(), "http" | "https")
+                    || !next_url.username().is_empty()
+                    || next_url.password().is_some()
+                    || (current_url.scheme() == "https" && next_url.scheme() == "http")
+                {
+                    return Err(WebFetchError::InvalidRedirect(
+                        "redirect uses an unsafe scheme, credentials, or TLS downgrade".into(),
+                    ));
+                }
                 if is_same_host(&current_url, &next_url) {
                     current_url = next_url;
                     continue;
@@ -390,16 +403,33 @@ async fn fetch_url(
         let final_url = resp.url().to_string();
         let status_code = status.as_u16();
 
-        let body = resp.bytes().await?;
-
-        if body.len() > max_content_length {
+        if resp
+            .content_length()
+            .is_some_and(|length| length > max_content_length as u64)
+        {
             return Err(WebFetchError::ResponseTooLarge {
                 max: max_content_length,
             });
         }
 
+        let mut body = Vec::with_capacity(
+            resp.content_length()
+                .unwrap_or_default()
+                .min(max_content_length as u64) as usize,
+        );
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if body.len().saturating_add(chunk.len()) > max_content_length {
+                return Err(WebFetchError::ResponseTooLarge {
+                    max: max_content_length,
+                });
+            }
+            body.extend_from_slice(&chunk);
+        }
+
         return Ok(FetchResult::Content {
-            body: body.to_vec(),
+            body,
             content_type,
             final_url,
             status_code,
@@ -408,12 +438,9 @@ async fn fetch_url(
 }
 
 fn is_same_host(a: &Url, b: &Url) -> bool {
-    fn strip_www(h: &str) -> &str {
-        h.strip_prefix("www.").unwrap_or(h)
-    }
     let host_a = a.host_str().unwrap_or("");
     let host_b = b.host_str().unwrap_or("");
-    strip_www(host_a) == strip_www(host_b)
+    host_a.eq_ignore_ascii_case(host_b)
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -931,11 +958,11 @@ mod tests {
     }
 
     #[test]
-    fn same_host_www_stripping() {
+    fn www_is_a_distinct_host_and_requires_new_validation() {
         let a = Url::parse("https://example.com/a").unwrap();
         let c = Url::parse("https://www.example.com/a").unwrap();
-        assert!(is_same_host(&a, &c));
-        assert!(is_same_host(&c, &a));
+        assert!(!is_same_host(&a, &c));
+        assert!(!is_same_host(&c, &a));
     }
 
     #[test]

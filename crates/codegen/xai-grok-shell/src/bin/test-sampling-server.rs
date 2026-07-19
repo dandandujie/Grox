@@ -28,6 +28,7 @@ async fn handler(_: axum::http::Request<axum::body::Body>) -> impl axum::respons
             model: "demo-model".to_string(),
             choices: vec![],
             usage: None,
+            citations: None,
             system_fingerprint: None,
         };
         match serde_json::to_string(&chunk1) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useDesktop, type ProjectMeta } from "../../state/store";
 import { usePreferences } from "../../state/preferences";
@@ -7,9 +7,10 @@ import { fmtRelTime, fmtTokens } from "../../lib/format";
 import { Wordmark } from "../fx/Wordmark";
 import { Icon } from "../fx/Icon";
 import type { Session, SessionMeta } from "../../bridge/types";
+import { BlackHole } from "../fx/BlackHole";
 
 export function Sidebar() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const width = usePreferences((state) => state.sidebarWidth);
   const sessionIndex = useDesktop((state) => state.sessionIndex);
   const sessions = useDesktop((state) => state.sessions);
@@ -25,7 +26,34 @@ export function Sidebar() {
   const setSettingsOpen = useDesktop((state) => state.setSettingsOpen);
   const setAccountSetupOpen = useDesktop((state) => state.setAccountSetupOpen);
   const logout = useDesktop((state) => state.logout);
+  const refreshHistory = useDesktop((state) => state.refreshHistory);
+  const historySyncing = useDesktop((state) => state.historySyncing);
+  const historyCount = useDesktop((state) => state.historyCount);
+  const historyError = useDesktop((state) => state.historyError);
   const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
+    () => new Set(activeProjectId ? [activeProjectId] : []),
+  );
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    setExpandedProjectIds((current) => {
+      if (current.has(activeProjectId)) return current;
+      const next = new Set(current);
+      next.add(activeProjectId);
+      return next;
+    });
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    const close = (event: PointerEvent) => {
+      if (accountRef.current && !accountRef.current.contains(event.target as Node)) setAccountOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [accountOpen]);
 
   const orderedProjects = [...projects].sort(
     (a, b) => Number(b.pinned) - Number(a.pinned) || b.lastOpenedAt - a.lastOpenedAt,
@@ -53,6 +81,18 @@ export function Sidebar() {
           {t("newProject")}
           <span className="ml-auto font-mono text-[9.5px] text-faint">Ctrl N</span>
         </button>
+        <button
+          onClick={() => void refreshHistory()}
+          disabled={historySyncing}
+          title={historyError ?? (language === "zh-CN" ? "重新扫描 ~/.grok/sessions" : "Rescan ~/.grok/sessions")}
+          className="mt-1.5 flex h-7 w-full items-center gap-2 rounded-[4px] px-2.5 font-mono text-[9.5px] text-dim hover:bg-high hover:text-fg2 disabled:cursor-wait disabled:opacity-60"
+        >
+          <Icon name="refresh" size={10} className={historySyncing ? "animate-orbit" : ""} />
+          {historySyncing
+            ? (language === "zh-CN" ? "正在导入 CLI 历史" : "IMPORTING CLI HISTORY")
+            : (language === "zh-CN" ? "导入 CLI 历史" : "IMPORT CLI HISTORY")}
+          {historyCount > 0 && <span className="ml-auto text-faint">{historyCount}</span>}
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -62,10 +102,17 @@ export function Sidebar() {
             key={project.id}
             project={project}
             active={project.id === activeProjectId}
+            expanded={expandedProjectIds.has(project.id)}
             sessions={orderedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
             activeId={activeId}
             loadedSessions={sessions}
             onOpenSession={(id) => void openSession(id)}
+            onToggle={() => setExpandedProjectIds((current) => {
+              const next = new Set(current);
+              if (next.has(project.id)) next.delete(project.id);
+              else next.add(project.id);
+              return next;
+            })}
           />
         ))}
         {archivedProjects.length > 0 && (
@@ -75,17 +122,24 @@ export function Sidebar() {
                 key={project.id}
                 project={project}
                 active={project.id === activeProjectId}
+                expanded={expandedProjectIds.has(project.id)}
                 sessions={orderedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
                 activeId={activeId}
                 loadedSessions={sessions}
                 onOpenSession={(id) => void openSession(id)}
+                onToggle={() => setExpandedProjectIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(project.id)) next.delete(project.id);
+                  else next.add(project.id);
+                  return next;
+                })}
               />
             ))}
           </ArchiveGroup>
         )}
       </div>
 
-      <div className="relative flex h-12 shrink-0 items-center gap-2 border-t border-line px-2">
+      <div ref={accountRef} className="relative flex h-12 shrink-0 items-center gap-2 border-t border-line px-2">
         <button
           onClick={() => setAccountOpen((open) => !open)}
           className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line2 bg-high text-[10px] text-fg2 hover:border-acc-dim"
@@ -154,20 +208,23 @@ const sameWorkspace = (left: string, right: string) =>
 function ProjectGroup({
   project,
   active,
+  expanded,
   sessions,
   activeId,
   loadedSessions,
   onOpenSession,
+  onToggle,
 }: {
   project: ProjectMeta;
   active: boolean;
+  expanded: boolean;
   sessions: SessionMeta[];
   activeId: string | null;
   loadedSessions: Record<string, Session>;
   onOpenSession(id: string): void;
+  onToggle(): void;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(true);
   const visible = sessions.filter((session) => !session.archived);
   const archived = sessions.filter((session) => session.archived);
   return (
@@ -177,7 +234,7 @@ function ProjectGroup({
         active={active}
         expanded={expanded}
         count={visible.length}
-        onToggle={() => setExpanded((value) => !value)}
+        onToggle={onToggle}
       />
       {expanded && sessions.length > 0 && (
         <div className="ml-3 border-l border-line pl-1">
@@ -186,7 +243,7 @@ function ProjectGroup({
               key={meta.id}
               meta={meta}
               running={loadedSessions[meta.id]?.status === "running"}
-              awaiting={loadedSessions[meta.id]?.status === "awaiting_permission"}
+              awaiting={["awaiting_permission", "awaiting_input"].includes(loadedSessions[meta.id]?.status ?? "")}
               active={meta.id === activeId}
               tokens={(loadedSessions[meta.id]?.usage.inputTokens ?? 0) + (loadedSessions[meta.id]?.usage.outputTokens ?? 0)}
               onOpen={() => onOpenSession(meta.id)}
@@ -306,7 +363,7 @@ function MissionRow({ meta, running, awaiting, active, tokens, onOpen }: { meta:
   return (
     <div className={`group relative mb-px cursor-pointer rounded-[4px] border-l-2 px-2 py-1.5 ${active ? "border-acc bg-high" : "border-transparent hover:bg-high/60"}`} onClick={onOpen}>
       <div className="flex items-center gap-2">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${running ? "animate-pulse-dot bg-acc" : awaiting ? "animate-pulse-dot bg-gold" : meta.pinned ? "bg-acc-dim" : "bg-faint"}`} />
+        <span className={awaiting ? "opacity-90" : running ? "" : "opacity-55"}><BlackHole size={11} spin={running ? true : awaiting ? "slow" : false} /></span>
         {editing ? (
           <input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => event.key === "Enter" && commit()} onClick={(event) => event.stopPropagation()} className="min-w-0 flex-1 border border-line3 bg-void px-1 text-[11px] text-fg outline-none" />
         ) : (
@@ -333,8 +390,21 @@ function MissionRow({ meta, running, awaiting, active, tokens, onOpen }: { meta:
 }
 
 function ContextMenu({ children, close }: { children: React.ReactNode; close(): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) close();
+    };
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && close();
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [close]);
   return (
-    <div className="absolute right-1 top-7 z-40 w-48 rounded-[5px] border border-line2 bg-raise p-1 shadow-2xl" onClick={(event) => { event.stopPropagation(); close(); }}>
+    <div ref={ref} className="absolute right-1 top-7 z-40 w-[min(192px,calc(100vw-24px))] overflow-hidden rounded-[5px] border border-line2 bg-raise p-1 shadow-2xl" onClick={(event) => { event.stopPropagation(); close(); }}>
       {children}
     </div>
   );

@@ -6,6 +6,7 @@ import type { GrokBridge } from "./GrokBridge";
 import { MODELS } from "./types";
 import type {
   AccountInfo,
+  AgentMode,
   AuthState,
   BillingInfo,
   BridgeEvent,
@@ -27,8 +28,14 @@ import type {
   Usage,
   ConfigDocument,
   ProviderConfig,
+  ProviderProfileSummary,
+  ProviderProfilesState,
   ProviderStatus,
   PromptAttachment,
+  SaveProviderProfile,
+  RewindMode,
+  RewindPoint,
+  RewindResult,
 } from "./types";
 
 export const ACP_METHODS = {
@@ -79,13 +86,17 @@ interface PendingRequest {
   resolve(value: unknown): void;
   reject(error: Error): void;
   method: string;
+  timeoutId?: number;
 }
 
 interface ContentCursor {
   assistantId?: string;
   thinkingId?: string;
+  thinkingStartedAt?: number;
   userId?: string;
   userText?: string;
+  userPromptIndex?: number;
+  userOpen?: boolean;
   planId?: string;
   toolBlocks: Map<string, string>;
 }
@@ -123,6 +134,18 @@ const EMPTY_USAGE: Usage = {
   turns: 0,
 };
 
+const STREAM_FLUSH_MS = 32;
+const TOOL_FLUSH_MS = 60;
+const MAX_TOOL_TEXT = 128 * 1024;
+const MAX_JSON_NODES = 5_000;
+const MAX_JSON_ARRAY_ITEMS = 200;
+const MAX_TERMINAL_LINES = 2_000;
+
+function truncateText(value: string, limit = MAX_TOOL_TEXT): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n… [Grox 已截断过长输出，共 ${value.length.toLocaleString()} 字符]`;
+}
+
 function record(value: unknown): JsonObject | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
@@ -152,22 +175,51 @@ function errorText(value: unknown): string {
 
 function jsonText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return truncateText(value);
+  let visited = 0;
   try {
-    return JSON.stringify(value, null, 2);
+    return truncateText(JSON.stringify(value, (_key, child: unknown) => {
+      visited += 1;
+      if (visited > MAX_JSON_NODES) return "[Grox: object truncated]";
+      if (typeof child === "string") return truncateText(child, 16 * 1024);
+      if (Array.isArray(child) && child.length > MAX_JSON_ARRAY_ITEMS) {
+        return [...child.slice(0, MAX_JSON_ARRAY_ITEMS), `[Grox: ${child.length - MAX_JSON_ARRAY_ITEMS} more items]`];
+      }
+      return child;
+    }, 2));
   } catch {
-    return String(value);
+    return truncateText(String(value));
   }
 }
 
 function contentText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(contentText).join("");
-  const object = record(value);
-  if (!object) return "";
-  if (typeof object.text === "string") return object.text;
-  if (object.content !== undefined) return contentText(object.content);
-  return "";
+  let output = "";
+  let truncated = false;
+  const append = (part: unknown, depth: number) => {
+    if (output.length >= MAX_TOOL_TEXT || depth > 16) {
+      truncated = true;
+      return;
+    }
+    if (typeof part === "string") {
+      const remaining = MAX_TOOL_TEXT - output.length;
+      output += part.slice(0, remaining);
+      if (part.length > remaining) truncated = true;
+      return;
+    }
+    if (Array.isArray(part)) {
+      for (const child of part) {
+        append(child, depth + 1);
+        if (truncated) break;
+      }
+      return;
+    }
+    const object = record(part);
+    if (!object) return;
+    if (typeof object.text === "string") append(object.text, depth + 1);
+    else if (object.content !== undefined) append(object.content, depth + 1);
+  };
+  append(value, 0);
+  return truncated ? `${output}\n… [Grox 已截断过长内容]` : output;
 }
 
 function attachmentUri(attachment: PromptAttachment): string {
@@ -259,9 +311,18 @@ function extractTerminal(
     byteText(output?.output) ??
     contentText(content);
   const exitCode = number(output?.exit_code) ?? number(output?.exitCode);
+  let lines = text ? text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") : [];
+  if (lines.length > MAX_TERMINAL_LINES) {
+    const omitted = lines.length - MAX_TERMINAL_LINES;
+    lines = [
+      ...lines.slice(0, 1_400),
+      `… [Grox 已省略 ${omitted.toLocaleString()} 行终端输出]`,
+      ...lines.slice(-600),
+    ];
+  }
   return {
     cmd: command,
-    lines: text ? text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") : [],
+    lines,
     ...(exitCode !== undefined ? { exitCode } : {}),
   };
 }
@@ -404,16 +465,24 @@ function walkJson(
   value: unknown,
   visit: (object: JsonObject) => void,
   depth = 0,
+  budget = { remaining: MAX_JSON_NODES },
 ): void {
-  if (depth > 8) return;
+  if (depth > 8 || budget.remaining <= 0) return;
+  budget.remaining -= 1;
   if (Array.isArray(value)) {
-    for (const child of value) walkJson(child, visit, depth + 1);
+    for (const child of value.slice(0, MAX_JSON_ARRAY_ITEMS)) {
+      walkJson(child, visit, depth + 1, budget);
+      if (budget.remaining <= 0) break;
+    }
     return;
   }
   const object = record(value);
   if (!object) return;
   visit(object);
-  for (const child of Object.values(object)) walkJson(child, visit, depth + 1);
+  for (const child of Object.values(object)) {
+    walkJson(child, visit, depth + 1, budget);
+    if (budget.remaining <= 0) break;
+  }
 }
 
 function extractLocations(...values: unknown[]): string[] | undefined {
@@ -468,6 +537,7 @@ function applyToSession(session: Session, event: BridgeEvent): Session {
   switch (event.type) {
     case "auth_state":
     case "model_state":
+    case "mode_state":
       return session;
     case "session_meta":
       return { ...session, ...event.patch };
@@ -573,6 +643,10 @@ export class AcpBridge implements GrokBridge {
   private sessionOptions = new Map<string, PromptOptions>();
   private knownSessions = new Set<string>();
   private unlisten: UnlistenFn[] = [];
+  private streamAppends = new Map<string, Extract<BridgeEvent, { type: "assistant_append" | "thinking_append" }>>();
+  private streamFlushTimer: number | undefined;
+  private toolPatches = new Map<string, Extract<BridgeEvent, { type: "tool_patch" }>>();
+  private toolFlushTimer: number | undefined;
   private diagnostics: string[] = [];
   private requestId = 0;
   private authMethodId: string | undefined;
@@ -585,7 +659,7 @@ export class AcpBridge implements GrokBridge {
         ? "bypass"
         : "default";
   private workspace = "";
-  private readonly ready: Promise<void>;
+  private ready: Promise<void>;
 
   constructor() {
     this.ready = this.connect();
@@ -619,6 +693,54 @@ export class AcpBridge implements GrokBridge {
     for (const callback of this.listeners) callback(event);
   }
 
+  private queueStreamAppend(event: Extract<BridgeEvent, { type: "assistant_append" | "thinking_append" }>) {
+    const key = `${event.type}:${event.sessionId}:${event.blockId}`;
+    const pending = this.streamAppends.get(key);
+    this.streamAppends.set(key, pending ? { ...pending, delta: pending.delta + event.delta } : event);
+    if (this.streamFlushTimer === undefined) {
+      this.streamFlushTimer = window.setTimeout(() => this.flushStreamAppends(), STREAM_FLUSH_MS);
+    }
+  }
+
+  private flushStreamAppends(sessionId?: string) {
+    if (this.streamFlushTimer !== undefined) {
+      window.clearTimeout(this.streamFlushTimer);
+      this.streamFlushTimer = undefined;
+    }
+    for (const [key, event] of this.streamAppends) {
+      if (sessionId && event.sessionId !== sessionId) continue;
+      this.streamAppends.delete(key);
+      this.emit(event);
+    }
+    if (this.streamAppends.size > 0) {
+      this.streamFlushTimer = window.setTimeout(() => this.flushStreamAppends(), STREAM_FLUSH_MS);
+    }
+  }
+
+  private queueToolPatch(event: Extract<BridgeEvent, { type: "tool_patch" }>) {
+    const key = `${event.sessionId}:${event.blockId}`;
+    const pending = this.toolPatches.get(key);
+    this.toolPatches.set(key, pending ? { ...event, call: { ...pending.call, ...event.call } } : event);
+    if (this.toolFlushTimer === undefined) {
+      this.toolFlushTimer = window.setTimeout(() => this.flushToolPatches(), TOOL_FLUSH_MS);
+    }
+  }
+
+  private flushToolPatches(sessionId?: string) {
+    if (this.toolFlushTimer !== undefined) {
+      window.clearTimeout(this.toolFlushTimer);
+      this.toolFlushTimer = undefined;
+    }
+    for (const [key, event] of this.toolPatches) {
+      if (sessionId && event.sessionId !== sessionId) continue;
+      this.toolPatches.delete(key);
+      this.emit(event);
+    }
+    if (this.toolPatches.size > 0) {
+      this.toolFlushTimer = window.setTimeout(() => this.flushToolPatches(), TOOL_FLUSH_MS);
+    }
+  }
+
   private cursor(sessionId: string): ContentCursor {
     let cursor = this.cursors.get(sessionId);
     if (!cursor) {
@@ -641,6 +763,13 @@ export class AcpBridge implements GrokBridge {
       await listen<ExitPayload>("acp-exit", ({ payload }) => this.onExit(payload)),
     );
 
+    await this.initializeAgent();
+  }
+
+  private async initializeAgent(): Promise<void> {
+    // Diagnostics belong to one concrete child process. Keeping stderr from a
+    // process replaced during a Tauri hot reload produces misleading errors.
+    this.diagnostics = [];
     await invoke("acp_spawn", { cwd: this.workspace });
     const response = await this.requestRaw(ACP_METHODS.initialize, {
       protocolVersion: 1,
@@ -653,9 +782,29 @@ export class AcpBridge implements GrokBridge {
         clientIdentifier: "grok-desktop",
         clientType: "desktop",
       },
-    });
+    }, 15_000);
     this.captureModelState(response);
     await this.configureAuthentication(response);
+  }
+
+  private async restartAgent(): Promise<void> {
+    this.flushStreamAppends();
+    this.flushToolPatches();
+    const error = new Error("模型服务已切换，请重新发送尚未完成的请求");
+    for (const request of this.pending.values()) {
+      if (request.timeoutId !== undefined) window.clearTimeout(request.timeoutId);
+      request.reject(error);
+    }
+    this.pending.clear();
+    this.interactions.clear();
+    this.cursors.clear();
+    this.sessionOptions.clear();
+    this.knownSessions.clear();
+    this.authMethodId = undefined;
+    this.modelState = { models: MODELS, currentId: MODELS[0].id };
+    const next = this.initializeAgent();
+    this.ready = next;
+    await next;
   }
 
   private async configureAuthentication(responseValue: unknown) {
@@ -711,11 +860,26 @@ export class AcpBridge implements GrokBridge {
 
   private onExit(payload: ExitPayload) {
     if (payload.reason === "killed") return;
-    const diagnostic = this.diagnostics.at(-1);
+    this.flushStreamAppends();
+    this.flushToolPatches();
+    const diagnostic = this.diagnostics
+      .filter((line) => {
+        const value = line.trim();
+        return (
+          value.length > 0 &&
+          !value.startsWith("Usage:") &&
+          !value.startsWith("For more information, try")
+        );
+      })
+      .slice(-6)
+      .join(" ");
     const message = `Grok Agent 已退出${payload.code == null ? "" : `（代码 ${payload.code}）`}${
       diagnostic ? `：${diagnostic}` : ""
     }`;
-    for (const request of this.pending.values()) request.reject(new Error(message));
+    for (const request of this.pending.values()) {
+      if (request.timeoutId !== undefined) window.clearTimeout(request.timeoutId);
+      request.reject(new Error(message));
+    }
     this.pending.clear();
     for (const sessionId of this.knownSessions) {
       this.emit({ type: "error", sessionId, message });
@@ -735,6 +899,7 @@ export class AcpBridge implements GrokBridge {
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
+      if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
       if (message.error !== undefined) {
         const error = record(message.error);
         pending.reject(
@@ -828,28 +993,42 @@ export class AcpBridge implements GrokBridge {
       case "user_message_chunk": {
         if (!this.replaying.has(sessionId)) return;
         const delta = contentText(update.content);
-        if (!cursor.userId) {
-          cursor.userId = uid();
+        const promptIndex = number(record(update._meta)?.promptIndex);
+        const userId = cursor.userId;
+        const beginsNewPrompt =
+          !userId ||
+          !cursor.userOpen ||
+          (promptIndex !== undefined &&
+            cursor.userPromptIndex !== undefined &&
+            promptIndex !== cursor.userPromptIndex);
+        if (beginsNewPrompt) {
+          const nextUserId = uid();
+          cursor.userId = nextUserId;
           cursor.userText = delta;
           this.emit({
             type: "block_add",
             sessionId,
-            block: { type: "user", id: cursor.userId, text: delta, ts: Date.now() },
+            block: { type: "user", id: nextUserId, text: delta, ts: Date.now() },
           });
         } else {
           cursor.userText = `${cursor.userText ?? ""}${delta}`;
           this.emit({
             type: "block_patch",
             sessionId,
-            blockId: cursor.userId,
+            blockId: userId,
             patch: { type: "user", text: cursor.userText } as Partial<SessionBlock>,
           });
         }
+        cursor.userOpen = true;
+        if (promptIndex !== undefined) cursor.userPromptIndex = promptIndex;
         cursor.assistantId = undefined;
         cursor.thinkingId = undefined;
+        cursor.thinkingStartedAt = undefined;
         return;
       }
       case "agent_message_chunk": {
+        this.closeUser(sessionId);
+        this.closeThinking(sessionId);
         const delta = contentText(update.content);
         if (!cursor.assistantId) {
           cursor.assistantId = uid();
@@ -865,13 +1044,16 @@ export class AcpBridge implements GrokBridge {
             },
           });
         }
-        this.emit({ type: "assistant_append", sessionId, blockId: cursor.assistantId, delta });
+        this.queueStreamAppend({ type: "assistant_append", sessionId, blockId: cursor.assistantId, delta });
         return;
       }
       case "agent_thought_chunk": {
+        this.closeUser(sessionId);
+        this.closeAssistant(sessionId);
         const delta = contentText(update.content);
         if (!cursor.thinkingId) {
           cursor.thinkingId = uid();
+          cursor.thinkingStartedAt = Date.now();
           this.emit({
             type: "block_add",
             sessionId,
@@ -884,16 +1066,24 @@ export class AcpBridge implements GrokBridge {
             },
           });
         }
-        this.emit({ type: "thinking_append", sessionId, blockId: cursor.thinkingId, delta });
+        this.queueStreamAppend({ type: "thinking_append", sessionId, blockId: cursor.thinkingId, delta });
+        return;
+      }
+      case "current_mode_update": {
+        const modeId = string(update.currentModeId);
+        const mode: AgentMode = modeId === "plan" ? "plan" : modeId === "ask" ? "ask" : "agent";
+        this.emit({ type: "mode_state", sessionId, mode });
         return;
       }
       case "tool_call":
+        this.closeUser(sessionId);
         this.addTool(sessionId, update);
         return;
       case "tool_call_update":
         this.patchTool(sessionId, update);
         return;
       case "plan": {
+        this.closeUser(sessionId);
         const steps = mapPlanSteps(update.entries);
         if (!cursor.planId) {
           cursor.planId = uid();
@@ -907,6 +1097,9 @@ export class AcpBridge implements GrokBridge {
         }
         return;
       }
+      case "turn_completed":
+        this.finishTurn(sessionId, record(update.usage));
+        return;
       default:
         return;
     }
@@ -970,7 +1163,7 @@ export class AcpBridge implements GrokBridge {
     );
     const kind = mapToolKind(update.kind, update.title);
     const locations = extractLocations(update.locations, update.rawInput, update.rawOutput, content);
-    this.emit({
+    this.queueToolPatch({
       type: "tool_patch",
       sessionId,
       blockId,
@@ -1051,19 +1244,33 @@ export class AcpBridge implements GrokBridge {
   private closeThinking(sessionId: string) {
     const cursor = this.cursor(sessionId);
     if (cursor.thinkingId) {
+      this.flushStreamAppends(sessionId);
       this.emit({
         type: "block_patch",
         sessionId,
         blockId: cursor.thinkingId,
-        patch: { type: "thinking", live: false } as Partial<SessionBlock>,
+        patch: {
+          type: "thinking",
+          live: false,
+          elapsedMs: cursor.thinkingStartedAt ? Date.now() - cursor.thinkingStartedAt : undefined,
+        } as Partial<SessionBlock>,
       });
       cursor.thinkingId = undefined;
+      cursor.thinkingStartedAt = undefined;
     }
+  }
+
+  private closeUser(sessionId: string) {
+    const cursor = this.cursor(sessionId);
+    cursor.userOpen = false;
+    cursor.userId = undefined;
+    cursor.userText = undefined;
   }
 
   private closeAssistant(sessionId: string) {
     const cursor = this.cursor(sessionId);
     if (cursor.assistantId) {
+      this.flushStreamAppends(sessionId);
       this.emit({
         type: "block_patch",
         sessionId,
@@ -1075,8 +1282,10 @@ export class AcpBridge implements GrokBridge {
   }
 
   private finishTurn(sessionId: string, usageValue?: JsonObject) {
+    this.closeUser(sessionId);
     this.closeThinking(sessionId);
     this.closeAssistant(sessionId);
+    this.flushToolPatches(sessionId);
     if (usageValue) this.emitUsage(sessionId, usageValue);
     this.emit({ type: "status", sessionId, status: "idle" });
   }
@@ -1244,20 +1453,31 @@ export class AcpBridge implements GrokBridge {
     await invoke("acp_send", { line: JSON.stringify(message) });
   }
 
-  private requestRaw(method: string, params: unknown): Promise<unknown> {
+  private requestRaw(method: string, params: unknown, timeoutMs = 30_000): Promise<unknown> {
     const id = ++this.requestId;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, method });
+      const timeoutId = timeoutMs > 0
+        ? window.setTimeout(() => {
+            const pending = this.pending.get(id);
+            if (!pending) return;
+            this.pending.delete(id);
+            pending.reject(new Error(`Grok Agent 请求超时：${method}`));
+          }, timeoutMs)
+        : undefined;
+      this.pending.set(id, { resolve, reject, method, timeoutId });
       void this.sendRaw({ jsonrpc: "2.0", id, method: wireMethod(method), params }).catch((cause) => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
         this.pending.delete(id);
+        if (pending.timeoutId !== undefined) window.clearTimeout(pending.timeoutId);
         reject(cause instanceof Error ? cause : new Error(String(cause)));
       });
     });
   }
 
-  private async request(method: string, params: unknown): Promise<unknown> {
+  private async request(method: string, params: unknown, timeoutMs = 30_000): Promise<unknown> {
     await this.ready;
-    return this.requestRaw(method, params);
+    return this.requestRaw(method, params, timeoutMs);
   }
 
   private async notify(method: string, params: unknown): Promise<void> {
@@ -1373,7 +1593,7 @@ export class AcpBridge implements GrokBridge {
       const auth = this.requestRaw("authenticate", {
         methodId: this.authMethodId,
         _meta: { use_oauth: true, force_interactive: true, request_seq: requestSeq },
-      }).then(
+      }, 5 * 60_000).then(
         () => ({ error: undefined }),
         (error: unknown) => ({ error }),
       );
@@ -1400,7 +1620,7 @@ export class AcpBridge implements GrokBridge {
   async logout(): Promise<void> {
     await this.callExtension("x.ai/auth/logout", {});
     await invoke("configure_provider", { request: { kind: "oauth" } });
-    window.location.reload();
+    await this.restartAgent();
   }
 
   async getAccountInfo(): Promise<AccountInfo> {
@@ -1454,10 +1674,40 @@ export class AcpBridge implements GrokBridge {
 
   async configureProvider(config: ProviderConfig): Promise<void> {
     await invoke("configure_provider", { request: config });
-    if (config.kind === "oauth") {
-      localStorage.setItem("grox.pendingOAuth", "1");
-    }
-    window.location.reload();
+    await this.restartAgent();
+    if (config.kind === "oauth" && this.authState.required) await this.authenticate();
+  }
+
+  async listProviderProfiles(): Promise<ProviderProfilesState> {
+    return invoke<ProviderProfilesState>("list_provider_profiles");
+  }
+
+  async saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary> {
+    return invoke<ProviderProfileSummary>("save_provider_profile", { request: config });
+  }
+
+  async refreshProviderModels(id: string): Promise<ProviderProfileSummary> {
+    return invoke<ProviderProfileSummary>("refresh_provider_models", { id });
+  }
+
+  async activateProviderProfile(id: string): Promise<void> {
+    await invoke("activate_provider_profile", { id });
+    await this.restartAgent();
+  }
+
+  async setSessionMode(sessionId: string, mode: AgentMode): Promise<void> {
+    await this.requestRaw(ACP_METHODS.sessionSetMode, {
+      sessionId,
+      modeId: mode === "agent" ? "default" : mode,
+    });
+    const current = this.sessionOptions.get(sessionId);
+    if (current) this.sessionOptions.set(sessionId, { ...current, mode });
+  }
+
+  async deleteProviderProfile(id: string): Promise<void> {
+    const active = (await this.listProviderProfiles()).activeId === id;
+    await invoke("delete_provider_profile", { id });
+    if (active) await this.restartAgent();
   }
 
   async readConfigDocuments(cwd: string): Promise<ConfigDocument[]> {
@@ -1487,17 +1737,26 @@ export class AcpBridge implements GrokBridge {
     localStorage.setItem("grok.workspace", validated);
   }
 
-  async listSessions(cwd = this.workspace): Promise<SessionMeta[]> {
-    const responseValue = await this.request(ACP_METHODS.sessionList, {
-      cwd,
-      limit: 100,
-      _meta: { "x.ai/facetFilters": { kind: ["build"] } },
-    });
-    const response = record(responseValue);
-    const sessions = array(response?.sessions)
-      .map((row) => this.metaFromRow(row, cwd))
-      .filter((meta): meta is SessionMeta => Boolean(meta))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+  async listSessions(cwd?: string): Promise<SessionMeta[]> {
+    const collected = new Map<string, SessionMeta>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const responseValue = await this.request(ACP_METHODS.sessionList, {
+        ...(cwd ? { cwd } : {}),
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+        _meta: { "x.ai/facetFilters": { kind: ["build"] } },
+      });
+      const response = record(responseValue);
+      for (const row of array(response?.sessions)) {
+        const meta = this.metaFromRow(row, cwd ?? this.workspace);
+        if (meta) collected.set(meta.id, meta);
+      }
+      cursor = string(response?.nextCursor);
+      if (!cursor) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    const sessions = [...collected.values()].sort((a, b) => b.updatedAt - a.updatedAt);
     for (const meta of sessions) this.catalogue.set(meta.id, meta);
     return sessions;
   }
@@ -1547,7 +1806,9 @@ export class AcpBridge implements GrokBridge {
         cwd: meta.cwd,
         mcpServers: [],
         _meta: metaRequest,
-      });
+      }, 2 * 60_000);
+      this.flushStreamAppends(id);
+      this.flushToolPatches(id);
       this.captureModelState(response);
       await this.refreshSessionInfo(id);
       const replayed = this.replaying.get(id) ?? emptySession(meta);
@@ -1575,7 +1836,7 @@ export class AcpBridge implements GrokBridge {
   async prompt(sessionId: string, text: string, options: PromptOptions): Promise<void> {
     await this.ready;
     this.knownSessions.add(sessionId);
-    this.cursor(sessionId).userId = undefined;
+    this.closeUser(sessionId);
     this.emit({ type: "status", sessionId, status: "running" });
     try {
       const previous = this.sessionOptions.get(sessionId);
@@ -1601,7 +1862,7 @@ export class AcpBridge implements GrokBridge {
       const responseValue = await this.requestRaw(ACP_METHODS.sessionPrompt, {
         sessionId,
         prompt: promptContent(text, options.attachments ?? []),
-      });
+      }, 0);
       const response = record(responseValue);
       const meta = record(response?._meta);
       const promptUsage = record(meta?.usage);
@@ -1650,6 +1911,20 @@ export class AcpBridge implements GrokBridge {
     } catch (error) {
       this.emit({ type: "error", sessionId, message: errorText(error) });
     }
+  }
+
+  async listRewindPoints(sessionId: string): Promise<RewindPoint[]> {
+    const response = record(await this.callExtension<unknown>("x.ai/rewind/points", { session_id: sessionId }));
+    return array(response?.rewind_points) as RewindPoint[];
+  }
+
+  async rewind(sessionId: string, targetPromptIndex: number, mode: RewindMode, force: boolean): Promise<RewindResult> {
+    return this.callExtension<RewindResult>("x.ai/rewind/execute", {
+      session_id: sessionId,
+      target_prompt_index: targetPromptIndex,
+      force,
+      mode,
+    });
   }
 
   respondPermission(sessionId: string, blockId: string, option: PermissionOption): void {

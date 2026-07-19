@@ -5,7 +5,7 @@
 //!
 //! Reference: [IANA IPv4 Special-Purpose Address Registry](https://www.iana.org/assignments/iana-ipv4-special-registry/)
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use url::Url;
 
@@ -79,14 +79,16 @@ pub(crate) fn is_blocked_ip(ip: &IpAddr) -> bool {
     }
 }
 
-/// Resolve hostname via DNS and verify none of the resolved addresses are
-/// in blocked private/link-local ranges.
-pub(crate) async fn check_ssrf(url: &Url) -> Result<(), WebFetchError> {
+/// Resolve hostname via DNS and return only after every resolved address has
+/// passed the private/link-local checks. Callers must pin the HTTP client to
+/// these addresses so DNS rebinding cannot race this validation.
+pub(crate) async fn resolve_and_check(url: &Url) -> Result<Vec<SocketAddr>, WebFetchError> {
     let host = url
         .host_str()
         .ok_or_else(|| WebFetchError::SingleLabelHost {
             host: String::new(),
         })?;
+    let port = url.port_or_known_default().unwrap_or(443);
 
     // If the host is already a literal IP, check it directly.
     if let Ok(ip) = host.parse::<IpAddr>() {
@@ -96,11 +98,10 @@ pub(crate) async fn check_ssrf(url: &Url) -> Result<(), WebFetchError> {
                 ip,
             });
         }
-        return Ok(());
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
     // DNS resolution.
-    let port = url.port_or_known_default().unwrap_or(443);
     let addr_str = format!("{host}:{port}");
     let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(&addr_str)
         .await
@@ -114,15 +115,14 @@ pub(crate) async fn check_ssrf(url: &Url) -> Result<(), WebFetchError> {
         return Err(WebFetchError::DnsEmpty(host.to_string()));
     }
 
-    addrs
-        .iter()
-        .find(|addr| is_blocked_ip(&addr.ip()))
-        .map_or(Ok(()), |addr| {
-            Err(WebFetchError::SsrfBlocked {
-                host: host.to_string(),
-                ip: addr.ip(),
-            })
-        })
+    if let Some(addr) = addrs.iter().find(|addr| is_blocked_ip(&addr.ip())) {
+        return Err(WebFetchError::SsrfBlocked {
+            host: host.to_string(),
+            ip: addr.ip(),
+        });
+    }
+
+    Ok(addrs)
 }
 
 #[cfg(test)]
@@ -211,12 +211,12 @@ mod tests {
         assert!(!is_blocked_ip(&"::ffff:8.8.8.8".parse::<IpAddr>().unwrap()));
     }
 
-    // ── check_ssrf integration ──────────────────────────────────────────
+    // ── resolve_and_check integration ───────────────────────────────────
 
     #[tokio::test]
     async fn ssrf_blocks_ip_literal_private() {
         let url = Url::parse("https://10.0.0.1/secret").unwrap();
-        let result = check_ssrf(&url).await;
+        let result = resolve_and_check(&url).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("private"));
     }
@@ -224,7 +224,7 @@ mod tests {
     #[tokio::test]
     async fn ssrf_allows_ip_literal_public() {
         let url = Url::parse("https://1.1.1.1/").unwrap();
-        let result = check_ssrf(&url).await;
+        let result = resolve_and_check(&url).await;
         assert!(result.is_ok());
     }
 }

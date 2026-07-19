@@ -15,8 +15,8 @@
 
 use std::io::{Cursor, Read};
 
-use quick_xml::Reader;
 use quick_xml::events::Event;
+use quick_xml::{Reader, XmlVersion};
 use zip::ZipArchive;
 
 /// Cap on the decompressed size of any single XML entry we read, guarding
@@ -113,7 +113,9 @@ fn extract_drawingml_text(xml: &str) -> Result<String, String> {
         match reader.read_event() {
             Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"t" => in_text_run = true,
             Ok(Event::Text(e)) if in_text_run => {
-                let content = e.xml_content().map_err(|e| e.to_string())?;
+                let content = e
+                    .xml_content(XmlVersion::Implicit1_0)
+                    .map_err(|e| e.to_string())?;
                 text.push_str(&content);
             }
             // quick-xml ≥0.37 emits `&amp;` / `&#233;` as separate events

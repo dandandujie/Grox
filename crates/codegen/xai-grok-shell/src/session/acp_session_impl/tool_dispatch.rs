@@ -88,6 +88,11 @@ pub(super) fn backend_tool_display(name: &str) -> (String, acp::ToolKind, serde_
             acp::ToolKind::Search,
             serde_json::json!({"variant": "XSearch", "backend": true}),
         ),
+        "backend_search" => (
+            "Model search:".to_string(),
+            acp::ToolKind::Search,
+            serde_json::json!({"variant": "BackendSearch", "backend": true}),
+        ),
         n => (
             n.to_string(),
             acp::ToolKind::Other,

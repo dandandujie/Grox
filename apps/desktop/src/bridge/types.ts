@@ -224,19 +224,75 @@ export interface BillingInfo {
 }
 
 export type ProviderKind = "oauth" | "official" | "compatible";
+export type ProviderApiBackend = "auto" | "responses" | "chat_completions";
 
 export interface ProviderConfig {
   kind: ProviderKind;
   apiKey?: string;
   baseUrl?: string;
-  modelsUrl?: string;
 }
 
 export interface ProviderStatus {
   kind: ProviderKind;
   hasApiKey: boolean;
   baseUrl?: string;
-  modelsUrl?: string;
+}
+
+export interface ProviderProfileSummary {
+  id: string;
+  name: string;
+  hasApiKey: boolean;
+  baseUrl: string;
+  apiBackend: ProviderApiBackend;
+  availableModels: string[];
+  residentModels: string[];
+}
+
+export interface ProviderProfilesState {
+  activeId?: string;
+  profiles: ProviderProfileSummary[];
+}
+
+export interface SaveProviderProfile {
+  id?: string;
+  name: string;
+  apiKey?: string;
+  baseUrl: string;
+  apiBackend: ProviderApiBackend;
+  residentModels: string[];
+}
+
+export interface GrokRuntimeInfo {
+  path: string;
+  source: "system" | "bundled" | "override" | "missing";
+  preference: "auto" | "system" | "bundled";
+  systemPath?: string;
+  bundledPath?: string;
+  selectionRequired: boolean;
+  version?: string;
+  groxCommit: string;
+  upstreamCommit?: string;
+}
+
+export type RewindMode = "all" | "conversation_only" | "files_only";
+
+export interface RewindPoint {
+  prompt_index: number;
+  created_at: string;
+  num_file_snapshots: number;
+  has_file_changes: boolean;
+  prompt_preview?: string;
+}
+
+export interface RewindResult {
+  success: boolean;
+  target_prompt_index: number;
+  mode: RewindMode;
+  reverted_files: string[];
+  clean_files: string[];
+  conflicts: { path: string; conflict_type: string }[];
+  prompt_text?: string;
+  error?: string;
 }
 
 export type PromptAttachmentKind = "image" | "text" | "binary";
@@ -285,7 +341,7 @@ export interface WorkspaceEntry {
 }
 
 export interface ProjectPreview {
-  status: "idle" | "starting" | "ready" | "none" | "error";
+  status: "idle" | "detected" | "starting" | "ready" | "none" | "error";
   url?: string;
   framework?: string;
   command?: string;
@@ -307,6 +363,7 @@ export type PermissionMode = "default" | "auto" | "bypass";
 export type BridgeEvent =
   | { type: "auth_state"; state: AuthState }
   | { type: "model_state"; state: ModelState }
+  | { type: "mode_state"; sessionId: string; mode: AgentMode }
   | { type: "session_ready"; session: Session }
   | { type: "session_meta"; sessionId: string; patch: Partial<SessionMeta> }
   | { type: "block_add"; sessionId: string; block: SessionBlock }

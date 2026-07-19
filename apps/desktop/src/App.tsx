@@ -17,6 +17,7 @@ import { ResizeHandle } from "./components/common/ResizeHandle";
 import { usePreferences } from "./state/preferences";
 import { useI18n } from "./lib/i18n";
 import { AccountSetup } from "./components/settings/AccountSetup";
+import { UpdateNotice } from "./components/update/UpdateNotice";
 
 export default function App() {
   const { language } = useI18n();
@@ -97,6 +98,7 @@ export default function App() {
       <CommandPalette />
       <SettingsModal />
       <AccountSetup />
+      <UpdateNotice />
     </div>
   );
 }

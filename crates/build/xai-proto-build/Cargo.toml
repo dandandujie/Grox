@@ -12,8 +12,6 @@ workspace = true
 anyhow = { workspace = true }
 pbjson-build = { workspace = true }
 prost-build = { workspace = true }
+protoc-bin-vendored = "3"
 tempfile = { workspace = true }
 tonic-prost-build = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-protoc-bin-vendored-win32 = "3"

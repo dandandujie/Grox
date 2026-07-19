@@ -3,17 +3,25 @@
    the last few missions. Everything else is silence.
    ───────────────────────────────────────────────────────────────────────── */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useDesktop } from "../../state/store";
+import type { PromptAttachment } from "../../bridge/types";
 import { fmtRelTime, fmtTokens } from "../../lib/format";
+import { MAX_ATTACHMENTS, prepareAttachment, validateAttachmentSet } from "../../lib/attachments";
 import { BlackHole } from "../fx/BlackHole";
 import { Starfield } from "../fx/Starfield";
 import { Icon } from "../fx/Icon";
+import { ChipSelect } from "../common/ChipSelect";
+import { PromptOptionsMenu, ProviderSwitcher } from "../common/PromptControls";
 import { useI18n } from "../../lib/i18n";
 
 export function Home() {
   const { language, t } = useI18n();
   const [q, setQ] = useState("");
+  const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
+  const [readingFiles, setReadingFiles] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const sessionIndex = useDesktop((s) => s.sessionIndex);
   const sessions = useDesktop((s) => s.sessions);
   const newSession = useDesktop((s) => s.newSession);
@@ -23,15 +31,51 @@ export function Home() {
   const startupError = useDesktop((s) => s.startupError);
   const auth = useDesktop((s) => s.auth);
   const setAccountSetupOpen = useDesktop((s) => s.setAccountSetupOpen);
+  const model = useDesktop((s) => s.model);
+  const models = useDesktop((s) => s.models);
+  const effort = useDesktop((s) => s.effort);
+  const permissionMode = useDesktop((s) => s.permissionMode);
+  const mode = useDesktop((s) => s.mode);
+  const setModel = useDesktop((s) => s.setModel);
+  const setEffort = useDesktop((s) => s.setEffort);
+  const setPermissionMode = useDesktop((s) => s.setPermissionMode);
+  const setMode = useDesktop((s) => s.setMode);
 
   const recent = [...sessionIndex].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4);
 
   const launch = async () => {
-    const t = q.trim();
-    if (!t) return;
+    const prompt = q.trim();
+    if ((!prompt && attachments.length === 0) || readingFiles) return;
     await newSession();
-    sendPrompt(t);
+    sendPrompt(prompt, attachments);
+    setQ("");
+    setAttachments([]);
+    setAttachmentError("");
   };
+
+  const appendFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setReadingFiles(true);
+    setAttachmentError("");
+    try {
+      const prepared: PromptAttachment[] = [];
+      for (const file of files) prepared.push(await prepareAttachment(file));
+      const next = [...attachments, ...prepared];
+      validateAttachmentSet(next);
+      setAttachments(next);
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : String(cause);
+      setAttachmentError(code === "attachment_count"
+        ? (language === "zh-CN" ? "每次最多上传 8 个附件" : "Up to 8 attachments per prompt")
+        : code === "attachment_size"
+          ? (language === "zh-CN" ? "附件总大小不能超过 32 MB" : "Attachments cannot exceed 32 MB in total")
+          : language === "zh-CN" ? code.replace(" exceeds 16 MB", " 超过 16 MB") : code);
+    } finally {
+      setReadingFiles(false);
+    }
+  };
+
+  const currentModel = models.find((item) => item.id === model);
 
   return (
     <div className="relative flex-1 overflow-hidden bg-base">
@@ -92,31 +136,32 @@ export function Home() {
           </div>
         )}
 
-        {/* quick launch */}
-        <div className="mt-9 flex w-[480px] items-center gap-3 rounded-[8px] border border-line2 bg-raise px-4 transition-colors focus-within:border-acc-dim">
-          <span className="text-acc">›</span>
-          <input
+        {/* pre-project uplink */}
+        <div className="mt-8 w-[680px] overflow-visible rounded-[8px] border border-line2 bg-raise transition-colors focus-within:border-acc-dim">
+          <input ref={fileRef} type="file" multiple className="hidden" onChange={(event) => { void appendFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+          {attachments.length > 0 && <div className="flex flex-wrap gap-1.5 border-b border-line px-3 py-2">{attachments.map((attachment) => <div key={attachment.id} className="flex h-8 max-w-[190px] items-center gap-2 rounded-[4px] border border-line2 bg-high/70 px-2">{attachment.kind === "image" && attachment.data ? <img src={`data:${attachment.mime};base64,${attachment.data}`} alt="" className="h-5 w-5 rounded-[2px] object-cover" /> : <Icon name="file" size={10} className="text-dim" />}<span className="min-w-0 flex-1 truncate font-mono text-[9px] text-fg2">{attachment.name}</span><button onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))} className="text-faint hover:text-fg" title={language === "zh-CN" ? "移除" : "Remove"}><Icon name="x" size={8} /></button></div>)}</div>}
+          <textarea
             value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void launch();
+            onChange={(event) => setQ(event.target.value)}
+            onPaste={(event) => {
+              const images = Array.from(event.clipboardData.items).filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => Boolean(file));
+              if (images.length > 0) { event.preventDefault(); void appendFiles(images); }
             }}
-            placeholder={language === "zh-CN" ? "描述你要交给 Grok 的任务…" : "Describe the mission…"}
+            onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void launch(); } }}
+            rows={2}
+            placeholder={language === "zh-CN" ? "描述任务；可直接粘贴截图或上传文件…" : "Describe the mission; paste screenshots or attach files…"}
             disabled={auth.required}
-            className="h-11 flex-1 bg-transparent text-[14px] text-fg placeholder:text-faint focus:outline-none"
+            className="block min-h-[58px] w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none disabled:opacity-50"
           />
-          <button
-            onClick={() => void launch()}
-            disabled={!q.trim() || auth.required}
-            className={`flex h-7 w-7 items-center justify-center rounded-[5px] transition-colors ${
-              q.trim() && !auth.required
-                ? "bg-acc text-base hover:bg-acc-deep"
-                : "bg-high text-faint"
-            }`}
-            title={language === "zh-CN" ? "开始任务" : "Launch mission"}
-          >
-            <Icon name="arrowUp" size={13} strokeWidth={2} />
-          </button>
+          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1">
+            <ProviderSwitcher />
+            <ChipSelect label={<span className="text-fg2">{currentModel?.label ?? model.toUpperCase()}</span>} items={models.map((item) => ({ id: item.id, label: item.label, hint: item.tagline }))} activeId={model} onSelect={setModel} width={240} />
+            <PromptOptionsMenu mode={mode} effort={effort} permissionMode={permissionMode} onMode={setMode} onEffort={setEffort} onPermission={setPermissionMode} />
+            <button onClick={() => fileRef.current?.click()} disabled={auth.required || readingFiles || attachments.length >= MAX_ATTACHMENTS} className="flex h-7 items-center gap-1.5 rounded-[5px] border border-line2 px-2 font-mono text-[9.5px] text-dim hover:border-line3 hover:text-fg2 disabled:opacity-40" title={language === "zh-CN" ? "上传文件；也支持粘贴剪贴板图片" : "Attach files; clipboard images are also supported"}><Icon name="clip" size={11} />{readingFiles ? (language === "zh-CN" ? "读取中" : "READING") : (language === "zh-CN" ? "附件" : "ATTACH")}</button>
+            <div className="flex-1" />
+            <button onClick={() => void launch()} disabled={(!q.trim() && attachments.length === 0) || auth.required || readingFiles} className={`flex h-7 w-7 items-center justify-center rounded-[5px] transition-colors ${(q.trim() || attachments.length > 0) && !auth.required ? "bg-acc text-base hover:bg-acc-deep" : "bg-high text-faint"}`} title={language === "zh-CN" ? "开始任务" : "Launch mission"}><Icon name="arrowUp" size={13} strokeWidth={2} /></button>
+          </div>
+          {attachmentError && <p className="border-t border-red/20 px-3 py-1.5 text-[9.5px] text-red">{attachmentError}</p>}
         </div>
 
         {/* recent missions */}

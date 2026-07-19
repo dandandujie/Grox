@@ -1,0 +1,76 @@
+name: Sync Grok Build upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: grok-build-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch official upstream
+        id: upstream
+        shell: bash
+        run: |
+          git remote add upstream https://github.com/xai-org/grok-build.git 2>/dev/null || true
+          git fetch upstream main
+          current="$(jq -r '.commit' .grox/upstream.json)"
+          latest="$(git rev-parse upstream/main)"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ "$current" != "$latest" ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Merge upstream and update provenance
+        if: steps.upstream.outputs.changed == 'true'
+        id: merge
+        continue-on-error: true
+        shell: bash
+        run: |
+          short="$(git rev-parse --short upstream/main)"
+          branch="automation/grok-build-$short"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git merge --no-edit upstream/main
+          jq --arg commit "${{ steps.upstream.outputs.latest }}" --arg syncedAt "$(date -u +%FT%TZ)" '.commit = $commit | .syncedAt = $syncedAt' .grox/upstream.json > .grox/upstream.json.tmp
+          mv .grox/upstream.json.tmp .grox/upstream.json
+          git add .grox/upstream.json
+          git commit -m "chore: sync grok-build upstream $short"
+          git push --set-upstream origin "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Open sync pull request
+        if: steps.upstream.outputs.changed == 'true' && steps.merge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh pr create --base main --head "${{ steps.merge.outputs.branch }}" --title "同步 Grok Build ${{ steps.upstream.outputs.latest }}" --body "自动跟进 xai-org/grok-build 的最新 main。合并前请检查 Grox 桌面层补丁与官方 harness 的兼容性，并等待 Windows/macOS 验证通过。"
+
+      - name: Report merge conflict
+        if: steps.upstream.outputs.changed == 'true' && steps.merge.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          git merge --abort || true
+          title="Grok Build 上游同步需要人工处理：${{ steps.upstream.outputs.latest }}"
+          existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --body "自动合并发生冲突。当前基线：${{ steps.upstream.outputs.current }}；目标：${{ steps.upstream.outputs.latest }}。请在保留官方 harness 的前提下重新应用 Grox 桌面层优化。"
+          fi
+          exit 1

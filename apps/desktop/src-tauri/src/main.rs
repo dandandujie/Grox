@@ -16,6 +16,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -28,6 +29,27 @@ use tokio::{
 };
 
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const GROX_BUILD_COMMIT: &str = env!("GROX_BUILD_COMMIT");
+const GROK_UPSTREAM_PROVENANCE: &str = include_str!("../../../../.grox/upstream.json");
+const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/dandandujie/Grox/releases/latest";
+const GROK_INSTALL_PS1_URL: &str = "https://x.ai/cli/install.ps1";
+const GROK_INSTALL_SH_URL: &str = "https://x.ai/cli/install.sh";
+const GROX_PRIVACY_ENV: [(&str, &str); 12] = [
+    ("GROX_PRIVACY_MODE", "1"),
+    // Legacy fallbacks also protect users who point GROK_DESKTOP_CLI at an
+    // older Grok binary that does not yet understand GROX_PRIVACY_MODE.
+    ("DISABLE_TELEMETRY", "1"),
+    ("DISABLE_ERROR_REPORTING", "1"),
+    ("GROK_TELEMETRY_ENABLED", "0"),
+    ("GROK_TELEMETRY_TRACE_UPLOAD", "0"),
+    ("GROK_TELEMETRY_MIXPANEL_ENABLED", "0"),
+    ("GROK_FEEDBACK_ENABLED", "0"),
+    ("GROK_ERROR_REPORTING", "0"),
+    ("GROK_EXTERNAL_OTEL", "0"),
+    ("OTEL_TRACES_EXPORTER", "none"),
+    ("OTEL_METRICS_EXPORTER", "none"),
+    ("OTEL_LOGS_EXPORTER", "none"),
+];
 
 struct AgentProcess {
     child: Child,
@@ -96,6 +118,40 @@ struct WorkspaceEntry {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GrokRuntimeInfo {
+    path: String,
+    source: &'static str,
+    preference: String,
+    system_path: Option<String>,
+    bundled_path: Option<String>,
+    selection_required: bool,
+    version: Option<String>,
+    grox_commit: &'static str,
+    upstream_commit: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    name: Option<String>,
+    body: Option<String>,
+    html_url: String,
+    published_at: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    current_version: String,
+    latest_version: String,
+    title: String,
+    notes: String,
+    release_url: String,
+    published_at: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProjectPreview {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,7 +189,6 @@ struct ProviderConfig {
     kind: String,
     api_key: Option<String>,
     base_url: Option<String>,
-    models_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -142,12 +197,120 @@ struct ProviderStatus {
     kind: &'static str,
     has_api_key: bool,
     base_url: Option<String>,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ProviderApiBackend {
+    #[default]
+    Auto,
+    Responses,
+    ChatCompletions,
+}
+
+impl ProviderApiBackend {
+    fn resolved(self, name: &str, base_url: &str) -> &'static str {
+        match self {
+            Self::Responses => "responses",
+            Self::ChatCompletions => "chat_completions",
+            Self::Auto => {
+                let identity = format!("{name} {base_url}").to_ascii_lowercase();
+                if [
+                    "grok2api",
+                    "chenyme",
+                    "cliproxyapi",
+                    "cli-proxy-api",
+                    "cli proxy",
+                    "router-for-me",
+                    "newapi",
+                    "new api",
+                ]
+                    .iter()
+                    .any(|marker| identity.contains(marker))
+                {
+                    "responses"
+                } else {
+                    "chat_completions"
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredProviderProfile {
+    id: String,
+    name: String,
+    api_key: String,
+    base_url: String,
+    #[serde(default)]
+    api_backend: ProviderApiBackend,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     models_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(default)]
+    available_models: Vec<String>,
+    #[serde(default)]
+    resident_models: Vec<String>,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderProfilesFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_id: Option<String>,
+    #[serde(default)]
+    profiles: Vec<StoredProviderProfile>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderProfileSummary {
+    id: String,
+    name: String,
+    has_api_key: bool,
+    base_url: String,
+    api_backend: ProviderApiBackend,
+    available_models: Vec<String>,
+    resident_models: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderProfilesResponse {
+    active_id: Option<String>,
+    profiles: Vec<ProviderProfileSummary>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveProviderProfile {
+    id: Option<String>,
+    name: String,
+    api_key: Option<String>,
+    base_url: String,
+    #[serde(default)]
+    api_backend: ProviderApiBackend,
+    #[serde(default)]
+    resident_models: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiModel {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiModelsResponse {
+    data: Vec<OpenAiModel>,
 }
 
 const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES: usize = 2_000;
+static CONFIG_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
 
 fn path_for_webview(path: &Path) -> String {
     let raw = path.to_string_lossy();
@@ -206,24 +369,46 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
     fs::create_dir_all(parent)
         .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
     let temp = parent.join(format!(
-        ".{}.grox-{}.tmp",
+        ".{}.grox-{}-{}.tmp",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("config"),
-        std::process::id()
+        std::process::id(),
+        CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed),
     ));
     {
-        let mut file = fs::File::create(&temp)
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
             .map_err(|error| format!("无法创建临时配置 {}：{error}", temp.display()))?;
-        file.write_all(content.as_bytes())
+        if let Err(error) = file
+            .write_all(content.as_bytes())
             .and_then(|_| file.sync_all())
-            .map_err(|error| format!("无法写入配置 {}：{error}", temp.display()))?;
+        {
+            drop(file);
+            let _ = fs::remove_file(&temp);
+            return Err(format!("无法写入配置 {}：{error}", temp.display()));
+        }
     }
     if path.exists() {
         fs::remove_file(path)
             .map_err(|error| format!("无法替换配置 {}：{error}", path.display()))?;
     }
     fs::rename(&temp, path).map_err(|error| format!("无法保存配置 {}：{error}", path.display()))
+}
+
+#[cfg(unix)]
+fn restrict_private_file(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("无法限制凭据文件权限 {}：{error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn restrict_private_file(_path: &Path) -> Result<(), String> {
+    // Windows user profiles inherit a per-user ACL from their parent folder.
+    Ok(())
 }
 
 fn replace_managed_env_block(content: &str, replacement: &str) -> String {
@@ -323,6 +508,42 @@ fn checked_workspace_file(workspace: &Path, requested: &str) -> Result<PathBuf, 
     Ok(canonical)
 }
 
+fn is_loopback_host(host: Option<&str>) -> bool {
+    let Some(host) = host else { return false };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+fn checked_service_url(value: &str, label: &str) -> Result<String, String> {
+    let value = value.trim().trim_end_matches('/');
+    let parsed = url::Url::parse(value).map_err(|error| format!("无效{label}：{error}"))?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(format!("{label}不能在 URL 中包含用户名或密码"));
+    }
+    let secure = parsed.scheme() == "https";
+    let local_http = parsed.scheme() == "http" && is_loopback_host(parsed.host_str());
+    if !secure && !local_http {
+        return Err(format!("{label}必须使用 HTTPS；仅本机回环地址允许 HTTP"));
+    }
+    // Use url's serialized representation instead of the original input.
+    // URL parsers may tolerate ASCII whitespace that would otherwise become a
+    // second line in the managed dotenv block.
+    Ok(parsed.as_str().trim_end_matches('/').to_string())
+}
+
+fn checked_api_key(value: &str) -> Result<&str, String> {
+    if value.chars().any(char::is_control) {
+        return Err("API Key 不能包含换行符或控制字符".into());
+    }
+    if value.len() > 16 * 1024 {
+        return Err("API Key 过长".into());
+    }
+    Ok(value)
+}
+
 fn preview_type(path: &Path) -> (&'static str, &'static str) {
     match path
         .extension()
@@ -359,9 +580,15 @@ fn collect_workspace_entries(root: &Path, dir: &Path, output: &mut Vec<Workspace
         if output.len() >= MAX_WORKSPACE_ENTRIES {
             break;
         }
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = path.is_dir();
+        let is_dir = file_type.is_dir();
         if is_dir
             && matches!(
                 name.as_str(),
@@ -382,23 +609,69 @@ fn collect_workspace_entries(root: &Path, dir: &Path, output: &mut Vec<Workspace
     }
 }
 
-fn configured_grok_command(app: &tauri::AppHandle) -> PathBuf {
-    if let Some(path) = std::env::var_os("GROK_DESKTOP_CLI").filter(|v| !v.is_empty()) {
-        return PathBuf::from(path);
+fn executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        return fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+    }
+    #[cfg(not(unix))]
+    true
+}
 
-    let executable = if cfg!(windows) { "grok.exe" } else { "grok" };
-    let source_executable = if cfg!(windows) {
-        "xai-grok-pager.exe"
-    } else {
-        "xai-grok-pager"
-    };
+fn system_grok_candidates(executable: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-
-    if let Some(home) = std::env::var_os("GROK_HOME").filter(|v| !v.is_empty()) {
+    candidates.extend(
+        std::env::var_os("PATH")
+            .into_iter()
+            .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+            .map(|directory| directory.join(executable)),
+    );
+    if let Some(home) = std::env::var_os("GROK_HOME").filter(|value| !value.is_empty()) {
         candidates.push(PathBuf::from(home).join("bin").join(executable));
     }
+    if let Some(home) = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .filter(|value| !value.is_empty())
+    {
+        let home = PathBuf::from(home);
+        candidates.push(home.join(".grok").join("bin").join(executable));
+        candidates.push(home.join(".cargo").join("bin").join(executable));
+    }
+    #[cfg(windows)]
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        candidates.push(
+            PathBuf::from(local_app_data)
+                .join("Programs")
+                .join("Grok")
+                .join(executable),
+        );
+    }
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(PathBuf::from("/opt/homebrew/bin").join(executable));
+        candidates.push(PathBuf::from("/usr/local/bin").join(executable));
+    }
+    candidates
+}
 
+fn bundled_grok_candidates(
+    app: &tauri::AppHandle,
+    executable: &str,
+    source_executable: &str,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(current_executable) = std::env::current_exe() {
+        if let Some(directory) = current_executable.parent() {
+            candidates.push(directory.join(executable));
+            candidates.push(directory.join(source_executable));
+        }
+    }
     if let Ok(resources) = app.path().resource_dir() {
         candidates.push(resources.join(executable));
         candidates.push(resources.join("binaries").join(executable));
@@ -406,17 +679,242 @@ fn configured_grok_command(app: &tauri::AppHandle) -> PathBuf {
     }
 
     #[cfg(debug_assertions)]
+    if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3) {
+        candidates.push(repo.join("target").join("debug").join(source_executable));
+        candidates.push(
+            repo.join("target")
+                .join("release-dist")
+                .join(source_executable),
+        );
+    }
+    candidates
+}
+
+fn normalized_existing_path(path: &Path) -> Option<PathBuf> {
+    if !executable_file(path) {
+        return None;
+    }
+    path.canonicalize()
+        .ok()
+        .or_else(|| Some(path.to_path_buf()))
+}
+
+fn runtime_preference_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join("runtime.json"))
+        .map_err(|error| format!("无法定位 Grox 配置目录：{error}"))
+}
+
+fn read_runtime_preference(app: &tauri::AppHandle) -> String {
+    let Ok(path) = runtime_preference_path(app) else {
+        return "auto".into();
+    };
+    let Ok(content) = read_bounded_text(&path, 16 * 1024) else {
+        return "auto".into();
+    };
+    serde_json::from_str::<serde_json::Value>(&content)
+        .ok()
+        .and_then(|value| value.get("preference")?.as_str().map(str::to_owned))
+        .filter(|value| matches!(value.as_str(), "auto" | "system" | "bundled"))
+        .unwrap_or_else(|| "auto".into())
+}
+
+fn write_runtime_preference(app: &tauri::AppHandle, preference: &str) -> Result<(), String> {
+    if !matches!(preference, "auto" | "system" | "bundled") {
+        return Err("未知 Grok CLI 运行时选项".into());
+    }
+    let content = serde_json::json!({ "preference": preference }).to_string();
+    atomic_write(&runtime_preference_path(app)?, &content)
+}
+
+fn grok_binary_version(path: &str) -> Option<String> {
+    let mut command = std::process::Command::new(path);
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
     {
-        if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3) {
-            candidates.push(repo.join("target").join("debug").join(source_executable));
-            candidates.push(repo.join("target").join("release").join(source_executable));
-        }
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command.output().ok().filter(|output| output.status.success())?;
+    String::from_utf8(output.stdout)
+        .ok()?
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+}
+
+fn grok_upstream_commit() -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(GROK_UPSTREAM_PROVENANCE)
+        .ok()?
+        .get("commit")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+fn runtime_info(
+    path: String,
+    source: &'static str,
+    preference: String,
+    system_path: Option<String>,
+    bundled_path: Option<String>,
+    selection_required: bool,
+) -> GrokRuntimeInfo {
+    GrokRuntimeInfo {
+        version: grok_binary_version(&path),
+        path,
+        source,
+        preference,
+        system_path,
+        bundled_path,
+        selection_required,
+        grox_commit: GROX_BUILD_COMMIT,
+        upstream_commit: grok_upstream_commit(),
+    }
+}
+
+fn configured_grok_command(app: &tauri::AppHandle) -> GrokRuntimeInfo {
+    let executable = if cfg!(windows) { "grok.exe" } else { "grok" };
+    let source_executable = if cfg!(windows) {
+        "xai-grok-pager.exe"
+    } else {
+        "xai-grok-pager"
+    };
+    let bundled = bundled_grok_candidates(app, executable, source_executable)
+        .into_iter()
+        .find_map(|candidate| normalized_existing_path(&candidate));
+    let bundled_paths = bundled.iter().cloned().collect::<Vec<_>>();
+    let system = system_grok_candidates(executable)
+        .into_iter()
+        .filter_map(|candidate| normalized_existing_path(&candidate))
+        .find(|candidate| !bundled_paths.iter().any(|bundled| bundled == candidate));
+    let preference = read_runtime_preference(app);
+
+    if let Some(path) = std::env::var_os("GROK_DESKTOP_CLI").filter(|value| !value.is_empty()) {
+        return runtime_info(
+            PathBuf::from(path).to_string_lossy().into_owned(),
+            "override",
+            preference,
+            system.as_deref().map(path_for_webview),
+            bundled.as_deref().map(path_for_webview),
+            false,
+        );
     }
 
-    candidates
-        .into_iter()
-        .find(|candidate| candidate.is_file())
-        .unwrap_or_else(|| PathBuf::from(executable))
+    if let Some(path) = system.as_deref() {
+        return runtime_info(
+            path.to_string_lossy().into_owned(),
+            "system",
+            preference,
+            Some(path_for_webview(path)),
+            bundled.as_deref().map(path_for_webview),
+            false,
+        );
+    }
+
+    if let Some(path) = bundled.as_deref() {
+        let selection_required = preference != "bundled";
+        return runtime_info(
+            path.to_string_lossy().into_owned(),
+            "bundled",
+            preference,
+            None,
+            Some(path_for_webview(path)),
+            selection_required,
+        );
+    }
+
+    runtime_info(executable.to_string(), "missing", preference, None, None, true)
+}
+
+#[tauri::command]
+fn grok_runtime_info(app: tauri::AppHandle) -> GrokRuntimeInfo {
+    configured_grok_command(&app)
+}
+
+#[tauri::command]
+fn set_grok_runtime_preference(
+    app: tauri::AppHandle,
+    preference: String,
+) -> Result<GrokRuntimeInfo, String> {
+    let status = configured_grok_command(&app);
+    if preference == "system" && status.system_path.is_none() {
+        return Err("尚未检测到本机官方 Grok Build CLI".into());
+    }
+    if preference == "bundled" && status.bundled_path.is_none() {
+        return Err("当前安装包没有内置 Grok Build CLI".into());
+    }
+    write_runtime_preference(&app, &preference)?;
+    Ok(configured_grok_command(&app))
+}
+
+#[tauri::command]
+async fn install_official_grok_cli(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AcpState>>,
+) -> Result<GrokRuntimeInfo, String> {
+    // Windows cannot replace a running executable. Stop the official CLI
+    // child before invoking its official updater; the webview reload below
+    // starts the freshly installed binary again.
+    if let Some(process) = state.process.lock().await.take() {
+        terminate_process(process).await;
+    }
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("powershell.exe");
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &format!("irm '{}' | iex", GROK_INSTALL_PS1_URL),
+        ]);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("/bin/bash");
+        command.args([
+            "-c",
+            &format!("curl -fsSL '{}' | bash", GROK_INSTALL_SH_URL),
+        ]);
+        command
+    } else {
+        return Err("Grox 当前仅支持在 Windows 和 macOS 上自动安装 CLI".into());
+    };
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let status = tokio::time::timeout(Duration::from_secs(300), command.status())
+        .await
+        .map_err(|_| "官方 Grok CLI 安装超过 5 分钟，已停止等待".to_string())?
+        .map_err(|error| format!("无法启动官方 Grok CLI 安装程序：{error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "官方 Grok CLI 安装失败（退出码 {}）",
+            status
+                .code()
+                .map_or_else(|| "unknown".into(), |code| code.to_string())
+        ));
+    }
+    write_runtime_preference(&app, "system")?;
+    let runtime = configured_grok_command(&app);
+    if runtime.system_path.is_none() {
+        return Err("安装程序已完成，但 Grox 尚未在标准位置检测到 grok；请重启后重试".into());
+    }
+    Ok(runtime)
 }
 
 fn checked_workspace(cwd: &str) -> Result<PathBuf, String> {
@@ -551,6 +1049,7 @@ fn preview_response(
 async fn start_project_preview(
     state: tauri::State<'_, Arc<PreviewState>>,
     cwd: String,
+    start: bool,
 ) -> Result<ProjectPreview, String> {
     let workspace = checked_workspace(&cwd)?;
     let Some(target) = detect_frontend(&workspace) else {
@@ -609,6 +1108,9 @@ async fn start_project_preview(
 
     if preview_online(target.port) {
         return Ok(preview_response(&target, "ready", None));
+    }
+    if !start {
+        return Ok(preview_response(&target, "detected", None));
     }
     if !target.root.join("node_modules").is_dir() && !workspace.join("node_modules").is_dir() {
         return Ok(preview_response(
@@ -690,9 +1192,10 @@ async fn terminate_process(mut process: AgentProcess) {
 
 #[tauri::command]
 fn desktop_environment(app: tauri::AppHandle) -> DesktopEnvironment {
+    let runtime = configured_grok_command(&app);
     DesktopEnvironment {
         default_workspace: path_for_webview(&default_workspace()),
-        grok_command: path_for_webview(&configured_grok_command(&app)),
+        grok_command: path_for_webview(Path::new(&runtime.path)),
     }
 }
 
@@ -824,6 +1327,262 @@ fn write_config_document(request: WriteConfigDocument) -> Result<ConfigDocument,
     })
 }
 
+fn provider_profiles_path() -> Result<PathBuf, String> {
+    Ok(grok_home()?.join("grox-providers.json"))
+}
+
+fn read_provider_profiles_file() -> Result<ProviderProfilesFile, String> {
+    let path = provider_profiles_path()?;
+    if !path.exists() {
+        return Ok(ProviderProfilesFile::default());
+    }
+    let content = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
+    serde_json::from_str(&content)
+        .map_err(|error| format!("无法解析供应商档案 {}：{error}", path.display()))
+}
+
+fn write_provider_profiles_file(value: &ProviderProfilesFile) -> Result<(), String> {
+    let path = provider_profiles_path()?;
+    let content = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("无法序列化供应商档案：{error}"))?;
+    atomic_write(&path, &content)?;
+    restrict_private_file(&path)
+}
+
+fn provider_profile_summary(profile: &StoredProviderProfile) -> ProviderProfileSummary {
+    let mut resident_models = profile.resident_models.clone();
+    if resident_models.is_empty() {
+        if let Some(model) = profile.model.as_ref().filter(|model| !model.is_empty()) {
+            resident_models.push(model.clone());
+        }
+    }
+    ProviderProfileSummary {
+        id: profile.id.clone(),
+        name: profile.name.clone(),
+        has_api_key: !profile.api_key.is_empty(),
+        base_url: profile.base_url.clone(),
+        api_backend: profile.api_backend,
+        available_models: profile.available_models.clone(),
+        resident_models,
+    }
+}
+
+fn compatible_models_url(base_url: &str) -> Result<String, String> {
+    let base = checked_service_url(base_url, "服务地址")?;
+    let mut parsed = url::Url::parse(&base).map_err(|error| format!("无效服务地址：{error}"))?;
+    let path = parsed.path().trim_end_matches('/');
+    if !path.ends_with("/models") {
+        parsed.set_path(&format!("{path}/models"));
+    }
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    Ok(parsed.to_string().trim_end_matches('/').to_owned())
+}
+
+fn checked_model_ids(models: Vec<String>) -> Result<Vec<String>, String> {
+    let mut result = Vec::new();
+    for model in models {
+        let model = model.trim();
+        if model.is_empty() {
+            continue;
+        }
+        if model.chars().count() > 200 || model.chars().any(char::is_control) {
+            return Err("模型 ID 不能超过 200 个字符或包含控制字符".into());
+        }
+        if !result.iter().any(|existing| existing == model) {
+            result.push(model.to_owned());
+        }
+        if result.len() > 200 {
+            return Err("常驻模型不能超过 200 个".into());
+        }
+    }
+    Ok(result)
+}
+
+fn compatible_provider_env(
+    api_key: &str,
+    base_url: &str,
+    provider_name: &str,
+    api_backend: ProviderApiBackend,
+) -> Result<String, String> {
+    let key = checked_api_key(api_key.trim())?;
+    if key.is_empty() {
+        return Err("API Key 不能为空".into());
+    }
+    let base = checked_service_url(base_url.trim(), "服务地址")?;
+    let lines = vec![
+        format!("XAI_API_KEY={}", env_value(key)),
+        format!("GROK_MODELS_BASE_URL={}", env_value(&base)),
+        format!(
+            "GROK_MODELS_LIST_URL={}",
+            env_value(&compatible_models_url(&base)?)
+        ),
+        format!(
+            "GROK_MODELS_API_BACKEND={}",
+            env_value(api_backend.resolved(provider_name, &base))
+        ),
+    ];
+    Ok(lines.join("\n"))
+}
+
+#[tauri::command]
+fn list_provider_profiles() -> Result<ProviderProfilesResponse, String> {
+    let value = read_provider_profiles_file()?;
+    Ok(ProviderProfilesResponse {
+        active_id: value.active_id,
+        profiles: value
+            .profiles
+            .iter()
+            .map(provider_profile_summary)
+            .collect(),
+    })
+}
+
+#[tauri::command]
+fn save_provider_profile(request: SaveProviderProfile) -> Result<ProviderProfileSummary, String> {
+    let name = request.name.trim();
+    if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+        return Err("供应商名称必须为 1–80 个可见字符".into());
+    }
+    let mut value = read_provider_profiles_file()?;
+    let existing = request
+        .id
+        .as_deref()
+        .and_then(|id| value.profiles.iter().find(|profile| profile.id == id));
+    let current_values = parse_env_file(&grok_home()?.join(".env"));
+    let key = request
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .or_else(|| existing.map(|profile| profile.api_key.as_str()))
+        .or_else(|| current_values.get("XAI_API_KEY").map(String::as_str))
+        .ok_or("API Key 不能为空")?;
+    compatible_provider_env(key, &request.base_url, name, request.api_backend)?;
+    let resident_models = checked_model_ids(request.resident_models)?;
+    let id = request.id.unwrap_or_else(|| {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        format!("provider-{}-{nanos}", std::process::id())
+    });
+    if id.len() > 96
+        || id.is_empty()
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("无效的供应商档案 ID".into());
+    }
+    let profile = StoredProviderProfile {
+        id: id.clone(),
+        name: name.to_owned(),
+        api_key: checked_api_key(key)?.to_owned(),
+        base_url: checked_service_url(&request.base_url, "服务地址")?,
+        api_backend: request.api_backend,
+        models_url: None,
+        model: resident_models.first().cloned(),
+        available_models: existing
+            .map(|profile| profile.available_models.clone())
+            .unwrap_or_default(),
+        resident_models,
+    };
+    if let Some(index) = value.profiles.iter().position(|entry| entry.id == id) {
+        value.profiles[index] = profile.clone();
+    } else {
+        value.profiles.push(profile.clone());
+    }
+    write_provider_profiles_file(&value)?;
+    Ok(provider_profile_summary(&profile))
+}
+
+#[tauri::command]
+async fn refresh_provider_models(id: String) -> Result<ProviderProfileSummary, String> {
+    let profile = read_provider_profiles_file()?
+        .profiles
+        .into_iter()
+        .find(|profile| profile.id == id)
+        .ok_or("供应商档案不存在")?;
+    let endpoint = compatible_models_url(&profile.base_url)?;
+    let response = reqwest::Client::builder()
+        .user_agent(format!("Grox/{CLIENT_VERSION}"))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| format!("无法创建模型目录客户端：{error}"))?
+        .get(endpoint)
+        .bearer_auth(&profile.api_key)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| format!("无法获取模型列表：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("模型服务返回错误：{error}"))?
+        .json::<OpenAiModelsResponse>()
+        .await
+        .map_err(|error| format!("模型列表不是 OpenAI 兼容格式：{error}"))?;
+    let mut models = response
+        .data
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+    models.sort_by_key(|model| model.to_ascii_lowercase());
+    models.dedup();
+    models.truncate(1_000);
+
+    let mut value = read_provider_profiles_file()?;
+    let stored = value
+        .profiles
+        .iter_mut()
+        .find(|stored| stored.id == profile.id)
+        .ok_or("供应商档案已被删除")?;
+    stored.available_models = models;
+    let summary = provider_profile_summary(stored);
+    write_provider_profiles_file(&value)?;
+    Ok(summary)
+}
+
+#[tauri::command]
+fn activate_provider_profile(id: String) -> Result<(), String> {
+    let mut value = read_provider_profiles_file()?;
+    let profile = value
+        .profiles
+        .iter()
+        .find(|profile| profile.id == id)
+        .cloned()
+        .ok_or("供应商档案不存在")?;
+    let replacement = compatible_provider_env(
+        &profile.api_key,
+        &profile.base_url,
+        &profile.name,
+        profile.api_backend,
+    )?;
+    let path = grok_home()?.join(".env");
+    let current = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
+    atomic_write(&path, &replace_managed_env_block(&current, &replacement))?;
+    restrict_private_file(&path)?;
+    value.active_id = Some(profile.id);
+    write_provider_profiles_file(&value)
+}
+
+#[tauri::command]
+fn delete_provider_profile(id: String) -> Result<(), String> {
+    let mut value = read_provider_profiles_file()?;
+    let before = value.profiles.len();
+    value.profiles.retain(|profile| profile.id != id);
+    if before == value.profiles.len() {
+        return Err("供应商档案不存在".into());
+    }
+    if value.active_id.as_deref() == Some(id.as_str()) {
+        let path = grok_home()?.join(".env");
+        let current = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
+        atomic_write(&path, &replace_managed_env_block(&current, ""))?;
+        restrict_private_file(&path)?;
+        value.active_id = None;
+    }
+    write_provider_profiles_file(&value)
+}
+
 #[tauri::command]
 fn read_provider_status() -> Result<ProviderStatus, String> {
     let values = parse_env_file(&grok_home()?.join(".env"));
@@ -832,10 +1591,6 @@ fn read_provider_status() -> Result<ProviderStatus, String> {
         .filter(|value| !value.trim().is_empty());
     let base_url = values
         .get("GROK_MODELS_BASE_URL")
-        .filter(|value| !value.trim().is_empty())
-        .cloned();
-    let models_url = values
-        .get("GROK_MODELS_LIST_URL")
         .filter(|value| !value.trim().is_empty())
         .cloned();
     let kind = if base_url.is_some() {
@@ -849,7 +1604,6 @@ fn read_provider_status() -> Result<ProviderStatus, String> {
         kind,
         has_api_key: api_key.is_some(),
         base_url,
-        models_url,
     })
 }
 
@@ -873,45 +1627,27 @@ fn configure_provider(request: ProviderConfig) -> Result<(), String> {
         "oauth" => String::new(),
         "official" => {
             let key = requested_key.or(saved_key).ok_or("API Key 不能为空")?;
+            let key = checked_api_key(key)?;
             format!("XAI_API_KEY={}", env_value(key))
         }
         "compatible" => {
             let key = requested_key.or(saved_key).ok_or("API Key 不能为空")?;
-            let base = request
-                .base_url
-                .as_deref()
-                .unwrap_or_default()
-                .trim()
-                .trim_end_matches('/');
-            if base.is_empty() {
-                return Err("服务地址不能为空".into());
-            }
-            let parsed = url::Url::parse(base).map_err(|error| format!("无效服务地址：{error}"))?;
-            if !matches!(parsed.scheme(), "http" | "https") {
-                return Err("服务地址必须使用 HTTP(S)".into());
-            }
-            let mut lines = vec![
-                format!("XAI_API_KEY={}", env_value(key)),
-                format!("GROK_MODELS_BASE_URL={}", env_value(base)),
-            ];
-            if let Some(models) = request
-                .models_url
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                let parsed = url::Url::parse(models)
-                    .map_err(|error| format!("无效模型列表地址：{error}"))?;
-                if !matches!(parsed.scheme(), "http" | "https") {
-                    return Err("模型列表地址必须使用 HTTP(S)".into());
-                }
-                lines.push(format!("GROK_MODELS_LIST_URL={}", env_value(models)));
-            }
-            lines.join("\n")
+            compatible_provider_env(
+                key,
+                request.base_url.as_deref().unwrap_or_default(),
+                "compatible",
+                ProviderApiBackend::ChatCompletions,
+            )?
         }
         _ => return Err("未知账户接入类型".into()),
     };
-    atomic_write(&path, &replace_managed_env_block(&current, &replacement))
+    atomic_write(&path, &replace_managed_env_block(&current, &replacement))?;
+    restrict_private_file(&path)?;
+    let mut profiles = read_provider_profiles_file()?;
+    if profiles.active_id.take().is_some() {
+        write_provider_profiles_file(&profiles)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -919,6 +1655,9 @@ fn open_external(url: String) -> Result<(), String> {
     let parsed = url::Url::parse(&url).map_err(|error| format!("无效链接：{error}"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("只允许打开 HTTP(S) 链接".into());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("链接不能包含用户名或密码".into());
     }
 
     #[cfg(windows)]
@@ -958,11 +1697,18 @@ async fn acp_spawn(
 ) -> Result<(), String> {
     let cwd = checked_workspace(&cwd)?;
 
+    // Invalidate the previous readers before terminating their process. On a
+    // fast development reload Windows can still deliver a few buffered stdout
+    // or stderr lines after `kill`; those lines must not reach the new ACP
+    // connection.
+    let generation = state.next_generation.fetch_add(1, Ordering::Relaxed) + 1;
+
     if let Some(old) = state.process.lock().await.take() {
         terminate_process(old).await;
     }
 
-    let command_path = configured_grok_command(&app);
+    let runtime = configured_grok_command(&app);
+    let command_path = PathBuf::from(&runtime.path);
     let mut command = Command::new(&command_path);
     command
         .args(["agent", "stdio"])
@@ -976,6 +1722,33 @@ async fn acp_spawn(
         for (key, value) in parse_env_file(&home.join(".env")) {
             command.env(key, value);
         }
+    }
+    // Provider profiles are authoritative at process start. This also migrates
+    // profiles saved by older Grox versions whose managed .env block predates
+    // GROK_MODELS_API_BACKEND, without exposing or rewriting the stored key.
+    if let Ok(profiles) = read_provider_profiles_file() {
+        if let Some(profile) = profiles.active_id.as_deref().and_then(|active_id| {
+            profiles
+                .profiles
+                .iter()
+                .find(|profile| profile.id == active_id)
+        }) {
+            let base = checked_service_url(&profile.base_url, "服务地址")?;
+            command
+                .env("XAI_API_KEY", &profile.api_key)
+                .env("GROK_MODELS_BASE_URL", &base)
+                .env("GROK_MODELS_LIST_URL", compatible_models_url(&base)?)
+                .env(
+                    "GROK_MODELS_API_BACKEND",
+                    profile.api_backend.resolved(&profile.name, &base),
+                );
+        }
+    }
+    // This is deliberately applied after the user environment so neither a
+    // stale config nor a server-controlled flag can re-enable background data
+    // collection in the Grox-bundled agent.
+    for (key, value) in GROX_PRIVACY_ENV {
+        command.env(key, value);
     }
 
     #[cfg(windows)]
@@ -1002,8 +1775,6 @@ async fn acp_spawn(
         .stderr
         .take()
         .ok_or_else(|| "Grok CLI 未提供标准错误".to_string())?;
-    let generation = state.next_generation.fetch_add(1, Ordering::Relaxed) + 1;
-
     *state.process.lock().await = Some(AgentProcess {
         child,
         stdin,
@@ -1017,6 +1788,9 @@ async fn acp_spawn(
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
+                    if stdout_state.next_generation.load(Ordering::Relaxed) != generation {
+                        break;
+                    }
                     if !line.trim().is_empty() {
                         let _ = stdout_app.emit("acp-event", line);
                     }
@@ -1059,9 +1833,13 @@ async fn acp_spawn(
     });
 
     let stderr_app = app.clone();
+    let stderr_state = state.inner().clone();
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            if stderr_state.next_generation.load(Ordering::Relaxed) != generation {
+                break;
+            }
             let trimmed = line.trim();
             if !trimmed.is_empty() {
                 // Bound diagnostics before they cross into the webview.
@@ -1105,6 +1883,7 @@ async fn acp_kill(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AcpState>>,
 ) -> Result<(), String> {
+    state.next_generation.fetch_add(1, Ordering::Relaxed);
     if let Some(process) = state.process.lock().await.take() {
         terminate_process(process).await;
         let _ = app.emit(
@@ -1116,6 +1895,58 @@ async fn acp_kill(
         );
     }
     Ok(())
+}
+
+fn release_version(value: &str) -> Result<semver::Version, String> {
+    semver::Version::parse(value.trim().trim_start_matches(['v', 'V']))
+        .map_err(|error| format!("无法解析版本号 {value:?}：{error}"))
+}
+
+fn update_available(current: &str, latest: &str) -> Result<bool, String> {
+    Ok(release_version(latest)? > release_version(current)?)
+}
+
+#[tauri::command]
+async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent(format!("Grox/{CLIENT_VERSION}"))
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(|error| format!("无法创建更新检查客户端：{error}"))?;
+    let release = client
+        .get(LATEST_RELEASE_URL)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| format!("无法检查更新：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("更新服务返回错误：{error}"))?
+        .json::<GitHubRelease>()
+        .await
+        .map_err(|error| format!("无法读取更新信息：{error}"))?;
+
+    if !update_available(CLIENT_VERSION, &release.tag_name)? {
+        return Ok(None);
+    }
+
+    let latest_version = release.tag_name.trim().trim_start_matches(['v', 'V']);
+    let notes = release
+        .body
+        .unwrap_or_default()
+        .chars()
+        .take(12_000)
+        .collect::<String>();
+    Ok(Some(UpdateInfo {
+        current_version: CLIENT_VERSION.to_string(),
+        latest_version: latest_version.to_string(),
+        title: release
+            .name
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| format!("Grox {latest_version}")),
+        notes,
+        release_url: release.html_url,
+        published_at: release.published_at,
+    }))
 }
 
 fn main() {
@@ -1140,6 +1971,15 @@ fn main() {
             write_config_document,
             read_provider_status,
             configure_provider,
+            list_provider_profiles,
+            save_provider_profile,
+            refresh_provider_models,
+            activate_provider_profile,
+            delete_provider_profile,
+            grok_runtime_info,
+            set_grok_runtime_preference,
+            install_official_grok_cli,
+            check_for_update,
             open_external,
             start_project_preview,
             acp_spawn,
@@ -1179,5 +2019,68 @@ mod tests {
     fn accepts_existing_workspace() {
         let workspace = checked_workspace(env!("CARGO_MANIFEST_DIR")).unwrap();
         assert!(workspace.is_dir());
+    }
+
+    #[test]
+    fn service_urls_require_encryption_except_for_loopback() {
+        assert!(checked_service_url("https://api.example.com/v1", "服务地址").is_ok());
+        assert!(checked_service_url("http://localhost:11434/v1", "服务地址").is_ok());
+        assert!(checked_service_url("http://127.0.0.1:11434/v1", "服务地址").is_ok());
+        assert!(checked_service_url("http://[::1]:11434/v1", "服务地址").is_ok());
+        assert!(checked_service_url("http://api.example.com/v1", "服务地址").is_err());
+        assert!(checked_service_url("https://user:secret@example.com/v1", "服务地址").is_err());
+        let normalized =
+            checked_service_url("https://api.example.com/v1\n?model=grok", "服务地址").unwrap();
+        assert!(!normalized.contains('\r') && !normalized.contains('\n'));
+        assert!(checked_api_key("secret\nINJECTED=1").is_err());
+    }
+
+    #[test]
+    fn compatible_provider_environment_is_validated_and_complete() {
+        let env = compatible_provider_env(
+            "sk-test",
+            "https://gateway.example.com/v1",
+            "grok2api",
+            ProviderApiBackend::Auto,
+        )
+        .unwrap();
+        assert!(env.contains("XAI_API_KEY=\"sk-test\""));
+        assert!(env.contains("GROK_MODELS_BASE_URL=\"https://gateway.example.com/v1\""));
+        assert!(env.contains("GROK_MODELS_LIST_URL=\"https://gateway.example.com/v1/models\""));
+        assert!(env.contains("GROK_MODELS_API_BACKEND=\"responses\""));
+        assert!(compatible_provider_env(
+            "",
+            "https://gateway.example.com/v1",
+            "generic",
+            ProviderApiBackend::Auto,
+        )
+        .is_err());
+        assert!(compatible_provider_env(
+            "sk-test",
+            "http://gateway.example.com/v1",
+            "generic",
+            ProviderApiBackend::Auto,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn bundled_agent_privacy_environment_is_fail_closed() {
+        let values = GROX_PRIVACY_ENV.into_iter().collect::<BTreeMap<_, _>>();
+        assert_eq!(values.get("GROX_PRIVACY_MODE"), Some(&"1"));
+        assert_eq!(values.get("DISABLE_TELEMETRY"), Some(&"1"));
+        assert_eq!(values.get("DISABLE_ERROR_REPORTING"), Some(&"1"));
+        assert_eq!(values.get("GROK_TELEMETRY_ENABLED"), Some(&"0"));
+        assert_eq!(values.get("GROK_TELEMETRY_TRACE_UPLOAD"), Some(&"0"));
+        assert_eq!(values.get("GROK_EXTERNAL_OTEL"), Some(&"0"));
+        assert_eq!(values.get("OTEL_LOGS_EXPORTER"), Some(&"none"));
+    }
+
+    #[test]
+    fn compares_release_versions_without_treating_prefix_as_part_of_version() {
+        assert!(update_available("0.1.0", "v0.2.0").unwrap());
+        assert!(!update_available("0.2.0", "V0.2.0").unwrap());
+        assert!(!update_available("0.3.0", "v0.2.9").unwrap());
+        assert!(update_available("0.2.0-beta.1", "v0.2.0").unwrap());
     }
 }

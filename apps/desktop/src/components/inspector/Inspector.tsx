@@ -239,14 +239,22 @@ function PreviewTab() {
           <span className={`h-2 w-2 rounded-full ${preview.status === "starting" ? "animate-pulse-dot bg-acc" : preview.status === "error" ? "bg-red" : "bg-faint"}`} />
           <div>
             <p className="text-[11px] text-fg2">
-              {preview.status === "starting" ? (zh ? "正在启动项目预览…" : "Starting project preview…") : preview.status === "error" ? (zh ? "预览启动失败" : "Preview failed") : (zh ? "未检测到可预览的前端项目" : "No previewable frontend detected")}
+              {preview.status === "starting"
+                ? (zh ? "正在启动项目预览…" : "Starting project preview…")
+                : preview.status === "detected"
+                  ? (zh ? "检测到前端项目，确认后再执行开发脚本" : "Frontend detected. Start its development script when ready.")
+                  : preview.status === "error"
+                    ? (zh ? "预览启动失败" : "Preview failed")
+                    : (zh ? "未检测到可预览的前端项目" : "No previewable frontend detected")}
             </p>
             {preview.framework && <p className="mt-1 font-mono text-[9.5px] text-acc">{preview.framework}</p>}
             {preview.error && <p className="mt-2 max-w-[260px] font-mono text-[9.5px] leading-relaxed text-red">{preview.error}</p>}
             {preview.command && <p className="mt-2 max-w-[260px] truncate font-mono text-[9px] text-faint">{preview.command}</p>}
           </div>
           <button onClick={() => void refresh(true)} className="rounded-[3px] border border-line2 bg-raise px-3 py-1.5 text-[10px] text-fg2 hover:border-line3 hover:text-fg">
-            {zh ? "检测并启动" : "Detect & start"}
+            {preview.command
+              ? (zh ? `执行 ${preview.command}` : `Run ${preview.command}`)
+              : (zh ? "检测并启动" : "Detect & start")}
           </button>
         </div>
       )}

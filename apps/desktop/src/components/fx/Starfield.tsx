@@ -27,12 +27,18 @@ export function Starfield({ density = 110, className = "" }: { density?: number;
 
     let stars: Star[] = [];
     let raf = 0;
+    let resizeRaf = 0;
     let w = 0;
     let h = 0;
+    let lastFrame = 0;
+
+    const reducedMotion = () =>
+      document.documentElement.dataset.reduceMotion === "1" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const seed = () => {
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       w = rect.width;
       h = rect.height;
       canvas.width = w * dpr;
@@ -49,10 +55,10 @@ export function Starfield({ density = 110, className = "" }: { density?: number;
       }));
     };
 
-    const frame = (t: number) => {
+    const draw = (t: number, advance: boolean) => {
       ctx.clearRect(0, 0, w, h);
       for (const s of stars) {
-        s.y -= s.drift;
+        if (advance) s.y -= s.drift;
         if (s.y < -2) {
           s.y = h + 2;
           s.x = Math.random() * w;
@@ -62,16 +68,46 @@ export function Starfield({ density = 110, className = "" }: { density?: number;
         ctx.fillStyle = `rgba(232,232,232,${alpha.toFixed(3)})`;
         ctx.fillRect(s.x, s.y, s.r, s.r);
       }
+    };
+
+    const frame = (t: number) => {
+      if (t - lastFrame >= 32) {
+        draw(t, true);
+        lastFrame = t;
+      }
       raf = requestAnimationFrame(frame);
     };
 
+    const start = () => {
+      cancelAnimationFrame(raf);
+      if (document.hidden || reducedMotion()) {
+        draw(0, false);
+        return;
+      }
+      lastFrame = 0;
+      raf = requestAnimationFrame(frame);
+    };
+
+    const sync = () => start();
+
     seed();
-    raf = requestAnimationFrame(frame);
-    const ro = new ResizeObserver(seed);
+    start();
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        seed();
+        start();
+      });
+    });
     ro.observe(canvas);
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("grox-motion-change", sync);
     return () => {
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(resizeRaf);
       ro.disconnect();
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("grox-motion-change", sync);
     };
   }, [density]);
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { bridge } from "../../bridge";
-import type { ConfigDocument, ProviderKind } from "../../bridge/types";
+import type { ConfigDocument, ProviderApiBackend, ProviderKind } from "../../bridge/types";
 import { EFFORTS } from "../../bridge/types";
 import { useDesktop } from "../../state/store";
 import { usePreferences } from "../../state/preferences";
@@ -90,9 +90,24 @@ function General() {
   const setEffort = useDesktop((state) => state.setEffort);
   const permission = useDesktop((state) => state.permissionMode);
   const setPermission = useDesktop((state) => state.setPermissionMode);
+  const runtime = useDesktop((state) => state.runtime);
+  const runtimeBusy = useDesktop((state) => state.runtimeBusy);
+  const refreshRuntime = useDesktop((state) => state.refreshRuntime);
+  const installOfficialRuntime = useDesktop((state) => state.installOfficialRuntime);
+  const [runtimeError, setRuntimeError] = useState("");
+  const runtimeSource = runtime?.source === "system"
+    ? (zh ? "本机 CLI" : "System CLI")
+    : runtime?.source === "bundled"
+      ? (zh ? "Grox 内置" : "Bundled with Grox")
+      : runtime?.source === "override"
+        ? (zh ? "自定义路径" : "Custom path")
+        : (zh ? "正在检测" : "Detecting");
   return <div>
     <Heading title="Agent" description={zh ? "Grok Build ACP 运行时和默认执行策略；模型与接入服务在账户模块管理。" : "Grok Build ACP runtime and execution defaults. Models and providers live under Account."} />
     <Row label={zh ? "当前项目" : "Current project"} hint={workspace}><span className="chip">{bridgeKind.toUpperCase()}</span></Row>
+    <Row label={zh ? "Grok Build 运行时" : "Grok Build runtime"} hint={runtime?.path}><div className="flex items-center gap-2"><span className="chip">{runtimeSource}</span><ActionButton disabled={runtimeBusy} onClick={() => void refreshRuntime()}>{zh ? "重新检测" : "Detect"}</ActionButton>{runtime && runtime.source !== "override" && <ActionButton tone="accent" disabled={runtimeBusy} onClick={() => { setRuntimeError(""); void installOfficialRuntime().catch((cause) => setRuntimeError(cause instanceof Error ? cause.message : String(cause))); }}>{runtimeBusy ? (zh ? "安装中" : "Installing") : runtime.systemPath ? (zh ? "更新官方 CLI" : "Update official CLI") : (zh ? "安装官方 CLI" : "Install official CLI")}</ActionButton>}</div></Row>
+    {runtime && <Row label={zh ? "版本来源" : "Version provenance"} hint={zh ? "同时追踪官方基线与 Grox 自身补丁，便于升级和回归。" : "Tracks the official baseline and Grox patch revision independently."}><div className="max-w-[440px] space-y-1 text-right font-mono text-[9px] text-dim"><p className="truncate" title={runtime.version}>{runtime.version ?? (zh ? "无法读取 CLI 版本" : "CLI version unavailable")}</p><p className="truncate" title={runtime.upstreamCommit}>{zh ? "官方" : "UPSTREAM"} · {runtime.upstreamCommit?.slice(0, 12) ?? "unknown"}　{zh ? "Grox" : "GROX"} · {runtime.groxCommit}</p></div></Row>}
+    {runtimeError && <p className="mb-4 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{runtimeError}</p>}
     <Row label={zh ? "推理强度" : "Reasoning effort"}><div className="flex gap-1">{EFFORTS.map((item) => <button key={item} onClick={() => setEffort(item)} className={`h-7 rounded-[3px] border px-2 font-mono text-[9.5px] ${effort === item ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim"}`}>{item.toUpperCase()}</button>)}</div></Row>
     <Row label={zh ? "权限模式" : "Permission mode"} hint={zh ? "Default 保留审批；Auto 交给 Agent 策略；Bypass 仅用于可信环境。" : "Default keeps approvals; Auto follows the Agent policy; use Bypass only in trusted environments."}><select value={permission} onChange={(event) => setPermission(event.target.value as typeof permission)} className="h-8 rounded-[4px] border border-line2 bg-void px-2 font-mono text-[9.5px] text-fg2"><option value="default">DEFAULT</option><option value="auto">AUTO</option><option value="bypass">BYPASS / YOLO</option></select></Row>
   </div>;
@@ -131,38 +146,139 @@ function ProviderAndModels() {
   const setModel = useDesktop((state) => state.setModel);
   const refreshModels = useDesktop((state) => state.refreshModels);
   const configure = useDesktop((state) => state.configureProvider);
+  const profiles = useDesktop((state) => state.providerProfiles);
+  const activeProfileId = useDesktop((state) => state.activeProviderProfileId);
+  const saveProfile = useDesktop((state) => state.saveProviderProfile);
+  const refreshProfileModels = useDesktop((state) => state.refreshProviderModels);
+  const activateProfile = useDesktop((state) => state.activateProviderProfile);
+  const deleteProfile = useDesktop((state) => state.deleteProviderProfile);
   const [kind, setKind] = useState<ProviderKind>(provider.kind);
+  const [editingProfileId, setEditingProfileId] = useState<string | undefined>();
+  const [profileName, setProfileName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl ?? "");
-  const [modelsUrl, setModelsUrl] = useState(provider.modelsUrl ?? "");
+  const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("responses");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [residentModels, setResidentModels] = useState<string[]>([]);
+  const [customModel, setCustomModel] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     setKind(provider.kind);
     setBaseUrl(provider.baseUrl ?? "");
-    setModelsUrl(provider.modelsUrl ?? "");
   }, [provider]);
+
+  const editProfile = (id: string) => {
+    const profile = profiles.find((item) => item.id === id);
+    if (!profile) return;
+    setKind("compatible");
+    setEditingProfileId(profile.id);
+    setProfileName(profile.name);
+    setBaseUrl(profile.baseUrl);
+    setApiBackend(profile.apiBackend);
+    setAvailableModels(profile.availableModels);
+    setResidentModels(profile.residentModels);
+    setApiKey("");
+    setCustomModel("");
+    setModelQuery("");
+  };
+
+  const startNewProfile = () => {
+    setKind("compatible");
+    setEditingProfileId(undefined);
+    setProfileName("");
+    setApiKey("");
+    setBaseUrl("");
+    setApiBackend("responses");
+    setAvailableModels([]);
+    setResidentModels([]);
+    setCustomModel("");
+  };
+
+  const addResident = (id: string) => {
+    const value = id.trim();
+    if (value && !residentModels.includes(value)) setResidentModels((items) => [...items, value]);
+  };
 
   const save = async () => {
     setBusy(true);
     setError("");
     try {
-      await configure({ kind, apiKey, baseUrl, modelsUrl });
+      if (kind === "compatible") {
+        const saved = await saveProfile({
+          id: editingProfileId,
+          name: profileName,
+          apiKey,
+          baseUrl,
+          apiBackend,
+          residentModels,
+        });
+        setEditingProfileId(saved.id);
+        setAvailableModels(saved.availableModels);
+        setResidentModels(saved.residentModels);
+        setApiKey("");
+      } else {
+        await configure({ kind, apiKey, baseUrl });
+      }
+      setBusy(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setBusy(false);
     }
   };
 
-  return <div className="mt-7">
-    <div className="mb-3 flex items-end justify-between"><div><h3 className="text-[12px] font-medium text-fg">{zh ? "模型服务" : "Model provider"}</h3><p className="mt-1 text-[10px] text-dim">{zh ? "切换接入方式会重新连接 Grok Build，密钥不会回传到 WebView。" : "Changing provider reconnects Grok Build. Stored secrets are never returned to the WebView."}</p></div><span className="chip">{provider.kind.toUpperCase()}</span></div>
+  const refreshCompatibleModels = async () => {
+    if (!editingProfileId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const profile = await refreshProfileModels(editingProfileId);
+      setAvailableModels(profile.availableModels);
+      setResidentModels(profile.residentModels);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const filteredModels = availableModels.filter((id) => id.toLocaleLowerCase().includes(modelQuery.trim().toLocaleLowerCase()));
+
+  return <div className="mt-7" data-testid="provider-manager">
+    <div className="mb-3 flex items-end justify-between"><div><h3 className="text-[12px] font-medium text-fg">{zh ? "模型服务" : "Model provider"}</h3><p className="mt-1 text-[10px] text-dim">{zh ? "供应商切换只重连后台 Grok Build ACP，会话与界面保持不动；密钥不会回传到 WebView。" : "Provider changes reconnect only the Grok Build ACP process. The session and UI stay in place, and secrets never return to the WebView."}</p></div><span className="chip">{provider.kind.toUpperCase()}</span></div>
     <div className="grid grid-cols-3 gap-2">
-      {(["oauth", "official", "compatible"] as ProviderKind[]).map((item) => <button key={item} onClick={() => setKind(item)} className={`rounded-[5px] border px-3 py-2.5 text-left transition-colors ${kind === item ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise hover:border-line3"}`}><Icon name={item === "oauth" ? "user" : item === "official" ? "bolt" : "globe"} size={12} className={kind === item ? "text-acc" : "text-dim"} /><p className="mt-2 font-mono text-[9.5px] text-fg2">{item === "oauth" ? t("oauth") : item === "official" ? t("officialApi") : t("compatibleApi")}</p></button>)}
+      {(["oauth", "official", "compatible"] as ProviderKind[]).map((item) => <button key={item} onClick={() => item === "compatible" ? startNewProfile() : setKind(item)} className={`min-w-0 rounded-[5px] border px-3 py-2.5 text-left transition-colors ${kind === item ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise hover:border-line3"}`}><Icon name={item === "oauth" ? "user" : item === "official" ? "bolt" : "globe"} size={12} className={kind === item ? "text-acc" : "text-dim"} /><p className="mt-2 truncate font-mono text-[9.5px] text-fg2">{item === "oauth" ? t("oauth") : item === "official" ? t("officialApi") : t("compatibleApi")}</p></button>)}
     </div>
-    {kind === "oauth" ? <div className="mt-3 rounded-[5px] border border-line bg-raise p-3 text-[10px] leading-relaxed text-dim"><span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse-dot rounded-full bg-acc" />{zh ? "模型目录由 Grok OAuth 实时提供；上游目录变化会自动同步到设置和对话框。" : "The model catalog is supplied live by Grok OAuth; upstream changes automatically reach Settings and the composer."}</div> : <div className="mt-3 grid grid-cols-2 gap-3 rounded-[6px] border border-line2 bg-raise p-3"><label className="block"><span className="lbl !text-[9px]">API KEY</span><Input value={apiKey} onChange={setApiKey} type="password" placeholder={provider.hasApiKey ? (zh ? "已保存 · 留空保持不变" : "Stored · leave blank to keep") : "xai-…"} /></label>{kind === "official" ? <div><span className="lbl !text-[9px]">BASE URL</span><div className="mt-0 h-8 rounded-[4px] border border-line bg-void px-2.5 font-mono text-[10px] leading-8 text-dim">https://api.x.ai/v1</div></div> : <><label className="block"><span className="lbl !text-[9px]">BASE URL</span><Input value={baseUrl} onChange={setBaseUrl} placeholder="https://example.com/v1" /></label><label className="col-span-2 block"><span className="lbl !text-[9px]">{zh ? "模型列表地址" : "MODELS URL"}</span><div className="mt-1 flex gap-2"><div className="min-w-0 flex-1"><Input value={modelsUrl} onChange={setModelsUrl} placeholder="https://example.com/v1/models" /></div><span className="self-center font-mono text-[9px] text-faint">{zh ? "留空使用 BASE URL/models" : "blank = BASE URL/models"}</span></div></label></>}</div>}
+    {kind === "oauth" ? <div className="mt-3 rounded-[5px] border border-line bg-raise p-3 text-[10px] leading-relaxed text-dim"><span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse-dot rounded-full bg-acc" />{zh ? "模型目录由 Grok OAuth 实时提供；上游目录变化会自动同步到设置和输入框。" : "The model catalog is supplied live by Grok OAuth and synchronized with every composer."}</div> : <div className="mt-3 rounded-[6px] border border-line2 bg-raise p-3">
+      <div className="grid grid-cols-2 gap-3">
+        {kind === "compatible" && <label className="block"><span className="lbl !text-[9px]">{zh ? "供应商名称" : "PROVIDER NAME"}</span><Input value={profileName} onChange={setProfileName} placeholder={zh ? "例如：公司中转 / OpenRouter" : "e.g. Company gateway / OpenRouter"} /></label>}
+        <label className="block"><span className="lbl !text-[9px]">API KEY</span><Input value={apiKey} onChange={setApiKey} type="password" placeholder={(editingProfileId ? profiles.find((item) => item.id === editingProfileId)?.hasApiKey : provider.hasApiKey) ? (zh ? "已保存 · 留空保持" : "Stored · leave blank") : "xai-…"} /></label>
+        {kind === "official" ? <div><span className="lbl !text-[9px]">BASE URL</span><div className="h-8 rounded-[4px] border border-line bg-void px-2.5 font-mono text-[10px] leading-8 text-dim">https://api.x.ai/v1</div></div> : <label className="block"><span className="lbl !text-[9px]">BASE URL</span><Input value={baseUrl} onChange={setBaseUrl} placeholder="https://example.com/v1" /></label>}
+        {kind === "compatible" && <label className="col-span-2 block"><span className="lbl !text-[9px]">{zh ? "接口协议" : "API PROTOCOL"}</span><select value={apiBackend} onChange={(event) => setApiBackend(event.target.value as ProviderApiBackend)} className="mt-1 h-8 w-full rounded-[4px] border border-line2 bg-void px-2.5 font-mono text-[9.5px] text-fg2 outline-none focus:border-acc-dim"><option value="responses">Responses · {zh ? "推荐，保留搜索工具与可公开的推理摘要" : "recommended; preserves search and reasoning summaries"}</option><option value="chat_completions">Chat Completions · {zh ? "旧服务兼容；代理可能丢弃托管工具事件" : "legacy compatibility; hosted tool events may be dropped"}</option><option value="auto">AUTO · grok2api / CLIProxyAPI / NewAPI → Responses</option></select></label>}
+      </div>
+      {kind === "compatible" && <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4">
+        <div className="min-w-0">
+          <div className="mb-2 flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-[10.5px] text-fg2">{zh ? "自动获取的可用模型" : "Discovered models"}</p><p className="truncate font-mono text-[8.5px] text-faint">{baseUrl ? `${baseUrl.replace(/\/$/, "")}/models` : (zh ? "保存后自动获取" : "Fetched after save")}</p></div><ActionButton disabled={!editingProfileId || busy} onClick={() => void refreshCompatibleModels()}>{zh ? "重新获取" : "FETCH"}</ActionButton></div>
+          <Input value={modelQuery} onChange={setModelQuery} placeholder={zh ? "筛选模型…" : "Filter models…"} />
+          <div className="mt-2 max-h-48 overflow-y-auto rounded-[5px] border border-line bg-void/60 p-1">
+            {filteredModels.length === 0 ? <p className="px-2 py-5 text-center text-[9.5px] text-faint">{editingProfileId ? (zh ? "暂无模型；可重新获取或添加自定义模型" : "No models; fetch again or add a custom model") : (zh ? "先保存供应商以获取模型" : "Save the provider to discover models")}</p> : filteredModels.map((id) => <div key={id} className="flex h-7 min-w-0 items-center gap-2 rounded-[3px] px-2 hover:bg-high"><span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2" title={id}>{id}</span><button disabled={residentModels.includes(id)} onClick={() => addResident(id)} className="shrink-0 font-mono text-[8.5px] text-acc disabled:text-faint">{residentModels.includes(id) ? (zh ? "已常驻" : "ADDED") : (zh ? "加入" : "ADD")}</button></div>)}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <div className="mb-2"><p className="text-[10.5px] text-fg2">{zh ? "常驻模型" : "Resident models"}</p><p className="font-mono text-[8.5px] text-faint">{residentModels.length} {zh ? "个；会出现在模型选择器中" : "shown in model selectors"}</p></div>
+          <div className="flex gap-1.5"><div className="min-w-0 flex-1"><Input value={customModel} onChange={setCustomModel} placeholder={zh ? "添加自定义模型 ID" : "Custom model ID"} /></div><ActionButton onClick={() => { addResident(customModel); setCustomModel(""); }}>{zh ? "添加" : "ADD"}</ActionButton></div>
+          <div className="mt-2 max-h-48 overflow-y-auto rounded-[5px] border border-line bg-void/60 p-1">
+            {residentModels.length === 0 ? <p className="px-2 py-5 text-center text-[9.5px] text-faint">{zh ? "尚未选择常驻模型" : "No resident models selected"}</p> : residentModels.map((id) => <div key={id} className="flex h-7 min-w-0 items-center gap-2 rounded-[3px] px-2 hover:bg-high"><span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2" title={id}>{id}</span><button onClick={() => setResidentModels((items) => items.filter((item) => item !== id))} className="shrink-0 text-faint hover:text-red" title={zh ? "移除" : "Remove"}><Icon name="x" size={9} /></button></div>)}
+          </div>
+        </div>
+      </div>}
+    </div>}
     {error && <p className="mt-2 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{error}</p>}
-    <div className="mt-3 flex justify-end"><ActionButton tone="accent" disabled={busy} onClick={() => void save()}>{busy ? t("loading") : kind === "oauth" ? (zh ? "使用 Grok OAuth" : "Use Grok OAuth") : (zh ? "保存并拉取模型" : "Save & fetch models")}</ActionButton></div>
+    <div className="mt-3 flex justify-end"><ActionButton tone="accent" disabled={busy} onClick={() => void save()}>{busy ? t("loading") : kind === "oauth" ? (zh ? "使用 Grok OAuth" : "Use Grok OAuth") : (zh ? "保存" : "Save")}</ActionButton></div>
+
+    {profiles.length > 0 && <div className="mt-5"><div className="mb-2 flex items-center justify-between"><p className="lbl !text-[9.5px]">{zh ? "已保存的第三方供应商" : "SAVED COMPATIBLE PROVIDERS"}</p><span className="tnum text-[9px] text-faint">{profiles.length}</span></div><div className="space-y-1.5">{profiles.map((profile) => <div key={profile.id} className={`flex min-w-0 items-center gap-3 rounded-[5px] border px-3 py-2.5 ${activeProfileId === profile.id ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise"}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeProfileId === profile.id ? "bg-acc" : "bg-faint"}`} /><div className="min-w-0 flex-1"><p className="truncate text-[10.5px] text-fg2" title={profile.name}>{profile.name}</p><p className="mt-0.5 truncate font-mono text-[8.5px] text-faint" title={profile.baseUrl}>{profile.baseUrl} · {profile.residentModels.length} {zh ? "个常驻模型" : "resident"}</p></div>{activeProfileId === profile.id && <span className="chip shrink-0">{zh ? "使用中" : "ACTIVE"}</span>}<button onClick={() => editProfile(profile.id)} className="shrink-0 font-mono text-[9px] text-dim hover:text-fg">{zh ? "编辑" : "EDIT"}</button>{activeProfileId !== profile.id && <button onClick={() => void activateProfile(profile.id).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))} className="shrink-0 font-mono text-[9px] text-acc hover:text-fg">{zh ? "切换" : "USE"}</button>}<button onClick={() => { if (window.confirm(zh ? `删除供应商“${profile.name}”？` : `Delete provider “${profile.name}”?`)) void deleteProfile(profile.id); }} className="shrink-0 text-faint hover:text-red" title={zh ? "删除" : "Delete"}><Icon name="trash" size={10} /></button></div>)}</div></div>}
 
     <div className="mt-5 rounded-[6px] border border-line2 bg-raise p-3">
       <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 rounded-full ${provider.kind === "oauth" ? "animate-pulse-dot bg-acc" : "bg-gold"}`} /><div className="min-w-0 flex-1"><p className="text-[11px] text-fg2">{zh ? "常驻模型" : "Resident model"}</p><p className="mt-0.5 text-[9.5px] text-dim">{provider.kind === "oauth" ? (zh ? "实时目录" : "Live catalog") : (zh ? "API 模型目录" : "API catalog")} · {models.length} {zh ? "个模型" : "models"}{modelsUpdatedAt ? ` · ${new Date(modelsUpdatedAt).toLocaleTimeString()}` : ""}</p></div><ActionButton onClick={() => void refreshModels()}>{t("refresh")}</ActionButton></div>
@@ -180,16 +296,26 @@ function Appearance() {
   const setLanguage = usePreferences((state) => state.setLanguage);
   const theme = usePreferences((state) => state.theme);
   const setTheme = usePreferences((state) => state.setTheme);
+  const fontSize = usePreferences((state) => state.fontSize);
+  const setFontSize = usePreferences((state) => state.setFontSize);
+  const fontWeight = usePreferences((state) => state.fontWeight);
+  const setFontWeight = usePreferences((state) => state.setFontWeight);
   const [reduceMotion, setReduceMotion] = useState(localStorage.getItem("grok.pref.reduceMotion") === "1");
-  const updateMotion = (value: boolean) => { localStorage.setItem("grok.pref.reduceMotion", value ? "1" : "0"); document.documentElement.dataset.reduceMotion = value ? "1" : "0"; setReduceMotion(value); };
+  const updateMotion = (value: boolean) => { localStorage.setItem("grok.pref.reduceMotion", value ? "1" : "0"); document.documentElement.dataset.reduceMotion = value ? "1" : "0"; window.dispatchEvent(new Event("grox-motion-change")); setReduceMotion(value); };
   return <div><Heading title={t("appearance")} description={uiLanguage === "zh-CN" ? "语言默认为中文，主题默认为 GrokNight 暗黑模式。" : "The default language is Chinese and the default theme is GrokNight dark."} />
     <Row label={t("language")}><div className="flex gap-1"><Choice active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>{t("chinese")}</Choice><Choice active={language === "en-US"} onClick={() => setLanguage("en-US")}>{t("english")}</Choice></div></Row>
     <Row label={t("theme")}><div className="flex gap-1"><Choice active={theme === "dark"} onClick={() => setTheme("dark")}><Icon name="moon" size={10} /> {t("dark")}</Choice><Choice active={theme === "light"} onClick={() => setTheme("light")}><Icon name="sun" size={10} /> {t("light")}</Choice></div></Row>
+    <Row label={uiLanguage === "zh-CN" ? "字体大小" : "Font size"} hint={uiLanguage === "zh-CN" ? "统一调整正文、工具信息、侧栏标签和代码字号。" : "Adjust text, tool details, sidebar labels, and code together."}><RangeControl value={fontSize} min={0} max={6} step={0.25} display={`+${fontSize.toFixed(2).replace(/\.00$/, "").replace(/0$/, "")} px`} onChange={setFontSize} label={uiLanguage === "zh-CN" ? "字体大小" : "Font size"} /></Row>
+    <Row label={uiLanguage === "zh-CN" ? "字体粗细" : "Font weight"}><RangeControl value={fontWeight} min={400} max={700} step={25} display={String(fontWeight)} onChange={setFontWeight} label={uiLanguage === "zh-CN" ? "字体粗细" : "Font weight"} /></Row>
     <Row label={uiLanguage === "zh-CN" ? "减少动态效果" : "Reduce motion"} hint={uiLanguage === "zh-CN" ? "停用轨道动画和进入过渡。" : "Disable orbital animations and entrance transitions."}><Toggle on={reduceMotion} onChange={updateMotion} /></Row>
   </div>;
 }
 
 function Choice({ active, onClick, children }: { active: boolean; onClick(): void; children: React.ReactNode }) { return <button onClick={onClick} className={`flex h-8 items-center gap-1.5 rounded-[4px] border px-3 font-mono text-[9.5px] ${active ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim"}`}>{children}</button>; }
+
+function RangeControl({ value, min, max, step, display, label, onChange }: { value: number; min: number; max: number; step: number; display: string; label: string; onChange(value: number): void }) {
+  return <div className="w-[260px]"><div className="mb-1 flex items-center justify-between font-mono text-[9.5px] text-faint"><span>{min}</span><output className="rounded-[3px] border border-line2 bg-void px-2 py-0.5 text-acc">{display}</output><span>{max}</span></div><input aria-label={label} className="grox-range block w-full appearance-none bg-transparent" type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></div>;
+}
 
 function useExtension<T>(loader: () => Promise<T>, dependencies: unknown[]) {
   const [data, setData] = useState<T | null>(null);

@@ -20,23 +20,18 @@ fn check_protoc_good(protoc: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(not(windows))]
-fn is_github_actions() -> bool {
-    env::var_os("GITHUB_ACTIONS").is_some()
-}
-
 /// Find `protoc` command.
 ///
 /// Search order:
 /// 1. `$PROTOC` environment variable (set by Bazel `build_script_env` or user override)
 /// 2. `bin/protoc` walking up parent directories (dotslash wrapper for local dev)
 /// 3. `protoc` on `$PATH` (system install or other tooling)
+/// 4. The platform-specific compiler supplied by `protoc-bin-vendored`
 ///
 /// When `bin/protoc` exists but fails to execute (e.g. the dotslash wrapper running
 /// in Bazel remote execution where `dotslash` is not installed), the error is not fatal —
 /// we fall through to the PATH-based lookup instead.
 ///
-/// Returns `Ok(None)` if not found and not in a strict environment (GitHub Actions).
 pub fn find_protoc() -> anyhow::Result<Option<PathBuf>> {
     // 1. Check the PROTOC env var first. This is the standard override used by prost-build
     //    and is set by Bazel cargo_build_script build_script_env to point at a hermetic
@@ -47,16 +42,6 @@ pub fn find_protoc() -> anyhow::Result<Option<PathBuf>> {
             check_protoc_good(&protoc)?;
             return Ok(Some(protoc));
         }
-    }
-
-    // The repository's bin/protoc is a DotSlash wrapper and cannot execute on
-    // Windows. Keep Windows builds self-contained instead of requiring every
-    // desktop contributor to install a system protobuf compiler.
-    #[cfg(windows)]
-    {
-        let protoc = protoc_bin_vendored_win32::protoc_bin_path();
-        check_protoc_good(&protoc)?;
-        return Ok(Some(protoc));
     }
 
     #[cfg(not(windows))]
@@ -95,13 +80,13 @@ pub fn find_protoc() -> anyhow::Result<Option<PathBuf>> {
             return Ok(Some(PathBuf::from("protoc")));
         }
 
-        // 4. Not found anywhere.
-        if is_github_actions() {
-            return Err(anyhow::anyhow!(
-                "`protoc` not found (checked $PROTOC env, bin/protoc, and PATH)"
-            ));
-        }
-        eprintln!("`protoc` not found; likely it is missing in docker image");
-        Ok(None)
     }
+
+    // Keep every supported desktop build self-contained. In particular, the
+    // repository's bin/protoc is a DotSlash launcher that is not available on
+    // clean GitHub macOS runners.
+    let protoc = protoc_bin_vendored::protoc_bin_path()
+        .context("Failed to locate vendored protoc for this build host")?;
+    check_protoc_good(&protoc)?;
+    Ok(Some(protoc))
 }

@@ -8,13 +8,18 @@ import { useEffect, useRef, useState } from "react";
 import { useDesktop } from "../../state/store";
 import {
   EFFORTS,
-  type AgentMode,
-  type PermissionMode,
   type PromptAttachment,
 } from "../../bridge/types";
 import { ChipSelect } from "../common/ChipSelect";
+import { PromptOptionsMenu, ProviderSwitcher } from "../common/PromptControls";
 import { Icon } from "../fx/Icon";
 import { useI18n } from "../../lib/i18n";
+import {
+  MAX_ATTACHMENTS,
+  prepareAttachment,
+  validateAttachmentSet,
+} from "../../lib/attachments";
+import { RewindMenu } from "./RewindMenu";
 
 interface SlashCmd {
   id: string;
@@ -22,60 +27,20 @@ interface SlashCmd {
   run: () => void;
 }
 
-const MAX_ATTACHMENTS = 8;
-const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
-const TEXT_EXTENSIONS = new Set([
-  "txt", "md", "mdx", "json", "jsonl", "toml", "yaml", "yml", "xml", "csv",
-  "tsv", "css", "html", "htm", "js", "jsx", "ts", "tsx", "rs", "py", "go",
-  "java", "c", "h", "cpp", "hpp", "sh", "ps1", "sql", "log",
-]);
-
-function fileMime(file: File) {
-  return file.type || "application/octet-stream";
-}
-
-function isTextFile(file: File) {
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-  return file.type.startsWith("text/") || TEXT_EXTENSIONS.has(extension);
-}
-
-function readBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("Unable to read attachment"));
-    reader.onload = () => {
-      const value = typeof reader.result === "string" ? reader.result : "";
-      resolve(value.slice(value.indexOf(",") + 1));
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-async function prepareAttachment(file: File, fallbackName?: string): Promise<PromptAttachment> {
-  const name = file.name || fallbackName || `clipboard-${Date.now()}.png`;
-  const mime = fileMime(file);
-  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`${name} exceeds 16 MB`);
-  if (mime.startsWith("image/")) {
-    return { id: crypto.randomUUID(), kind: "image", name, mime, size: file.size, data: await readBase64(file) };
-  }
-  if (isTextFile(file)) {
-    return { id: crypto.randomUUID(), kind: "text", name, mime, size: file.size, text: await file.text() };
-  }
-  return { id: crypto.randomUUID(), kind: "binary", name, mime, size: file.size, data: await readBase64(file) };
-}
-
 export function Composer() {
   const { language } = useI18n();
-  const [text, setText] = useState("");
   const [slashIdx, setSlashIdx] = useState(0);
-  const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [readingFiles, setReadingFiles] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const sendPrompt = useDesktop((s) => s.sendPrompt);
+  const composer = useDesktop((s) => s.activeId ? s.sessionComposers[s.activeId] : undefined);
+  const text = composer?.text ?? "";
+  const attachments = composer?.attachments ?? [];
+  const setText = useDesktop((s) => s.setDraft);
+  const setAttachments = useDesktop((s) => s.setComposerAttachments);
   const stop = useDesktop((s) => s.stop);
   const compact = useDesktop((s) => s.compact);
   const status = useDesktop((s) => (s.activeId ? s.sessions[s.activeId]?.status : null));
@@ -147,15 +112,15 @@ export function Composer() {
       const prepared: PromptAttachment[] = [];
       for (const file of files) prepared.push(await prepareAttachment(file));
       const next = [...attachments, ...prepared];
-      if (next.length > MAX_ATTACHMENTS) {
-        throw new Error(language === "zh-CN" ? "每次最多上传 8 个附件" : "Up to 8 attachments per prompt");
-      }
-      if (next.reduce((total, item) => total + item.size, 0) > MAX_TOTAL_BYTES) {
-        throw new Error(language === "zh-CN" ? "附件总大小不能超过 32 MB" : "Attachments cannot exceed 32 MB in total");
-      }
+      validateAttachmentSet(next);
       setAttachments(next);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const code = cause instanceof Error ? cause.message : String(cause);
+      const message = code === "attachment_count"
+        ? (language === "zh-CN" ? "每次最多上传 8 个附件" : "Up to 8 attachments per prompt")
+        : code === "attachment_size"
+          ? (language === "zh-CN" ? "附件总大小不能超过 32 MB" : "Attachments cannot exceed 32 MB in total")
+          : code;
       setAttachmentError(language === "zh-CN" ? message.replace(" exceeds 16 MB", " 超过 16 MB") : message);
     } finally {
       setReadingFiles(false);
@@ -259,7 +224,7 @@ export function Composer() {
                     <span className="flex h-6 w-6 items-center justify-center rounded-[3px] bg-raise text-dim"><Icon name="file" size={11} /></span>
                   )}
                   <div className="min-w-0 flex-1"><p className="truncate font-mono text-[9.5px] text-fg2">{attachment.name}</p><p className="font-mono text-[8.5px] text-faint">{attachment.size < 1024 * 1024 ? `${Math.max(1, Math.round(attachment.size / 1024))} KB` : `${(attachment.size / 1024 / 1024).toFixed(1)} MB`}</p></div>
-                  <button onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))} className="flex h-6 w-6 items-center justify-center rounded-[3px] text-faint hover:bg-raise hover:text-fg" title={language === "zh-CN" ? "移除附件" : "Remove attachment"}><Icon name="x" size={9} /></button>
+                  <button onClick={() => setAttachments(attachments.filter((item) => item.id !== attachment.id))} className="flex h-6 w-6 items-center justify-center rounded-[3px] text-faint hover:bg-raise hover:text-fg" title={language === "zh-CN" ? "移除附件" : "Remove attachment"}><Icon name="x" size={9} /></button>
                 </div>
               ))}
             </div>
@@ -281,20 +246,7 @@ export function Composer() {
 
           {/* control strip */}
           <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1">
-            {/* mode segmented */}
-            <div className="flex items-center rounded-[4px] border border-line2 p-0.5">
-              {(["agent", "plan", "ask"] as AgentMode[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`h-6 rounded-[3px] px-2.5 font-mono text-[9.5px] tracking-[0.12em] transition-colors ${
-                    mode === m ? "bg-high text-acc" : "text-dim hover:text-fg2"
-                  }`}
-                >
-                  {m.toUpperCase()}
-                </button>
-              ))}
-            </div>
+            <ProviderSwitcher />
 
             <ChipSelect
               label={
@@ -306,25 +258,7 @@ export function Composer() {
               width={240}
             />
 
-            <ChipSelect
-              label={`${language === "zh-CN" ? "权限" : "ACCESS"} ${permissionMode.toUpperCase()}`}
-              items={([
-                { id: "default", label: "DEFAULT", hint: language === "zh-CN" ? "工具按需请求批准" : "Ask before protected tools" },
-                { id: "auto", label: "AUTO", hint: language === "zh-CN" ? "遵循 Agent 自动策略" : "Follow Agent policy" },
-                { id: "bypass", label: "BYPASS / YOLO", hint: language === "zh-CN" ? "仅用于可信环境" : "Trusted environments only" },
-              ] satisfies { id: PermissionMode; label: string; hint: string }[])}
-              activeId={permissionMode}
-              onSelect={(id) => setPermissionMode(id as PermissionMode)}
-              width={210}
-            />
-
-            <ChipSelect
-              label={`${language === "zh-CN" ? "思考" : "EFFORT"} ${effort.toUpperCase()}`}
-              items={EFFORTS.map((e) => ({ id: e, label: e.toUpperCase() }))}
-              activeId={effort}
-              onSelect={(id) => setEffort(id as (typeof EFFORTS)[number])}
-              width={130}
-            />
+            <PromptOptionsMenu mode={mode} effort={effort} permissionMode={permissionMode} onMode={setMode} onEffort={setEffort} onPermission={setPermissionMode} />
 
             <button
               onClick={() => fileRef.current?.click()}
@@ -337,6 +271,10 @@ export function Composer() {
             </button>
 
             <div className="flex-1" />
+
+            {!running && (
+              <RewindMenu onComplete={() => taRef.current?.focus()} />
+            )}
 
             {running ? (
               <button

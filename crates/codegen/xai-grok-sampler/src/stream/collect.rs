@@ -86,12 +86,14 @@ mod tests {
                     role: Some(Role::Assistant),
                     content: Some(text.to_string()),
                     reasoning_content: None,
+                    citations: None,
                     tool_calls: vec![],
                     tool_call_id: None,
                 },
                 finish_reason: None,
             }],
             usage: None,
+            citations: None,
             system_fingerprint: None,
         }
     }
@@ -108,6 +110,7 @@ mod tests {
                 finish_reason: Some(FinishReason::Stop),
             }],
             usage: None,
+            citations: None,
             system_fingerprint: None,
         }
     }

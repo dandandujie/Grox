@@ -1,59 +1,48 @@
-//! Cached HTTP client with atomic invalidation for `web_fetch`.
+//! HTTP client construction for `web_fetch`.
 //!
-//! The `reqwest::Client` is held behind an `ArcSwapOption` so it can be
-//! atomically invalidated on transport errors, forcing the next call to rebuild
-//! with a fresh connection pool. This prevents connection pool poisoning
-//! (half-read connections being returned to the pool and corrupting subsequent
-//! requests).
+//! Each request gets a client pinned to the DNS addresses that passed the SSRF
+//! policy. Reusing an unpinned client would reopen a DNS-rebinding window.
 
-use std::sync::Arc;
-
-use arc_swap::ArcSwapOption;
+use std::net::SocketAddr;
 
 use super::config::WebFetchParams;
 use super::error::WebFetchError;
 
-/// Cached, invalidatable HTTP client for web fetching.
-///
-/// - **Normal path:** `get_or_rebuild()` returns the cached client via a
-///   lock-free atomic load.
-/// - **On transport error:** call `invalidate()` to atomically set the
-///   client to `None`. The next `get_or_rebuild()` falls through and
-///   builds a fresh client with a clean connection pool.
+/// Factory for web-fetch clients that share transport settings.
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
-    inner: Arc<ArcSwapOption<reqwest::Client>>,
     params: WebFetchParams,
 }
 
 impl HttpClient {
     pub(crate) fn new(params: &WebFetchParams) -> Result<Self, WebFetchError> {
-        let client = Self::build(params)?;
+        // Validate proxy and TLS client configuration at construction time.
+        let _ = Self::build(params)?;
         Ok(Self {
-            inner: Arc::new(ArcSwapOption::from(Some(Arc::new(client)))),
             params: params.clone(),
         })
     }
 
-    /// Get the current client, rebuilding if it was invalidated.
-    pub(crate) fn get_or_rebuild(&self) -> Result<Arc<reqwest::Client>, WebFetchError> {
-        // Fast path: lock-free atomic load.
-        if let Some(client) = self.inner.load_full() {
-            return Ok(client);
-        }
-        // Client was invalidated — rebuild with a fresh connection pool.
-        let fresh = Arc::new(Self::build(&self.params)?);
-        self.inner.store(Some(Arc::clone(&fresh)));
-        Ok(fresh)
-    }
-
-    /// Atomically invalidate the cached client. The next `get_or_rebuild()`
-    /// will construct a fresh one with a clean connection pool.
-    pub(crate) fn invalidate(&self) {
-        self.inner.store(None);
+    /// Build a request client whose DNS result is fixed to addresses that have
+    /// already passed the SSRF policy. This closes the validation/request race.
+    pub(crate) fn for_resolved_host(
+        &self,
+        host: &str,
+        addrs: &[SocketAddr],
+    ) -> Result<reqwest::Client, WebFetchError> {
+        Self::builder(&self.params)?
+            .resolve_to_addrs(host, addrs)
+            .build()
+            .map_err(WebFetchError::ClientBuildError)
     }
 
     fn build(params: &WebFetchParams) -> Result<reqwest::Client, WebFetchError> {
+        Self::builder(params)?
+            .build()
+            .map_err(WebFetchError::ClientBuildError)
+    }
+
+    fn builder(params: &WebFetchParams) -> Result<reqwest::ClientBuilder, WebFetchError> {
         let mut builder = reqwest::Client::builder()
             .timeout(params.timeout_secs())
             .connect_timeout(std::time::Duration::from_secs(10))
@@ -74,7 +63,7 @@ impl HttpClient {
             builder = builder.proxy(proxy);
         }
 
-        builder.build().map_err(WebFetchError::ClientBuildError)
+        Ok(builder)
     }
 }
 
@@ -83,25 +72,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn get_or_rebuild_returns_client() {
+    fn builds_client() {
         let client = HttpClient::new(&WebFetchParams::default()).unwrap();
-        let http = client.get_or_rebuild().unwrap();
-        assert!(Arc::strong_count(&http) >= 1);
-    }
-
-    #[test]
-    fn invalidate_forces_rebuild() {
-        let client = HttpClient::new(&WebFetchParams::default()).unwrap();
-        let first = client.get_or_rebuild().unwrap();
-        let first_ptr = Arc::as_ptr(&first);
-
-        client.invalidate();
-
-        let second = client.get_or_rebuild().unwrap();
-        let second_ptr = Arc::as_ptr(&second);
-
-        // After invalidation, we should get a different client instance.
-        assert_ne!(first_ptr, second_ptr);
+        let addrs = ["93.184.216.34:443".parse().unwrap()];
+        assert!(client.for_resolved_host("example.com", &addrs).is_ok());
     }
 
     #[test]

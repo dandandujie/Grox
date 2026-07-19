@@ -7,9 +7,8 @@ import { AcpBridge } from "./AcpBridge";
 /** Tauri ships with ACP enabled; the browser remains an offline showcase. */
 export function createBridge(): GrokBridge {
   const params = new URLSearchParams(window.location.search);
-  const stored = window.localStorage.getItem("grok.bridge");
   const inTauri = "__TAURI_INTERNALS__" in window;
-  const wantsMock = params.has("mock") || stored === "mock";
+  const wantsMock = params.has("mock");
   if (inTauri && !wantsMock) return new AcpBridge();
   return new MockBridge();
 }

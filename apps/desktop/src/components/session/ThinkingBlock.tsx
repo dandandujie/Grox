@@ -13,19 +13,20 @@ import { useI18n } from "../../lib/i18n";
 
 type ThinkingBlock = Extract<SessionBlock, { type: "thinking" }>;
 
-export function ThinkingBlock({ block }: { block: ThinkingBlock }) {
+export function ThinkingBlock({ block, processing = false }: { block: ThinkingBlock; processing?: boolean }) {
   const { language } = useI18n();
   const [open, setOpen] = useState(false);
   const live = block.live ?? false;
 
   return (
-    <div className="mb-5 animate-fade-up">
+    <div className="process-thinking mb-3 animate-fade-up">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2.5 text-left"
+        className="flex min-h-7 w-full items-center gap-2 text-left"
       >
-        <BlackHole size={15} spin={live} />
-        <span className={`lbl ${live ? "lbl-acc" : ""}`}>
+        <span className={`process-node ${live ? "is-live" : "is-done"}`} aria-hidden="true" />
+        <BlackHole size={13} spin={live} />
+        <span className={`text-[10.5px] font-medium ${live ? "text-fg2" : "text-dim"}`}>
           {live
             ? language === "zh-CN" ? "思考中" : "THINKING"
             : `${language === "zh-CN" ? "思考" : "THOUGHT"}${block.elapsedMs ? ` · ${fmtDuration(block.elapsedMs).toUpperCase()}` : ""}`}
@@ -38,8 +39,8 @@ export function ThinkingBlock({ block }: { block: ThinkingBlock }) {
           className={`text-faint transition-transform duration-150 ${open ? "rotate-90" : ""}`}
         />
       </button>
-      {(open || live) && block.text && (
-        <div className="ml-[22px] mt-2 border-l border-line2 pl-3 text-[12.5px] italic leading-relaxed text-dim select-text">
+      {(open || live || processing) && block.text && (
+        <div className="ml-[6px] mt-1 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-words border-l border-line2 pb-1 pl-6 text-[12.5px] leading-[1.72] text-mute select-text">
           {block.text}
           {live && <span className="ml-0.5 inline-block h-3 w-[6px] animate-blink bg-acc-dim align-[-1px]" />}
         </div>

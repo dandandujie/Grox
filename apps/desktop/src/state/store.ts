@@ -29,7 +29,13 @@ import type {
   PreviewFile,
   ProjectPreview,
   ProviderConfig,
+  ProviderProfileSummary,
+  SaveProviderProfile,
+  GrokRuntimeInfo,
   WorkspaceEntry,
+  RewindMode,
+  RewindPoint,
+  RewindResult,
 } from "../bridge/types";
 import { DEMO_CWD } from "../demo/data";
 
@@ -51,6 +57,15 @@ interface SessionFlags {
   archived?: boolean;
 }
 
+export interface SessionComposerState {
+  text: string;
+  attachments: PromptAttachment[];
+  model: string;
+  effort: Effort;
+  mode: AgentMode;
+  permissionMode: PermissionMode;
+}
+
 interface DesktopState {
   ready: boolean;
   startupError: string | null;
@@ -67,6 +82,11 @@ interface DesktopState {
   account: AccountInfo | null;
   billing: BillingInfo | null;
   provider: ProviderStatus;
+  providerProfiles: ProviderProfileSummary[];
+  activeProviderProfileId?: string;
+  providerSwitching: boolean;
+  runtime: GrokRuntimeInfo | null;
+  runtimeBusy: boolean;
   accountLoading: boolean;
   accountSetupOpen: boolean;
 
@@ -85,11 +105,16 @@ interface DesktopState {
   effort: Effort;
   mode: AgentMode;
   permissionMode: PermissionMode;
+  sessionComposers: Record<string, SessionComposerState>;
 
   inspectorOpen: boolean;
   inspectorTab: InspectorTab;
   paletteOpen: boolean;
   settingsOpen: boolean;
+  historySyncing: boolean;
+  historyCount: number;
+  historyError: string | null;
+  historySyncedAt: number;
 
   init(): Promise<void>;
   goHome(): void;
@@ -112,10 +137,18 @@ interface DesktopState {
   refreshAccount(): Promise<void>;
   refreshModels(): Promise<void>;
   configureProvider(config: ProviderConfig): Promise<void>;
+  refreshProviderProfiles(): Promise<void>;
+  saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary>;
+  refreshProviderModels(id: string): Promise<ProviderProfileSummary>;
+  activateProviderProfile(id: string): Promise<void>;
+  deleteProviderProfile(id: string): Promise<void>;
+  refreshRuntime(): Promise<void>;
+  useBundledRuntime(): Promise<void>;
+  installOfficialRuntime(): Promise<void>;
   setAccountSetupOpen(open: boolean): void;
   refreshWorkspaceFiles(): Promise<void>;
   refreshWorkspaceDiffs(): Promise<void>;
-  refreshProjectPreview(autoOpen?: boolean): Promise<void>;
+  refreshProjectPreview(start?: boolean): Promise<void>;
   setProjectPreviewUrl(url: string): void;
   openPreview(path: string): Promise<void>;
   closePreview(): void;
@@ -123,6 +156,9 @@ interface DesktopState {
   sendPrompt(text: string, attachments?: PromptAttachment[]): void;
   stop(): void;
   compact(): void;
+  listRewindPoints(): Promise<RewindPoint[]>;
+  previewRewind(targetPromptIndex: number, mode: RewindMode): Promise<RewindResult>;
+  executeRewind(point: RewindPoint, mode: RewindMode): Promise<RewindResult>;
   resolvePermission(blockId: string, option: PermissionOption): void;
   resolveQuestion(blockId: string, response: QuestionResponse): void;
 
@@ -130,13 +166,22 @@ interface DesktopState {
   setEffort(effort: Effort): void;
   setMode(mode: AgentMode): void;
   setPermissionMode(mode: PermissionMode): void;
+  setDraft(text: string): void;
+  setComposerAttachments(attachments: PromptAttachment[]): void;
   setInspectorTab(tab: InspectorTab): void;
   toggleInspector(): void;
   setPaletteOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
+  refreshHistory(): Promise<void>;
 }
 
 const uid = () => crypto.randomUUID();
+const SESSION_COMPOSERS_KEY = "grox.sessionComposers.v1";
+let catalogPersistTimer: number | undefined;
+let pendingCatalog: SessionMeta[] | undefined;
+let composerPersistTimer: number | undefined;
+let pendingComposerStates: Record<string, SessionComposerState> | undefined;
+let historySyncPromise: Promise<void> | undefined;
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -145,6 +190,29 @@ function loadJson<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function loadSessionComposers(): Record<string, SessionComposerState> {
+  const stored = loadJson<Record<string, Omit<SessionComposerState, "attachments">>>(
+    SESSION_COMPOSERS_KEY,
+    {},
+  );
+  return Object.fromEntries(
+    Object.entries(stored).map(([id, state]) => [id, { ...state, attachments: [] }]),
+  );
+}
+
+function persistSessionComposers(states: Record<string, SessionComposerState>) {
+  pendingComposerStates = states;
+  if (composerPersistTimer !== undefined) return;
+  composerPersistTimer = window.setTimeout(() => {
+    const serializable = Object.fromEntries(
+      Object.entries(pendingComposerStates ?? {}).map(([id, { attachments: _attachments, ...state }]) => [id, state]),
+    );
+    localStorage.setItem(SESSION_COMPOSERS_KEY, JSON.stringify(serializable));
+    pendingComposerStates = undefined;
+    composerPersistTimer = undefined;
+  }, 300);
 }
 
 const projectId = (path: string) => path.replace(/[\\/]+$/, "").toLocaleLowerCase();
@@ -181,6 +249,9 @@ function decorateSessions(metas: SessionMeta[]) {
 }
 
 function persistSessionCatalog(metas: SessionMeta[]) {
+  if (catalogPersistTimer !== undefined) window.clearTimeout(catalogPersistTimer);
+  catalogPersistTimer = undefined;
+  pendingCatalog = undefined;
   const clean = metas.map(({ pinned: _pinned, archived: _archived, ...meta }) => meta);
   localStorage.setItem("grox.sessionCatalog", JSON.stringify(clean));
 }
@@ -197,6 +268,37 @@ function mergeProjectSessions(
   ].sort((a, b) => b.updatedAt - a.updatedAt);
   persistSessionCatalog(merged);
   return merged;
+}
+
+function mergeAllSessions(existing: SessionMeta[], incoming: SessionMeta[]): SessionMeta[] {
+  const incomingIds = new Set(incoming.map((meta) => meta.id));
+  const merged = [
+    ...decorateSessions(incoming),
+    ...existing.filter((meta) => !incomingIds.has(meta.id)),
+  ].sort((a, b) => b.updatedAt - a.updatedAt);
+  persistSessionCatalog(merged);
+  return merged;
+}
+
+function mergeDiscoveredProjects(projects: ProjectMeta[], sessions: SessionMeta[]): ProjectMeta[] {
+  const next = [...projects];
+  const known = new Set(next.map((project) => project.id));
+  for (const session of sessions) {
+    const id = projectId(session.cwd);
+    if (!session.cwd.trim() || known.has(id)) continue;
+    known.add(id);
+    next.push({
+      id,
+      path: session.cwd,
+      name: projectName(session.cwd),
+      pinned: false,
+      archived: false,
+      createdAt: session.createdAt,
+      lastOpenedAt: session.updatedAt,
+    });
+  }
+  if (next.length !== projects.length) localStorage.setItem("grox.projects", JSON.stringify(next));
+  return next;
 }
 
 function patchLines(path: string, patch: string, additions = 0, deletions = 0): DiffHunk {
@@ -251,14 +353,38 @@ function resolveModelState(state: ModelState) {
   return { models, model, modelsUpdatedAt: Date.now() };
 }
 
+function providerModelState(state: ModelState, profile?: ProviderProfileSummary): ModelState {
+  if (!profile || profile.residentModels.length === 0) return state;
+  return {
+    currentId: profile.residentModels.includes(state.currentId) ? state.currentId : profile.residentModels[0],
+    models: profile.residentModels.map((id) => state.models.find((item) => item.id === id) ?? {
+      id,
+      label: id,
+      tagline: profile.name,
+    }),
+  };
+}
+
 /* StrictMode mounts effects twice in dev — subscribe once, ever. */
 let bridgeSubscribed = false;
 let workspaceWatchTimer: number | undefined;
 let workspaceWatchTick = 0;
 
+function scheduleSessionCatalog(metas: SessionMeta[]) {
+  pendingCatalog = metas;
+  if (catalogPersistTimer !== undefined) return;
+  catalogPersistTimer = window.setTimeout(() => {
+    if (pendingCatalog) persistSessionCatalog(pendingCatalog);
+    pendingCatalog = undefined;
+    catalogPersistTimer = undefined;
+  }, 750);
+}
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     if (workspaceWatchTimer !== undefined) window.clearInterval(workspaceWatchTimer);
+    if (catalogPersistTimer !== undefined) window.clearTimeout(catalogPersistTimer);
+    if (composerPersistTimer !== undefined) window.clearTimeout(composerPersistTimer);
   });
 }
 
@@ -286,16 +412,21 @@ export const useDesktop = create<DesktopState>((set, get) => {
   const applyEvent = (e: BridgeEvent) => {
     const { sessions, sessionIndex } = get();
 
-    const withSession = (sessionId: string, fn: (s: Session) => Session) => {
-      const s = sessions[sessionId];
+    const withSession = (sessionId: string, fn: (s: Session) => Session, touchCatalogue = true) => {
+      const state = get();
+      const s = state.sessions[sessionId];
       if (!s) return;
       const next = { ...fn(s), updatedAt: Date.now() };
-      const nextIndex = sessionIndex.map((m) =>
+      if (!touchCatalogue) {
+        set({ sessions: { ...state.sessions, [sessionId]: next } });
+        return;
+      }
+      const nextIndex = state.sessionIndex.map((m) =>
         m.id === sessionId ? { ...m, updatedAt: next.updatedAt } : m,
       );
-      persistSessionCatalog(nextIndex);
+      scheduleSessionCatalog(nextIndex);
       set({
-        sessions: { ...sessions, [sessionId]: next },
+        sessions: { ...state.sessions, [sessionId]: next },
         sessionIndex: nextIndex,
       });
     };
@@ -303,10 +434,45 @@ export const useDesktop = create<DesktopState>((set, get) => {
     switch (e.type) {
       case "auth_state":
         set({ auth: e.state });
+        if (!e.state.required && !e.state.inProgress && get().historySyncedAt === 0 && !get().historySyncing) {
+          window.setTimeout(() => void get().refreshHistory(), 250);
+        }
         break;
       case "model_state":
-        set(resolveModelState(e.state));
+        {
+          const currentState = get();
+          const profile = currentState.providerProfiles.find((item) => item.id === currentState.activeProviderProfileId);
+          const resolved = resolveModelState(providerModelState(e.state, profile));
+          const { activeId, sessionComposers } = get();
+          const active = activeId ? sessionComposers[activeId] : undefined;
+          const model = active && resolved.models.some((item) => item.id === active.model)
+            ? active.model
+            : resolved.model;
+          const nextComposers = activeId && active
+            ? { ...sessionComposers, [activeId]: { ...active, model } }
+            : sessionComposers;
+          if (nextComposers !== sessionComposers) persistSessionComposers(nextComposers);
+          set({ ...resolved, model, sessionComposers: nextComposers });
+        }
         break;
+      case "mode_state": {
+        const state = get();
+        const current = state.sessionComposers[e.sessionId];
+        if (!current) {
+          if (state.activeId === e.sessionId) set({ mode: e.mode });
+          break;
+        }
+        const sessionComposers = {
+          ...state.sessionComposers,
+          [e.sessionId]: { ...current, mode: e.mode },
+        };
+        persistSessionComposers(sessionComposers);
+        set({
+          sessionComposers,
+          ...(state.activeId === e.sessionId ? { mode: e.mode } : {}),
+        });
+        break;
+      }
       case "session_meta": {
         const current = sessions[e.sessionId];
         const nextIndex = sessionIndex.map((meta) =>
@@ -329,6 +495,21 @@ export const useDesktop = create<DesktopState>((set, get) => {
         ];
         const projects = ensureProject(get().projects, e.session.cwd);
         persistSessionCatalog(nextIndex);
+        const state = get();
+        const existingComposer = state.sessionComposers[e.session.id];
+        const composer: SessionComposerState = existingComposer ?? {
+          text: "",
+          attachments: [],
+          model: state.models.some((item) => item.id === e.session.model)
+            ? e.session.model
+            : state.model,
+          effort: state.effort,
+          mode: state.mode,
+          permissionMode: state.permissionMode,
+        };
+        const sessionComposers = { ...state.sessionComposers, [e.session.id]: composer };
+        persistSessionComposers(sessionComposers);
+        bridge.setPermissionMode(composer.permissionMode);
         set({
           sessions: { ...sessions, [e.session.id]: e.session },
           sessionIndex: nextIndex,
@@ -337,6 +518,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
           activeProjectId: projectId(e.session.cwd),
           activeId: e.session.id,
           view: "session",
+          model: composer.model,
+          effort: composer.effort,
+          mode: composer.mode,
+          permissionMode: composer.permissionMode,
+          sessionComposers,
         });
         break;
       }
@@ -347,13 +533,13 @@ export const useDesktop = create<DesktopState>((set, get) => {
         withSession(e.sessionId, (s) => ({
           ...s,
           blocks: patchBlock(s.blocks, e.blockId, e.patch),
-        }));
+        }), false);
         break;
       case "tool_patch":
         withSession(e.sessionId, (s) => ({
           ...s,
           blocks: patchTool(s.blocks, e.blockId, e.call),
-        }));
+        }), false);
         break;
       case "plan_patch":
         withSession(e.sessionId, (s) => ({
@@ -361,7 +547,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
           blocks: s.blocks.map((b) =>
             b.id === e.blockId && b.type === "plan" ? { ...b, steps: e.steps } : b,
           ),
-        }));
+        }), false);
         break;
       case "assistant_append":
       case "thinking_append":
@@ -372,7 +558,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
               ? { ...b, text: b.text + e.delta }
               : b,
           ),
-        }));
+        }), false);
         break;
       case "permission_request":
         withSession(e.sessionId, (s) => ({
@@ -420,7 +606,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         withSession(e.sessionId, (s) => ({ ...s, status: e.status }));
         break;
       case "usage":
-        withSession(e.sessionId, (s) => ({ ...s, usage: e.usage }));
+        withSession(e.sessionId, (s) => ({ ...s, usage: e.usage }), false);
         break;
       case "error":
         withSession(e.sessionId, (s) => ({
@@ -450,6 +636,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
     account: null,
     billing: null,
     provider: { kind: "oauth", hasApiKey: false },
+    providerProfiles: [],
+    activeProviderProfileId: undefined,
+    providerSwitching: false,
+    runtime: null,
+    runtimeBusy: false,
     accountLoading: false,
     accountSetupOpen:
       localStorage.getItem("grox.accountSetupComplete") !== "1" && bridge.kind !== "mock",
@@ -473,38 +664,37 @@ export const useDesktop = create<DesktopState>((set, get) => {
         : localStorage.getItem("grok.permissionMode") === "bypass"
           ? "bypass"
           : "default",
+    sessionComposers: loadSessionComposers(),
 
     inspectorOpen: true,
     inspectorTab: "files",
     paletteOpen: false,
     settingsOpen: false,
+    historySyncing: false,
+    historyCount: 0,
+    historyError: null,
+    historySyncedAt: 0,
 
     async init() {
       if (bridgeSubscribed) return;
       bridgeSubscribed = true;
       bridge.subscribe(applyEvent);
       try {
+        const runtime = bridge.kind === "acp"
+          ? await invoke<GrokRuntimeInfo>("grok_runtime_info")
+          : null;
+        set({
+          runtime,
+          accountSetupOpen: get().accountSetupOpen || Boolean(runtime?.selectionRequired),
+        });
         const workspace = await bridge.getWorkspace();
         const projects = ensureProject(get().projects, workspace);
-        const projectPaths = [...new Set(projects.map((project) => project.path))];
-        const [catalogues, auth, modelState, provider] = await Promise.all([
-          Promise.all(projectPaths.map(async (path) => {
-            try {
-              return { path, metas: await bridge.listSessions(path) };
-            } catch {
-              return { path, metas: null };
-            }
-          })),
+        const [auth, modelState, provider] = await Promise.all([
           bridge.getAuthState(),
           bridge.getModelState(),
           bridge.getProviderStatus(),
         ]);
-        let sessionIndex = decorateSessions(loadJson<SessionMeta[]>("grox.sessionCatalog", []));
-        for (const catalogue of catalogues) {
-          if (catalogue.metas) {
-            sessionIndex = mergeProjectSessions(sessionIndex, catalogue.path, catalogue.metas);
-          }
-        }
+        const sessionIndex = decorateSessions(loadJson<SessionMeta[]>("grox.sessionCatalog", []));
         set({
           workspace,
           projects,
@@ -516,12 +706,20 @@ export const useDesktop = create<DesktopState>((set, get) => {
           ready: true,
           startupError: null,
         });
-        void get().refreshWorkspaceFiles();
-        void get().refreshWorkspaceDiffs();
-        void get().refreshProjectPreview(true);
-        void get().refreshAccount();
+        window.setTimeout(() => {
+          if (get().auth.inProgress) return;
+          void get().refreshWorkspaceFiles();
+          void get().refreshProjectPreview(false);
+          if (get().view === "session") void get().refreshWorkspaceDiffs();
+        }, 750);
+        if (!auth.required) void get().refreshAccount();
+        void get().refreshProviderProfiles();
+        window.setTimeout(() => {
+          if (!get().auth.inProgress && get().historySyncedAt === 0) void get().refreshHistory();
+        }, 500);
         if (workspaceWatchTimer === undefined) {
           workspaceWatchTimer = window.setInterval(() => {
+            if (document.visibilityState !== "visible" || get().auth.inProgress || get().view !== "session") return;
             workspaceWatchTick += 1;
             void get().refreshWorkspaceDiffs();
             if (workspaceWatchTick % 3 === 0) void get().refreshWorkspaceFiles();
@@ -553,8 +751,20 @@ export const useDesktop = create<DesktopState>((set, get) => {
     async openSession(id) {
       const meta = get().sessionIndex.find((entry) => entry.id === id);
       if (meta && !samePath(meta.cwd, get().workspace)) await get().setWorkspace(meta.cwd);
-      const has = get().sessions[id];
-      set({ activeId: id, view: "session" });
+      const state = get();
+      const has = state.sessions[id];
+      const composer = state.sessionComposers[id];
+      if (composer) bridge.setPermissionMode(composer.permissionMode);
+      set({
+        activeId: id,
+        view: "session",
+        ...(composer ? {
+          model: composer.model,
+          effort: composer.effort,
+          mode: composer.mode,
+          permissionMode: composer.permissionMode,
+        } : {}),
+      });
       if (!has) await bridge.loadSession(id);
     },
 
@@ -644,13 +854,15 @@ export const useDesktop = create<DesktopState>((set, get) => {
       });
       void get().refreshWorkspaceFiles();
       void get().refreshWorkspaceDiffs();
-      void get().refreshProjectPreview(true);
+      void get().refreshProjectPreview(false);
     },
 
     async authenticate() {
       try {
         await bridge.authenticate();
         set({ auth: await bridge.getAuthState(), startupError: null });
+        void get().refreshAccount();
+        void get().refreshHistory();
       } catch (error) {
         set({
           auth: await bridge.getAuthState(),
@@ -684,7 +896,14 @@ export const useDesktop = create<DesktopState>((set, get) => {
 
     async refreshModels() {
       const state = await bridge.getModelState();
-      set(resolveModelState(state));
+      const profile = get().providerProfiles.find((item) => item.id === get().activeProviderProfileId);
+      const resolved = resolveModelState(providerModelState(state, profile));
+      const { activeId, sessionComposers } = get();
+      const active = activeId ? sessionComposers[activeId] : undefined;
+      const model = active && resolved.models.some((item) => item.id === active.model) ? active.model : resolved.model;
+      const next = activeId && active ? { ...sessionComposers, [activeId]: { ...active, model } } : sessionComposers;
+      if (next !== sessionComposers) persistSessionComposers(next);
+      set({ ...resolved, model, sessionComposers: next });
     },
 
     async configureProvider(config) {
@@ -692,11 +911,109 @@ export const useDesktop = create<DesktopState>((set, get) => {
       localStorage.setItem("grox.accountSetupComplete", "1");
       set({ accountSetupOpen: false });
       try {
+        if (Object.values(get().sessions).some((session) => session.status !== "idle")) {
+          throw new Error("请先终止正在执行的任务，再切换模型服务");
+        }
+        const activeId = get().activeId;
+        set({ providerSwitching: true });
         await bridge.configureProvider(config);
-        void get().refreshAccount();
+        await get().refreshProviderProfiles();
+        await Promise.all([get().refreshAccount(), get().refreshModels()]);
+        if (activeId) await bridge.loadSession(activeId);
+        set({ providerSwitching: false, startupError: null });
       } catch (error) {
         if (!wasComplete) localStorage.removeItem("grox.accountSetupComplete");
-        set({ accountSetupOpen: !wasComplete });
+        set({ accountSetupOpen: !wasComplete, providerSwitching: false });
+        throw error;
+      }
+    },
+
+    async refreshProviderProfiles() {
+      const result = await bridge.listProviderProfiles();
+      set({ providerProfiles: result.profiles, activeProviderProfileId: result.activeId });
+    },
+
+    async saveProviderProfile(config) {
+      const wasActive = Boolean(config.id && get().activeProviderProfileId === config.id);
+      let profile = await bridge.saveProviderProfile(config);
+      try {
+        profile = await bridge.refreshProviderModels(profile.id);
+      } catch (error) {
+        set({ startupError: `供应商已保存，但模型列表获取失败：${error instanceof Error ? error.message : String(error)}` });
+      }
+      if (wasActive) await bridge.activateProviderProfile(profile.id);
+      await get().refreshProviderProfiles();
+      if (get().activeProviderProfileId === profile.id) await get().refreshModels();
+      return profile;
+    },
+
+    async refreshProviderModels(id) {
+      const profile = await bridge.refreshProviderModels(id);
+      await get().refreshProviderProfiles();
+      return profile;
+    },
+
+    async activateProviderProfile(id) {
+      if (Object.values(get().sessions).some((session) => session.status !== "idle")) {
+        throw new Error("请先终止正在执行的任务，再切换模型服务");
+      }
+      const activeId = get().activeId;
+      set({ providerSwitching: true });
+      try {
+        await bridge.activateProviderProfile(id);
+        await get().refreshProviderProfiles();
+        await Promise.all([get().refreshAccount(), get().refreshModels()]);
+        if (activeId) await bridge.loadSession(activeId);
+        set({ providerSwitching: false, startupError: null });
+      } catch (error) {
+        set({ providerSwitching: false });
+        throw error;
+      }
+    },
+
+    async deleteProviderProfile(id) {
+      const wasActive = get().activeProviderProfileId === id;
+      const activeId = get().activeId;
+      await bridge.deleteProviderProfile(id);
+      await get().refreshProviderProfiles();
+      if (wasActive) {
+        await Promise.all([get().refreshAccount(), get().refreshModels()]);
+        if (activeId) await bridge.loadSession(activeId);
+      }
+    },
+
+    async refreshRuntime() {
+      if (bridge.kind !== "acp") return;
+      set({ runtimeBusy: true });
+      try {
+        const runtime = await invoke<GrokRuntimeInfo>("grok_runtime_info");
+        set({ runtime, runtimeBusy: false });
+      } catch (error) {
+        set({
+          runtimeBusy: false,
+          startupError: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+
+    async useBundledRuntime() {
+      set({ runtimeBusy: true });
+      try {
+        await invoke<GrokRuntimeInfo>("set_grok_runtime_preference", { preference: "bundled" });
+        window.location.reload();
+      } catch (error) {
+        set({ runtimeBusy: false });
+        throw error;
+      }
+    },
+
+    async installOfficialRuntime() {
+      set({ runtimeBusy: true });
+      try {
+        await invoke<GrokRuntimeInfo>("install_official_grok_cli");
+        window.location.reload();
+      } catch (error) {
+        set({ runtimeBusy: false });
         throw error;
       }
     },
@@ -732,7 +1049,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       }
     },
 
-    async refreshProjectPreview(autoOpen = false) {
+    async refreshProjectPreview(start = false) {
       if (bridge.kind === "mock") {
         set({ projectPreview: { status: "none" } });
         return;
@@ -740,8 +1057,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
       try {
         const projectPreview = await invoke<ProjectPreview>("start_project_preview", {
           cwd: get().workspace,
+          start,
         });
-        const shouldOpen = autoOpen && (projectPreview.status === "starting" || projectPreview.status === "ready");
+        const shouldOpen = start && (projectPreview.status === "starting" || projectPreview.status === "ready");
         set({
           projectPreview,
           ...(shouldOpen ? { inspectorOpen: true, inspectorTab: "preview" as InspectorTab } : {}),
@@ -781,14 +1099,18 @@ export const useDesktop = create<DesktopState>((set, get) => {
 
     async deleteSession(id) {
       await bridge.deleteSession(id);
-      const { sessionIndex, sessions, activeId } = get();
+      const { sessionIndex, sessions, activeId, sessionComposers } = get();
       const rest = { ...sessions };
       delete rest[id];
+      const nextComposers = { ...sessionComposers };
+      delete nextComposers[id];
+      persistSessionComposers(nextComposers);
       const nextIndex = sessionIndex.filter((m) => m.id !== id);
       persistSessionCatalog(nextIndex);
       set({
         sessionIndex: nextIndex,
         sessions: rest,
+        sessionComposers: nextComposers,
         ...(activeId === id ? { activeId: null, view: "home" as View } : {}),
       });
     },
@@ -830,9 +1152,17 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     sendPrompt(text, attachments = []) {
-      const { activeId, sessions, model, effort, mode } = get();
+      const { activeId, sessions, model, effort, mode, permissionMode, sessionComposers } = get();
       const session = activeId ? sessions[activeId] : null;
       if (!session || session.status !== "idle") return;
+      const composer = sessionComposers[session.id] ?? {
+        text: "",
+        attachments: [],
+        model,
+        effort,
+        mode,
+        permissionMode,
+      };
 
       const trimmed = text.trim();
       if (!trimmed && attachments.length === 0) return;
@@ -844,6 +1174,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
       );
       persistSessionCatalog(nextIndex);
 
+      const nextComposers = {
+        ...sessionComposers,
+        [session.id]: { ...composer, text: "", attachments: [] },
+      };
+      persistSessionComposers(nextComposers);
       set({
         sessions: {
           ...sessions,
@@ -863,9 +1198,16 @@ export const useDesktop = create<DesktopState>((set, get) => {
           },
         },
         sessionIndex: nextIndex,
+        sessionComposers: nextComposers,
       });
 
-      void bridge.prompt(session.id, trimmed, { model, effort, mode, attachments });
+      bridge.setPermissionMode(composer.permissionMode);
+      void bridge.prompt(session.id, trimmed, {
+        model: composer.model,
+        effort: composer.effort,
+        mode: composer.mode,
+        attachments,
+      });
     },
 
     stop() {
@@ -880,6 +1222,30 @@ export const useDesktop = create<DesktopState>((set, get) => {
       }
     },
 
+    async listRewindPoints() {
+      const { activeId, sessions } = get();
+      if (!activeId || sessions[activeId]?.status !== "idle") return [];
+      return bridge.listRewindPoints(activeId);
+    },
+
+    async previewRewind(targetPromptIndex, mode) {
+      const { activeId, sessions } = get();
+      if (!activeId || sessions[activeId]?.status !== "idle") throw new Error("请等待当前请求完成后再回退");
+      return bridge.rewind(activeId, targetPromptIndex, mode, false);
+    },
+
+    async executeRewind(point, mode) {
+      const { activeId, sessions } = get();
+      if (!activeId || sessions[activeId]?.status !== "idle") throw new Error("请等待当前请求完成后再回退");
+      const result = await bridge.rewind(activeId, point.prompt_index, mode, true);
+      if (!result.success) {
+        throw new Error(result.error || `回退存在 ${result.conflicts.length} 个文件冲突`);
+      }
+      await bridge.loadSession(activeId);
+      if (mode !== "files_only") get().setDraft(result.prompt_text ?? point.prompt_preview ?? "");
+      return result;
+    },
+
     resolvePermission(blockId, option) {
       const { activeId } = get();
       if (activeId) bridge.respondPermission(activeId, blockId, option);
@@ -891,22 +1257,90 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     setModel: (model) => {
+      const { activeId, sessionComposers, effort, mode, permissionMode } = get();
       localStorage.setItem("grok.model", model);
-      set({ model });
+      if (!activeId) return set({ model });
+      const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
+      const next = { ...sessionComposers, [activeId]: { ...current, model } };
+      persistSessionComposers(next);
+      set({ model, sessionComposers: next });
     },
     setEffort: (effort) => {
+      const { activeId, sessionComposers, model, mode, permissionMode } = get();
       localStorage.setItem("grok.effort", effort);
-      set({ effort });
+      if (!activeId) return set({ effort });
+      const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
+      const next = { ...sessionComposers, [activeId]: { ...current, effort } };
+      persistSessionComposers(next);
+      set({ effort, sessionComposers: next });
     },
-    setMode: (mode) => set({ mode }),
+    setMode: (mode) => {
+      const { activeId, sessionComposers, model, effort, permissionMode } = get();
+      if (!activeId) return set({ mode });
+      const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
+      const next = { ...sessionComposers, [activeId]: { ...current, mode } };
+      persistSessionComposers(next);
+      set({ mode, sessionComposers: next });
+      void bridge.setSessionMode(activeId, mode).catch((error) => {
+        set({ startupError: error instanceof Error ? error.message : String(error) });
+      });
+    },
     setPermissionMode: (permissionMode) => {
+      const { activeId, sessionComposers, model, effort, mode } = get();
       localStorage.setItem("grok.permissionMode", permissionMode);
       bridge.setPermissionMode(permissionMode);
-      set({ permissionMode });
+      if (!activeId) return set({ permissionMode });
+      const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
+      const next = { ...sessionComposers, [activeId]: { ...current, permissionMode } };
+      persistSessionComposers(next);
+      set({ permissionMode, sessionComposers: next });
+    },
+    setDraft(text) {
+      const { activeId, sessionComposers, model, effort, mode, permissionMode } = get();
+      if (!activeId) return;
+      const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
+      const next = { ...sessionComposers, [activeId]: { ...current, text } };
+      persistSessionComposers(next);
+      set({ sessionComposers: next });
+    },
+    setComposerAttachments(attachments) {
+      const { activeId, sessionComposers, model, effort, mode, permissionMode } = get();
+      if (!activeId) return;
+      const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
+      set({ sessionComposers: { ...sessionComposers, [activeId]: { ...current, attachments } } });
     },
     setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true }),
     toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
     setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+    async refreshHistory() {
+      if (historySyncPromise) return historySyncPromise;
+      const task = (async () => {
+        set({ historySyncing: true, historyError: null });
+        try {
+          const imported = await bridge.listSessions();
+          const sessionIndex = mergeAllSessions(get().sessionIndex, imported);
+          const projects = mergeDiscoveredProjects(get().projects, imported);
+          set({
+            sessionIndex,
+            projects,
+            historySyncing: false,
+            historyCount: imported.length,
+            historySyncedAt: Date.now(),
+          });
+        } catch (error) {
+          set({
+            historySyncing: false,
+            historyError: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+      historySyncPromise = task;
+      try {
+        await task;
+      } finally {
+        historySyncPromise = undefined;
+      }
+    },
   };
 });

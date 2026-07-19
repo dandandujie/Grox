@@ -62,6 +62,9 @@ export function ToolCallCard({ block }: { block: ToolBlock }) {
   const [open, setOpen] = useState(false);
   const meta = kindMeta[call.kind] ?? { icon: "bolt" as const, tone: "text-dim" };
   const duration = call.endedAt ? call.endedAt - call.startedAt : Date.now() - call.startedAt;
+  const title = language === "zh-CN"
+    ? ({ "Web search:": "网页搜索", "X search:": "X 搜索", "Model search:": "模型搜索" } as Record<string, string>)[call.title] ?? call.title
+    : call.title;
 
   return (
     <div className="mb-1 animate-fade-up pl-0.5">
@@ -69,7 +72,7 @@ export function ToolCallCard({ block }: { block: ToolBlock }) {
         {/* header */}
         <button onClick={() => setOpen((v) => !v)} className="flex h-7 w-full items-center gap-1.5 text-left">
           <Icon name={meta.icon} size={12} className={`shrink-0 ${meta.tone}`} />
-          <span className="max-w-[42%] truncate font-mono text-[10.5px] text-fg2">{call.title}</span>
+          <span className="max-w-[42%] truncate font-mono text-[10.5px] text-fg2">{title}</span>
           {call.detail && (
             <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-mute">
               {call.detail}
@@ -94,7 +97,7 @@ export function ToolCallCard({ block }: { block: ToolBlock }) {
             {!call.diff && !call.terminal && call.locations && <Locations paths={call.locations} />}
             {call.images && <ToolImages images={call.images} />}
             {!call.diff && !call.terminal && !call.locations && call.output && (
-              <p className="font-mono text-[10.5px] leading-relaxed text-mute select-text">{call.output}</p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-relaxed text-mute select-text">{call.output}</pre>
             )}
             {!call.diff && !call.terminal && !call.output && !call.locations && busy && (
               <p className="font-mono text-[10.5px] text-faint">

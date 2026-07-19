@@ -11,6 +11,7 @@ import type { GrokBridge } from "./GrokBridge";
 import { MODELS } from "./types";
 import type {
   BridgeEvent,
+  AgentMode,
   PermissionOption,
   PermissionMode,
   PromptOptions,
@@ -22,6 +23,10 @@ import type {
   Usage,
   ConfigDocument,
   ProviderConfig,
+  ProviderProfileSummary,
+  SaveProviderProfile,
+  RewindMode,
+  RewindResult,
 } from "./types";
 import { seedSessions } from "../demo/data";
 import { DEMO_CWD } from "../demo/data";
@@ -39,6 +44,8 @@ export class MockBridge implements GrokBridge {
   private permissionWaiters = new Map<string, (o: PermissionOption) => void>();
   private workspace = DEMO_CWD;
   private permissionMode: PermissionMode = "default";
+  private providerProfiles: ProviderProfileSummary[] = [];
+  private activeProviderProfileId: string | undefined;
   private configDrafts: Record<ConfigDocument["id"], string> = {
     config: "# Grox mock config\nmodel = \"grok-build\"\n",
     "system-prompt": "You are Grox, a focused desktop coding agent.\n",
@@ -57,12 +64,54 @@ export class MockBridge implements GrokBridge {
     return () => this.listeners.delete(cb);
   }
   private emit(e: BridgeEvent) {
+    if ("sessionId" in e) {
+      const session = this.sessions.get(e.sessionId);
+      if (session) {
+        switch (e.type) {
+          case "session_meta":
+            Object.assign(session, e.patch);
+            break;
+          case "block_add":
+            if (!session.blocks.some((block) => block.id === e.block.id)) {
+              session.blocks.push(structuredClone(e.block));
+            }
+            break;
+          case "block_patch": {
+            const block = session.blocks.find((item) => item.id === e.blockId);
+            if (block) Object.assign(block, e.patch);
+            break;
+          }
+          case "tool_patch": {
+            const block = session.blocks.find((item) => item.id === e.blockId);
+            if (block?.type === "tool") Object.assign(block.call, e.call);
+            break;
+          }
+          case "plan_patch": {
+            const block = session.blocks.find((item) => item.id === e.blockId);
+            if (block?.type === "plan") block.steps = structuredClone(e.steps);
+            break;
+          }
+          case "assistant_append":
+          case "thinking_append": {
+            const block = session.blocks.find((item) => item.id === e.blockId);
+            if (block?.type === "assistant" || block?.type === "thinking") block.text += e.delta;
+            break;
+          }
+          case "status":
+            session.status = e.status;
+            break;
+          case "usage":
+            session.usage = structuredClone(e.usage);
+            break;
+        }
+      }
+    }
     for (const cb of this.listeners) cb(e);
   }
 
-  async listSessions(cwd = this.workspace): Promise<SessionMeta[]> {
+  async listSessions(cwd?: string): Promise<SessionMeta[]> {
     return [...this.sessions.values()]
-      .filter((session) => session.cwd.replace(/\\/g, "/").toLowerCase() === cwd.replace(/\\/g, "/").toLowerCase())
+      .filter((session) => !cwd || session.cwd.replace(/\\/g, "/").toLowerCase() === cwd.replace(/\\/g, "/").toLowerCase())
       .map(({ blocks: _b, usage: _u, status: _s, ...meta }) => meta)
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -108,6 +157,40 @@ export class MockBridge implements GrokBridge {
 
   async configureProvider(_config: ProviderConfig): Promise<void> {}
 
+  async listProviderProfiles() {
+    return { activeId: this.activeProviderProfileId, profiles: [...this.providerProfiles] };
+  }
+
+  async saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary> {
+    const profile: ProviderProfileSummary = {
+      id: config.id ?? crypto.randomUUID(),
+      name: config.name,
+      hasApiKey: Boolean(config.apiKey),
+      baseUrl: config.baseUrl,
+      apiBackend: config.apiBackend,
+      availableModels: ["grok-4.5", "grok-code-fast"],
+      residentModels: config.residentModels,
+    };
+    this.providerProfiles = [profile, ...this.providerProfiles.filter((item) => item.id !== profile.id)];
+    return profile;
+  }
+
+  async refreshProviderModels(id: string): Promise<ProviderProfileSummary> {
+    const profile = this.providerProfiles.find((item) => item.id === id);
+    if (!profile) throw new Error("供应商档案不存在");
+    profile.availableModels = ["grok-4.5", "grok-code-fast", "grok-4.20-reasoning"];
+    return { ...profile };
+  }
+
+  async activateProviderProfile(id: string): Promise<void> {
+    this.activeProviderProfileId = id;
+  }
+
+  async deleteProviderProfile(id: string): Promise<void> {
+    this.providerProfiles = this.providerProfiles.filter((item) => item.id !== id);
+    if (this.activeProviderProfileId === id) this.activeProviderProfileId = undefined;
+  }
+
   async readConfigDocuments(cwd: string): Promise<ConfigDocument[]> {
     return [
       { id: "config", label: "config.toml", path: `${cwd}/.grok/config.toml`, language: "toml" },
@@ -131,6 +214,10 @@ export class MockBridge implements GrokBridge {
 
   setPermissionMode(mode: PermissionMode): void {
     this.permissionMode = mode;
+  }
+
+  async setSessionMode(sessionId: string, mode: AgentMode): Promise<void> {
+    this.emit({ type: "mode_state", sessionId, mode });
   }
 
   async newSession(cwd: string): Promise<void> {
@@ -189,6 +276,49 @@ export class MockBridge implements GrokBridge {
     });
   }
 
+  async listRewindPoints(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    return (session?.blocks.filter((block) => block.type === "user") ?? []).map((block, index) => ({
+      prompt_index: index,
+      created_at: new Date(block.ts).toISOString(),
+      num_file_snapshots: 0,
+      has_file_changes: false,
+      prompt_preview: block.type === "user" ? block.text.slice(0, 120) : undefined,
+    }));
+  }
+
+  async rewind(sessionId: string, targetPromptIndex: number, mode: RewindMode, force: boolean): Promise<RewindResult> {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error("会话不存在");
+    const point = (await this.listRewindPoints(sessionId)).find((item) => item.prompt_index === targetPromptIndex);
+    if (!point) throw new Error("回退节点不存在");
+    if (!force) {
+      return {
+        success: false,
+        target_prompt_index: targetPromptIndex,
+        mode,
+        reverted_files: [],
+        clean_files: [],
+        conflicts: [],
+      };
+    }
+    let prompts = 0;
+    session.blocks = session.blocks.filter((block) => {
+      if (block.type === "user") prompts += 1;
+      return prompts <= targetPromptIndex;
+    });
+    this.emit({ type: "session_ready", session: structuredClone(session) });
+    return {
+      success: true,
+      target_prompt_index: targetPromptIndex,
+      mode,
+      reverted_files: [],
+      clean_files: [],
+      conflicts: [],
+      prompt_text: mode === "files_only" ? undefined : point.prompt_preview,
+    };
+  }
+
   respondPermission(sessionId: string, _blockId: string, option: PermissionOption): void {
     const waiter = this.permissionWaiters.get(sessionId);
     if (waiter) {
@@ -209,6 +339,16 @@ export class MockBridge implements GrokBridge {
     this.turns.set(sessionId, ac);
     const session = this.sessions.get(sessionId);
     const firstTurn = !session?.blocks.some((b) => b.type === "assistant");
+    if (session) {
+      session.blocks.push({
+        type: "user",
+        id: uid(),
+        text,
+        attachments: _opts.attachments?.map(({ id, kind, name, mime, size }) => ({ id, kind, name, mime, size })),
+        ts: Date.now(),
+      });
+      session.updatedAt = Date.now();
+    }
     this.runTurn(sessionId, text, firstTurn, ac.signal)
       .catch((err) => {
         if ((err as DOMException)?.name !== "AbortError") {

@@ -86,9 +86,9 @@ export function BlackHole({ size = 16, spin = false, className }: BlackHoleProps
     >
       <defs>
         <radialGradient id={glowId} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.20" />
-          <stop offset="45%" stopColor="#ffffff" stopOpacity="0.05" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--black-hole-light)" stopOpacity="0.20" />
+          <stop offset="45%" stopColor="var(--black-hole-light)" stopOpacity="0.05" />
+          <stop offset="100%" stopColor="var(--black-hole-light)" stopOpacity="0" />
         </radialGradient>
       </defs>
 
@@ -99,21 +99,21 @@ export function BlackHole({ size = 16, spin = false, className }: BlackHoleProps
         <>
           {/* swirling matter streaks */}
           <g className={spinClass} style={{ transformOrigin: "50px 50px" }} opacity={spin ? 1 : 0.55}>
-            <circle cx="50" cy="50" r="34.5" stroke="#ffffff" strokeWidth="0.7" strokeDasharray="1.4 7.2" opacity="0.30" />
+            <circle cx="50" cy="50" r="34.5" stroke="var(--black-hole-light)" strokeWidth="0.7" strokeDasharray="1.4 7.2" opacity="0.30" />
           </g>
           <g className={revClass} style={{ transformOrigin: "50px 50px" }} opacity={spin ? 1 : 0.5}>
-            <circle cx="50" cy="50" r="40" stroke="#ffffff" strokeWidth="0.6" strokeDasharray="2.4 10.5" opacity="0.18" />
+            <circle cx="50" cy="50" r="40" stroke="var(--black-hole-light)" strokeWidth="0.6" strokeDasharray="2.4 10.5" opacity="0.18" />
           </g>
 
           {/* accretion disk, relativistic beaming */}
           {arcs.map((a, i) => (
-            <path key={i} d={a.d} stroke="#ffffff" strokeWidth="5.6" strokeLinecap="round" opacity={a.opacity} />
+            <path key={i} d={a.d} stroke="var(--black-hole-light)" strokeWidth="5.6" strokeLinecap="round" opacity={a.opacity} />
           ))}
 
           {/* lensed halo over the horizon */}
           <path
             d="M 26.5 42.5 Q 50 24 73.5 42.5"
-            stroke="#ffffff"
+            stroke="var(--black-hole-light)"
             strokeWidth="2.2"
             strokeLinecap="round"
             opacity="0.5"
@@ -122,10 +122,10 @@ export function BlackHole({ size = 16, spin = false, className }: BlackHoleProps
       ) : (
         /* compact glyph: ring + beamed edge, nothing more */
         <>
-          <circle cx="50" cy="50" r="34" stroke="#ffffff" strokeWidth="7" opacity="0.22" />
+          <circle cx="50" cy="50" r="34" stroke="var(--black-hole-light)" strokeWidth="7" opacity="0.22" />
           <path
             d="M 20.4 61 A 34 34 0 0 1 33.7 21.6"
-            stroke="#ffffff"
+            stroke="var(--black-hole-light)"
             strokeWidth="7"
             strokeLinecap="round"
             opacity="0.85"
@@ -134,8 +134,8 @@ export function BlackHole({ size = 16, spin = false, className }: BlackHoleProps
       )}
 
       {/* photon ring — the last orbit of light */}
-      <circle cx="50" cy="50" r="24.5" stroke="#ffffff" strokeWidth="4.5" opacity="0.13" />
-      <circle cx="50" cy="50" r="24.5" stroke="#ffffff" strokeWidth="1.5" opacity="0.95" />
+      <circle cx="50" cy="50" r="24.5" stroke="var(--black-hole-light)" strokeWidth="4.5" opacity="0.13" />
+      <circle cx="50" cy="50" r="24.5" stroke="var(--black-hole-light)" strokeWidth="1.5" opacity="0.95" />
 
       {/* event horizon — the nothing at the center */}
       <circle cx="50" cy="50" r="21" fill="#000000" />

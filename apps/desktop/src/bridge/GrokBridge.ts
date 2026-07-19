@@ -14,6 +14,7 @@ import type {
   AuthState,
   BillingInfo,
   BridgeEvent,
+  AgentMode,
   ConfigDocument,
   PermissionOption,
   PermissionMode,
@@ -22,7 +23,13 @@ import type {
   ModelState,
   SessionMeta,
   ProviderConfig,
+  ProviderProfileSummary,
+  ProviderProfilesState,
   ProviderStatus,
+  SaveProviderProfile,
+  RewindMode,
+  RewindPoint,
+  RewindResult,
 } from "./types";
 
 export interface GrokBridge {
@@ -46,6 +53,11 @@ export interface GrokBridge {
   getBillingInfo(): Promise<BillingInfo>;
   getProviderStatus(): Promise<ProviderStatus>;
   configureProvider(config: ProviderConfig): Promise<void>;
+  listProviderProfiles(): Promise<ProviderProfilesState>;
+  saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary>;
+  refreshProviderModels(id: string): Promise<ProviderProfileSummary>;
+  activateProviderProfile(id: string): Promise<void>;
+  deleteProviderProfile(id: string): Promise<void>;
 
   /** Local Grok configuration documents kept in two-way sync by the shell. */
   readConfigDocuments(cwd: string): Promise<ConfigDocument[]>;
@@ -59,6 +71,9 @@ export interface GrokBridge {
 
   /** Change permission policy for existing and future sessions. */
   setPermissionMode(mode: PermissionMode): void;
+
+  /** Change the real Grok Build harness mode for an existing session. */
+  setSessionMode(sessionId: string, mode: AgentMode): Promise<void>;
 
   /** ACP: session/new — emits session_ready. */
   newSession(cwd: string): Promise<void>;
@@ -74,6 +89,10 @@ export interface GrokBridge {
 
   /** Compact the active conversation context. */
   compact(sessionId: string): Promise<void>;
+
+  /** Official Grok Build rewind checkpoints and execution. */
+  listRewindPoints(sessionId: string): Promise<RewindPoint[]>;
+  rewind(sessionId: string, targetPromptIndex: number, mode: RewindMode, force: boolean): Promise<RewindResult>;
 
   /** Resolve a pending permission card (ACP: session/request_permission). */
   respondPermission(
