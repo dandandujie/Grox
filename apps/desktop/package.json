@@ -1,17 +1,15 @@
 {
   "name": "grox-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "agent:dev": "node scripts/prepare-sidecar.mjs --debug",
-    "agent:sidecar": "node scripts/prepare-sidecar.mjs",
-    "desktop:dev": "pnpm agent:dev && pnpm tauri dev",
-    "desktop:build": "pnpm agent:sidecar && pnpm tauri build",
+    "desktop:dev": "pnpm tauri dev",
+    "desktop:build": "pnpm tauri build",
     "tauri": "tauri",
     "electron": "electron .",
     "electron:dev": "node scripts/dev-electron.mjs"

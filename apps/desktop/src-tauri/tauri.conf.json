@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Grox",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "dev.grox.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -31,7 +31,6 @@
   },
   "bundle": {
     "active": true,
-    "externalBin": ["binaries/grok"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

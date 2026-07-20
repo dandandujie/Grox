@@ -30,11 +30,10 @@ use tokio::{
 
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GROX_BUILD_COMMIT: &str = env!("GROX_BUILD_COMMIT");
-const GROK_UPSTREAM_PROVENANCE: &str = include_str!("../../../../.grox/upstream.json");
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/dandandujie/Grox/releases/latest";
 const GROK_INSTALL_PS1_URL: &str = "https://x.ai/cli/install.ps1";
 const GROK_INSTALL_SH_URL: &str = "https://x.ai/cli/install.sh";
-const GROX_PRIVACY_ENV: [(&str, &str); 12] = [
+const GROX_PRIVACY_ENV: [(&str, &str); 13] = [
     ("GROX_PRIVACY_MODE", "1"),
     // Legacy fallbacks also protect users who point GROK_DESKTOP_CLI at an
     // older Grok binary that does not yet understand GROX_PRIVACY_MODE.
@@ -49,6 +48,7 @@ const GROX_PRIVACY_ENV: [(&str, &str); 12] = [
     ("OTEL_TRACES_EXPORTER", "none"),
     ("OTEL_METRICS_EXPORTER", "none"),
     ("OTEL_LOGS_EXPORTER", "none"),
+    ("GROK_CLIPBOARD_NO_OSC52", "1"),
 ];
 
 struct AgentProcess {
@@ -121,13 +121,10 @@ struct WorkspaceEntry {
 struct GrokRuntimeInfo {
     path: String,
     source: &'static str,
-    preference: String,
     system_path: Option<String>,
-    bundled_path: Option<String>,
     selection_required: bool,
     version: Option<String>,
     grox_commit: &'static str,
-    upstream_commit: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -661,36 +658,6 @@ fn system_grok_candidates(executable: &str) -> Vec<PathBuf> {
     candidates
 }
 
-fn bundled_grok_candidates(
-    app: &tauri::AppHandle,
-    executable: &str,
-    source_executable: &str,
-) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Ok(current_executable) = std::env::current_exe() {
-        if let Some(directory) = current_executable.parent() {
-            candidates.push(directory.join(executable));
-            candidates.push(directory.join(source_executable));
-        }
-    }
-    if let Ok(resources) = app.path().resource_dir() {
-        candidates.push(resources.join(executable));
-        candidates.push(resources.join("binaries").join(executable));
-        candidates.push(resources.join(source_executable));
-    }
-
-    #[cfg(debug_assertions)]
-    if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3) {
-        candidates.push(repo.join("target").join("debug").join(source_executable));
-        candidates.push(
-            repo.join("target")
-                .join("release-dist")
-                .join(source_executable),
-        );
-    }
-    candidates
-}
-
 fn normalized_existing_path(path: &Path) -> Option<PathBuf> {
     if !executable_file(path) {
         return None;
@@ -700,64 +667,11 @@ fn normalized_existing_path(path: &Path) -> Option<PathBuf> {
         .or_else(|| Some(path.to_path_buf()))
 }
 
-fn runtime_preference_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|directory| directory.join("runtime.json"))
-        .map_err(|error| format!("无法定位 Grox 配置目录：{error}"))
-}
-
-fn read_runtime_preference(app: &tauri::AppHandle) -> String {
-    let Ok(path) = runtime_preference_path(app) else {
-        return "auto".into();
-    };
-    let Ok(content) = read_bounded_text(&path, 16 * 1024) else {
-        return "auto".into();
-    };
-    serde_json::from_str::<serde_json::Value>(&content)
-        .ok()
-        .and_then(|value| value.get("preference")?.as_str().map(str::to_owned))
-        .filter(|value| matches!(value.as_str(), "auto" | "system" | "bundled"))
-        .unwrap_or_else(|| "auto".into())
-}
-
-fn write_runtime_preference(app: &tauri::AppHandle, preference: &str) -> Result<(), String> {
-    if !matches!(preference, "auto" | "system" | "bundled") {
-        return Err("未知 Grok CLI 运行时选项".into());
-    }
-    let content = serde_json::json!({ "preference": preference }).to_string();
-    atomic_write(&runtime_preference_path(app)?, &content)
-}
-
 /// Extract the semver token from a `grok --version` line such as
 /// "grok 0.2.106 (abc1234) [stable]".
 fn cli_version_number(raw: &str) -> Option<semver::Version> {
     raw.split_whitespace()
         .find_map(|token| semver::Version::parse(token.trim_start_matches(['v', 'V'])).ok())
-}
-
-/// Pick which runtime to try first in `auto` mode. The inference proxy gates
-/// on the client version, so a stale bundled CLI is rejected by the server
-/// even when a newer system CLI exists — prefer the newer of the two.
-/// Unparseable or missing versions keep the historical system-first order.
-fn newer_runtime_is_system(
-    system: Option<semver::Version>,
-    bundled: Option<semver::Version>,
-) -> bool {
-    match (system, bundled) {
-        (Some(system), Some(bundled)) => system >= bundled,
-        _ => true,
-    }
-}
-
-fn auto_prefers_system(system: Option<&PathBuf>, bundled: Option<&PathBuf>) -> bool {
-    let (Some(system), Some(bundled)) = (system, bundled) else {
-        return true;
-    };
-    let version_of = |path: &PathBuf| {
-        grok_binary_version(&path.to_string_lossy()).and_then(|raw| cli_version_number(&raw))
-    };
-    newer_runtime_is_system(version_of(system), version_of(bundled))
 }
 
 fn grok_binary_version(path: &str) -> Option<String> {
@@ -782,112 +696,53 @@ fn grok_binary_version(path: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn grok_upstream_commit() -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(GROK_UPSTREAM_PROVENANCE)
-        .ok()?
-        .get("commit")?
-        .as_str()
-        .map(str::to_owned)
-}
-
 fn runtime_info(
     path: String,
     source: &'static str,
-    preference: String,
     system_path: Option<String>,
-    bundled_path: Option<String>,
     selection_required: bool,
 ) -> GrokRuntimeInfo {
     GrokRuntimeInfo {
         version: grok_binary_version(&path),
         path,
         source,
-        preference,
         system_path,
-        bundled_path,
         selection_required,
         grox_commit: GROX_BUILD_COMMIT,
-        upstream_commit: grok_upstream_commit(),
     }
 }
 
-fn configured_grok_command(app: &tauri::AppHandle) -> GrokRuntimeInfo {
+fn configured_grok_command(_app: &tauri::AppHandle) -> GrokRuntimeInfo {
     let executable = if cfg!(windows) { "grok.exe" } else { "grok" };
-    let source_executable = if cfg!(windows) {
-        "xai-grok-pager.exe"
-    } else {
-        "xai-grok-pager"
-    };
-    let bundled = bundled_grok_candidates(app, executable, source_executable)
-        .into_iter()
-        .find_map(|candidate| normalized_existing_path(&candidate));
-    let bundled_paths = bundled.iter().cloned().collect::<Vec<_>>();
     let system = system_grok_candidates(executable)
         .into_iter()
         .filter_map(|candidate| normalized_existing_path(&candidate))
-        .find(|candidate| !bundled_paths.iter().any(|bundled| bundled == candidate));
-    let preference = read_runtime_preference(app);
+        .next();
 
     if let Some(path) = std::env::var_os("GROK_DESKTOP_CLI").filter(|value| !value.is_empty()) {
         return runtime_info(
             PathBuf::from(path).to_string_lossy().into_owned(),
             "override",
-            preference,
             system.as_deref().map(path_for_webview),
-            bundled.as_deref().map(path_for_webview),
             false,
         );
     }
 
-    // Honor an explicit runtime preference first, falling back to whatever is
-    // installed rather than leaving the app unusable. In `auto` mode the newer
-    // of the two runtimes wins so an aging bundled CLI cannot silently stay
-    // behind the server-side version gate.
-    let prefer_system = match preference.as_str() {
-        "system" => true,
-        "bundled" => false,
-        _ => auto_prefers_system(system.as_ref(), bundled.as_ref()),
-    };
-    let chosen = if prefer_system {
-        system.as_ref().or(bundled.as_ref())
-    } else {
-        bundled.as_ref().or(system.as_ref())
-    };
-    if let Some(path) = chosen {
-        let is_system = system.as_ref() == Some(path);
-        let selection_required = !is_system && system.is_none() && preference != "bundled";
+    if let Some(path) = system.as_deref() {
         return runtime_info(
             path.to_string_lossy().into_owned(),
-            if is_system { "system" } else { "bundled" },
-            preference,
-            system.as_deref().map(path_for_webview),
-            bundled.as_deref().map(path_for_webview),
-            selection_required,
+            "system",
+            Some(path_for_webview(path)),
+            false,
         );
     }
 
-    runtime_info(executable.to_string(), "missing", preference, None, None, true)
+    runtime_info(executable.to_string(), "missing", None, true)
 }
 
 #[tauri::command]
 fn grok_runtime_info(app: tauri::AppHandle) -> GrokRuntimeInfo {
     configured_grok_command(&app)
-}
-
-#[tauri::command]
-fn set_grok_runtime_preference(
-    app: tauri::AppHandle,
-    preference: String,
-) -> Result<GrokRuntimeInfo, String> {
-    let status = configured_grok_command(&app);
-    if preference == "system" && status.system_path.is_none() {
-        return Err("尚未检测到本机官方 Grok Build CLI".into());
-    }
-    if preference == "bundled" && status.bundled_path.is_none() {
-        return Err("当前安装包没有内置 Grok Build CLI".into());
-    }
-    write_runtime_preference(&app, &preference)?;
-    Ok(configured_grok_command(&app))
 }
 
 #[tauri::command]
@@ -945,7 +800,6 @@ async fn install_official_grok_cli(
                 .map_or_else(|| "unknown".into(), |code| code.to_string())
         ));
     }
-    write_runtime_preference(&app, "system")?;
     let runtime = configured_grok_command(&app);
     if runtime.system_path.is_none() {
         return Err("安装程序已完成，但 Grox 尚未在标准位置检测到 grok；请重启后重试".into());
@@ -1825,7 +1679,7 @@ async fn acp_spawn(
     }
     // This is deliberately applied after the user environment so neither a
     // stale config nor a server-controlled flag can re-enable background data
-    // collection in the Grox-bundled agent.
+    // collection in the official CLI process launched by Grox.
     for (key, value) in GROX_PRIVACY_ENV {
         command.env(key, value);
     }
@@ -2056,7 +1910,6 @@ fn main() {
             activate_provider_profile,
             delete_provider_profile,
             grok_runtime_info,
-            set_grok_runtime_preference,
             install_official_grok_cli,
             check_for_update,
             open_external,
@@ -2144,7 +1997,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_agent_privacy_environment_is_fail_closed() {
+    fn official_cli_privacy_environment_is_fail_closed() {
         let values = GROX_PRIVACY_ENV.into_iter().collect::<BTreeMap<_, _>>();
         assert_eq!(values.get("GROX_PRIVACY_MODE"), Some(&"1"));
         assert_eq!(values.get("DISABLE_TELEMETRY"), Some(&"1"));
@@ -2177,15 +2030,4 @@ mod tests {
         assert_eq!(cli_version_number(""), None);
     }
 
-    #[test]
-    fn auto_mode_prefers_the_newer_runtime() {
-        let v = |major, minor, patch| Some(semver::Version::new(major, minor, patch));
-        assert!(newer_runtime_is_system(v(0, 2, 106), v(0, 2, 102)));
-        assert!(!newer_runtime_is_system(v(0, 2, 102), v(0, 2, 106)));
-        assert!(newer_runtime_is_system(v(0, 2, 106), v(0, 2, 106)));
-        // Unknown versions keep the historical system-first order.
-        assert!(newer_runtime_is_system(None, v(0, 2, 106)));
-        assert!(newer_runtime_is_system(v(0, 2, 106), None));
-        assert!(newer_runtime_is_system(None, None));
-    }
 }

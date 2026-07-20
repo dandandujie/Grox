@@ -264,14 +264,11 @@ export interface SaveProviderProfile {
 
 export interface GrokRuntimeInfo {
   path: string;
-  source: "system" | "bundled" | "override" | "missing";
-  preference: "auto" | "system" | "bundled";
+  source: "system" | "override" | "missing";
   systemPath?: string;
-  bundledPath?: string;
   selectionRequired: boolean;
   version?: string;
   groxCommit: string;
-  upstreamCommit?: string;
 }
 
 export type RewindMode = "all" | "conversation_only" | "files_only";

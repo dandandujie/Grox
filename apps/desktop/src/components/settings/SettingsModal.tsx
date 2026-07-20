@@ -97,16 +97,14 @@ function General() {
   const [runtimeError, setRuntimeError] = useState("");
   const runtimeSource = runtime?.source === "system"
     ? (zh ? "本机 CLI" : "System CLI")
-    : runtime?.source === "bundled"
-      ? (zh ? "Grox 内置" : "Bundled with Grox")
-      : runtime?.source === "override"
+    : runtime?.source === "override"
         ? (zh ? "自定义路径" : "Custom path")
         : (zh ? "正在检测" : "Detecting");
   return <div>
     <Heading title="Agent" description={zh ? "Grok Build ACP 运行时和默认执行策略；模型与接入服务在账户模块管理。" : "Grok Build ACP runtime and execution defaults. Models and providers live under Account."} />
     <Row label={zh ? "当前项目" : "Current project"} hint={workspace}><span className="chip">{bridgeKind.toUpperCase()}</span></Row>
     <Row label={zh ? "Grok Build 运行时" : "Grok Build runtime"} hint={runtime?.path}><div className="flex items-center gap-2"><span className="chip">{runtimeSource}</span><ActionButton disabled={runtimeBusy} onClick={() => void refreshRuntime()}>{zh ? "重新检测" : "Detect"}</ActionButton>{runtime && runtime.source !== "override" && <ActionButton tone="accent" disabled={runtimeBusy} onClick={() => { setRuntimeError(""); void installOfficialRuntime().catch((cause) => setRuntimeError(cause instanceof Error ? cause.message : String(cause))); }}>{runtimeBusy ? (zh ? "安装中" : "Installing") : runtime.systemPath ? (zh ? "更新官方 CLI" : "Update official CLI") : (zh ? "安装官方 CLI" : "Install official CLI")}</ActionButton>}</div></Row>
-    {runtime && <Row label={zh ? "版本来源" : "Version provenance"} hint={zh ? "同时追踪官方基线与 Grox 自身补丁，便于升级和回归。" : "Tracks the official baseline and Grox patch revision independently."}><div className="max-w-[440px] space-y-1 text-right font-mono text-[9px] text-dim"><p className="truncate" title={runtime.version}>{runtime.version ?? (zh ? "无法读取 CLI 版本" : "CLI version unavailable")}</p><p className="truncate" title={runtime.upstreamCommit}>{zh ? "官方" : "UPSTREAM"} · {runtime.upstreamCommit?.slice(0, 12) ?? "unknown"}　{zh ? "Grox" : "GROX"} · {runtime.groxCommit}</p></div></Row>}
+    {runtime && <Row label={zh ? "版本来源" : "Version provenance"} hint={zh ? "CLI 由 x.ai 官方安装与更新；Grox 根据官方版本持续适配。" : "The CLI is installed and updated by x.ai; Grox tracks official releases for compatibility."}><div className="max-w-[440px] space-y-1 text-right font-mono text-[9px] text-dim"><p className="truncate" title={runtime.version}>{runtime.version ?? (zh ? "无法读取 CLI 版本" : "CLI version unavailable")}</p><p>{zh ? "官方 CLI · 由本机安装管理" : "OFFICIAL CLI · managed by the local installation"}</p><p className="truncate" title={runtime.groxCommit}>GROX APP · {runtime.groxCommit}</p></div></Row>}
     {runtimeError && <p className="mb-4 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{runtimeError}</p>}
     <Row label={zh ? "推理强度" : "Reasoning effort"}><div className="flex gap-1">{EFFORTS.map((item) => <button key={item} onClick={() => setEffort(item)} className={`h-7 rounded-[3px] border px-2 font-mono text-[9.5px] ${effort === item ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim"}`}>{item.toUpperCase()}</button>)}</div></Row>
     <Row label={zh ? "权限模式" : "Permission mode"} hint={zh ? "Default 保留审批；Auto 交给 Agent 策略；Bypass 仅用于可信环境。" : "Default keeps approvals; Auto follows the Agent policy; use Bypass only in trusted environments."}><select value={permission} onChange={(event) => setPermission(event.target.value as typeof permission)} className="h-8 rounded-[4px] border border-line2 bg-void px-2 font-mono text-[9.5px] text-fg2"><option value="default">DEFAULT</option><option value="auto">AUTO</option><option value="bypass">BYPASS / YOLO</option></select></Row>

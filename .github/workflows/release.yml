@@ -33,12 +33,15 @@ jobs:
           - name: Windows x64
             platform: windows-latest
             args: ""
+            rustTarget: x86_64-pc-windows-msvc
           - name: macOS Apple Silicon
             platform: macos-latest
             args: "--target aarch64-apple-darwin"
+            rustTarget: aarch64-apple-darwin
           - name: macOS Intel
             platform: macos-latest
             args: "--target x86_64-apple-darwin"
+            rustTarget: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
@@ -61,14 +64,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@387aeee55b189f024a4f6d94890c5b18d73339cc # 1.92.0
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rustTarget }}
 
       - name: Cache Rust builds
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          workspaces: |
-            . -> target
-            apps/desktop/src-tauri -> target
+          workspaces: apps/desktop/src-tauri -> target
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
@@ -77,10 +78,6 @@ jobs:
       - name: Synchronize app version from tag
         working-directory: apps/desktop
         run: node scripts/sync-release-version.mjs ${{ github.ref_name }}
-
-      - name: Build Grok sidecar
-        working-directory: apps/desktop
-        run: pnpm agent:sidecar -- ${{ matrix.args }}
 
       - name: Build and publish release
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0

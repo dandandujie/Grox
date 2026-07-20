@@ -14,7 +14,6 @@ fn git_revision() -> String {
 
 fn main() {
     println!("cargo:rerun-if-changed=../../../.git/HEAD");
-    println!("cargo:rerun-if-changed=../../../.grox/upstream.json");
     println!("cargo:rustc-env=GROX_BUILD_COMMIT={}", git_revision());
     tauri_build::build()
 }

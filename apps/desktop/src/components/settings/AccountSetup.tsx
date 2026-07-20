@@ -14,7 +14,6 @@ export function AccountSetup() {
   const setOpen = useDesktop((state) => state.setAccountSetupOpen);
   const runtime = useDesktop((state) => state.runtime);
   const runtimeBusy = useDesktop((state) => state.runtimeBusy);
-  const useBundledRuntime = useDesktop((state) => state.useBundledRuntime);
   const installOfficialRuntime = useDesktop((state) => state.installOfficialRuntime);
   const [kind, setKind] = useState<ProviderKind>("oauth");
   const [apiKey, setApiKey] = useState("");
@@ -27,11 +26,10 @@ export function AccountSetup() {
   if (!open) return null;
 
   if (runtime?.selectionRequired) {
-    const chooseRuntime = async (choice: "install" | "bundled") => {
+    const installRuntime = async () => {
       setError(null);
       try {
-        if (choice === "install") await installOfficialRuntime();
-        else await useBundledRuntime();
+        await installOfficialRuntime();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -42,32 +40,24 @@ export function AccountSetup() {
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line3 bg-raise"><BlackHole size={22} /></div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-[17px] font-medium text-fg">{language === "zh-CN" ? "选择官方 Grok Build 运行方式" : "Choose the official Grok Build runtime"}</h1>
-              <p className="mt-1 text-[11px] leading-relaxed text-dim">{language === "zh-CN" ? "两种方式都运行官方 Grok Build CLI，并通过官方 agent stdio / ACP 接入；Grox 不实现另一套 Agent harness。" : "Both options run the official Grok Build CLI over its agent stdio / ACP interface. Grox does not replace the Agent harness."}</p>
+              <h1 className="text-[17px] font-medium text-fg">{language === "zh-CN" ? "安装官方 Grok Build CLI" : "Install the official Grok Build CLI"}</h1>
+              <p className="mt-1 text-[11px] leading-relaxed text-dim">{language === "zh-CN" ? "Grox 完全使用官方 CLI 的 Agent harness、工具与 ACP，不再内置或维护替代运行时。" : "Grox uses the official CLI's Agent harness, tools, and ACP exclusively, with no bundled replacement runtime."}</p>
             </div>
             <button onClick={() => setOpen(false)} className="text-dim hover:text-fg" title="Close"><Icon name="x" size={14} /></button>
           </div>
-          <div className="mt-6 grid grid-cols-2 gap-3">
+          <div className="mt-6">
             <RuntimeOption
               icon="globe"
               title={language === "zh-CN" ? "安装官方 CLI" : "Install official CLI"}
               badge={language === "zh-CN" ? "推荐" : "RECOMMENDED"}
               description={language === "zh-CN" ? "调用 x.ai 官方安装脚本，自动安装到系统标准位置；之后终端和 Grox 共用同一个 CLI、配置和历史。" : "Run x.ai's official installer. Grox and your terminal will share the same CLI, configuration, and history."}
               disabled={runtimeBusy}
-              onClick={() => void chooseRuntime("install")}
-            />
-            <RuntimeOption
-              icon="bolt"
-              title={language === "zh-CN" ? "使用内置官方 CLI" : "Use bundled official CLI"}
-              badge={language === "zh-CN" ? "无需安装" : "NO INSTALL"}
-              description={language === "zh-CN" ? "使用随 Grox 发布、由同一 grok-build 官方源码构建的固定版本；仍保留完整工具、harness 与 ACP 能力。" : "Use the pinned official grok-build binary shipped with Grox, including its complete tools, harness, and ACP support."}
-              disabled={runtimeBusy}
-              onClick={() => void chooseRuntime("bundled")}
+              onClick={() => void installRuntime()}
             />
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-[5px] border border-line bg-raise px-3 py-2.5 font-mono text-[9.5px] text-dim">
             <span className={`h-1.5 w-1.5 rounded-full ${runtimeBusy ? "animate-pulse-dot bg-gold" : "bg-acc"}`} />
-            {runtimeBusy ? (language === "zh-CN" ? "正在执行官方安装并重新检测…" : "Running the official installer and detecting the CLI…") : (runtime.bundledPath ?? runtime.path)}
+            {runtimeBusy ? (language === "zh-CN" ? "正在执行官方安装并重新检测…" : "Running the official installer and detecting the CLI…") : (language === "zh-CN" ? "未检测到官方 grok 命令" : "Official grok command not detected")}
           </div>
           {error && <p className="mt-3 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{error}</p>}
         </div>

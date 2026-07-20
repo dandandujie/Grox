@@ -1,0 +1,55 @@
+name: Check official Grok Build updates
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Compare the reviewed official CLI baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $baseline = Get-Content -LiteralPath ".grox/official-cli.json" -Raw | ConvertFrom-Json
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $latest = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/xai-org/grok-build/commits/main"
+          if ($latest.sha -eq $baseline.commit) {
+            Write-Output "Grox is aligned with the reviewed official CLI baseline $($baseline.commit)."
+            exit 0
+          }
+
+          $title = "[Upstream] 官方 Grok Build 已更新"
+          $compare = "https://github.com/xai-org/grok-build/compare/$($baseline.commit)...$($latest.sha)"
+          $body = @"
+          检测到官方 `xai-org/grok-build` 已超过 Grox 当前适配基线。
+
+          - 已审查：`$($baseline.commit)`（CLI $($baseline.version)）
+          - 最新：`$($latest.sha)`
+          - 差异：$compare
+
+          适配后请检查 ACP 初始化能力、会话更新/导入、思考与工具事件、权限与模式、模型配置、认证/安装脚本及历史数据兼容性；最后更新 `.grox/official-cli.json`。Grox 不复制或重新发布官方 CLI。
+          "@
+          $existing = gh issue list --state open --search "`"$title`" in:title" --json number,title --jq ".[] | select(.title == `"$title`") | .number" | Select-Object -First 1
+          if ($existing) {
+            $current = gh issue view $existing --json body --jq ".body"
+            if ($current -notmatch [regex]::Escape($latest.sha)) {
+              gh issue edit $existing --body $body
+            }
+          } else {
+            gh issue create --title $title --body $body
+          }

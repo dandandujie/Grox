@@ -1,7 +1,7 @@
-# Security Policy
+# 安全策略
 
-Please report security vulnerabilities via our HackerOne program:
+请不要通过公开 Issue 披露尚未修复的漏洞。优先使用本仓库 **Security** 页面中的私密漏洞报告入口；如果该入口暂不可用，请先通过仓库维护者的 GitHub 主页私下联系，再提供复现细节。
 
-https://hackerone.com/x
+报告时请注明受影响的 Grox 版本、官方 Grok CLI 版本、操作系统、复现步骤和预期影响，并区分问题属于 Grox 桌面层还是官方 CLI。
 
-Do not open public GitHub issues for security reports.
+Grox 不内置、修改或重新发布 Grok Build CLI。官方 CLI 由 x.ai 安装与更新；Grox 只向其启动 `agent stdio` ACP 子进程，并在启动时强制应用隐私保护环境配置。任何试图引入来源不明 CLI 二进制或替代运行时的改动都应视为高风险变更。

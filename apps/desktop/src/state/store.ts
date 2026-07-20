@@ -143,7 +143,6 @@ interface DesktopState {
   activateProviderProfile(id: string): Promise<void>;
   deleteProviderProfile(id: string): Promise<void>;
   refreshRuntime(): Promise<void>;
-  useBundledRuntime(): Promise<void>;
   installOfficialRuntime(): Promise<void>;
   setAccountSetupOpen(open: boolean): void;
   refreshWorkspaceFiles(): Promise<void>;
@@ -993,17 +992,6 @@ export const useDesktop = create<DesktopState>((set, get) => {
           runtimeBusy: false,
           startupError: error instanceof Error ? error.message : String(error),
         });
-      }
-    },
-
-    async useBundledRuntime() {
-      set({ runtimeBusy: true });
-      try {
-        await invoke<GrokRuntimeInfo>("set_grok_runtime_preference", { preference: "bundled" });
-        window.location.reload();
-      } catch (error) {
-        set({ runtimeBusy: false });
-        throw error;
       }
     },
 
