@@ -35,6 +35,7 @@ import type {
   ProviderStatus,
   PromptAttachment,
   SaveProviderProfile,
+  FetchProviderModels,
   RewindMode,
   RewindPoint,
   RewindResult,
@@ -665,6 +666,7 @@ export class AcpBridge implements GrokBridge {
         ? "bypass"
         : "default";
   private workspace = "";
+  private sessionWorkspaces = new Map<string, string>();
   private ready: Promise<void>;
 
   constructor() {
@@ -783,7 +785,7 @@ export class AcpBridge implements GrokBridge {
     const response = await this.requestRaw(ACP_METHODS.initialize, {
       protocolVersion: 1,
       clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false },
+        fs: { readTextFile: true, writeTextFile: true },
         terminal: false,
       },
       clientInfo: {
@@ -970,6 +972,10 @@ export class AcpBridge implements GrokBridge {
   }
 
   private onServerRequest(message: JsonRpcMessage) {
+    if (message.method === "fs/read_text_file" || message.method === "fs/write_text_file") {
+      void this.handleFileSystemRequest(message);
+      return;
+    }
     if (message.method === ACP_METHODS.requestPermission) {
       this.handlePermission(message.id!, message.params);
       return;
@@ -987,6 +993,45 @@ export class AcpBridge implements GrokBridge {
       id: message.id,
       error: { code: -32601, message: `Unsupported client method: ${message.method}` },
     });
+  }
+
+  private async handleFileSystemRequest(message: JsonRpcMessage) {
+    const params = record(message.params) ?? {};
+    const path = string(params.path);
+    const sessionId = string(params.sessionId);
+    const cwd = (sessionId ? this.sessionWorkspaces.get(sessionId) ?? this.catalogue.get(sessionId)?.cwd : undefined) ?? this.workspace;
+    if (!path) {
+      await this.sendRaw({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32602, message: "文件路径不能为空" },
+      });
+      return;
+    }
+    try {
+      if (message.method === "fs/read_text_file") {
+        const content = await invoke<string>("acp_read_text_file", {
+          cwd,
+          path,
+          line: number(params.line),
+          limit: number(params.limit),
+        });
+        await this.sendRaw({ jsonrpc: "2.0", id: message.id, result: { content } });
+        return;
+      }
+      const content = string(params.content);
+      if (content === undefined) {
+        throw new Error("写入内容必须是文本");
+      }
+      await invoke("acp_write_text_file", { cwd, path, content });
+      await this.sendRaw({ jsonrpc: "2.0", id: message.id, result: {} });
+    } catch (cause) {
+      await this.sendRaw({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32000, message: cause instanceof Error ? cause.message : String(cause) },
+      });
+    }
   }
 
   private onNotification(method: string, paramsValue: unknown) {
@@ -1252,7 +1297,7 @@ export class AcpBridge implements GrokBridge {
           block: {
             type: "system",
             id: uid(),
-            text: `RETRY · ${string(retry.error) ?? string(retry.message) ?? "transient failure"}`,
+            text: `RETRY · ${string(retry.reason) ?? string(retry.error) ?? string(retry.message) ?? "transient failure"}`,
             ts: Date.now(),
             kind: "info",
           },
@@ -1723,6 +1768,10 @@ export class AcpBridge implements GrokBridge {
     return invoke<ProviderProfileSummary>("save_provider_profile", { request: config });
   }
 
+  async fetchProviderModels(config: FetchProviderModels): Promise<string[]> {
+    return invoke<string[]>("fetch_provider_models", { request: config });
+  }
+
   async refreshProviderModels(id: string): Promise<ProviderProfileSummary> {
     return invoke<ProviderProfileSummary>("refresh_provider_models", { id });
   }
@@ -1794,7 +1843,10 @@ export class AcpBridge implements GrokBridge {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     }
     const sessions = [...collected.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-    for (const meta of sessions) this.catalogue.set(meta.id, meta);
+    for (const meta of sessions) {
+      this.catalogue.set(meta.id, meta);
+      this.sessionWorkspaces.set(meta.id, meta.cwd);
+    }
     return sessions;
   }
 
@@ -1820,6 +1872,7 @@ export class AcpBridge implements GrokBridge {
       model: string(detail?.modelId) ?? localStorage.getItem("grok.model") ?? "grok-build",
     };
     this.knownSessions.add(sessionId);
+    this.sessionWorkspaces.set(sessionId, cwd);
     this.catalogue.set(sessionId, meta);
     this.cursors.set(sessionId, { toolBlocks: new Map() });
     this.usage.set(sessionId, { ...EMPTY_USAGE });
@@ -1834,6 +1887,7 @@ export class AcpBridge implements GrokBridge {
     }
     if (!meta) throw new Error(`找不到会话：${id}`);
 
+    this.sessionWorkspaces.set(id, meta.cwd);
     this.cursors.set(id, { toolBlocks: new Map() });
     this.replaying.set(id, emptySession(meta));
     try {
@@ -1873,6 +1927,8 @@ export class AcpBridge implements GrokBridge {
   async prompt(sessionId: string, text: string, options: PromptOptions): Promise<void> {
     await this.ready;
     this.knownSessions.add(sessionId);
+    const sessionCwd = this.catalogue.get(sessionId)?.cwd;
+    if (sessionCwd) this.sessionWorkspaces.set(sessionId, sessionCwd);
     this.closeUser(sessionId);
     this.emit({ type: "status", sessionId, status: "running" });
     try {
@@ -2063,6 +2119,7 @@ export class AcpBridge implements GrokBridge {
     });
     this.catalogue.delete(id);
     this.knownSessions.delete(id);
+    this.sessionWorkspaces.delete(id);
     this.cursors.delete(id);
     this.usage.delete(id);
   }

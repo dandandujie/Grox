@@ -21,6 +21,7 @@ import { UpdateNotice } from "./components/update/UpdateNotice";
 
 export default function App() {
   const { language } = useI18n();
+  const init = useDesktop((s) => s.init);
   const ready = useDesktop((s) => s.ready);
   const view = useDesktop((s) => s.view);
   const activeId = useDesktop((s) => s.activeId);
@@ -31,8 +32,8 @@ export default function App() {
   const setSidebarWidth = usePreferences((s) => s.setSidebarWidth);
 
   useEffect(() => {
-    void useDesktop.getState().init();
-  }, []);
+    void init();
+  }, [init]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

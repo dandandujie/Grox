@@ -81,6 +81,11 @@ function Input({ value, onChange, placeholder, type = "text" }: { value: string;
   return <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-8 w-full min-w-0 rounded-[4px] border border-line2 bg-void px-2.5 font-mono text-[10px] text-fg outline-none placeholder:text-faint focus:border-acc-dim" />;
 }
 
+function SecretInput({ value, onChange, hidden, onToggle, placeholder }: { value: string; onChange(value: string): void; hidden: boolean; onToggle(): void; placeholder?: string }) {
+  const { language } = useI18n();
+  return <div className="relative"><input type={hidden ? "password" : "text"} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} autoComplete="off" spellCheck={false} className="h-8 w-full min-w-0 rounded-[4px] border border-line2 bg-void py-0 pl-2.5 pr-14 font-mono text-[10px] text-fg outline-none placeholder:text-faint focus:border-acc-dim" /><button type="button" onClick={onToggle} className="absolute inset-y-0 right-0 flex w-12 items-center justify-center border-l border-line font-mono text-[8.5px] text-dim hover:text-fg">{hidden ? (language === "zh-CN" ? "显示" : "SHOW") : (language === "zh-CN" ? "隐藏" : "HIDE")}</button></div>;
+}
+
 function General() {
   const { language } = useI18n();
   const zh = language === "zh-CN";
@@ -147,14 +152,15 @@ function ProviderAndModels() {
   const profiles = useDesktop((state) => state.providerProfiles);
   const activeProfileId = useDesktop((state) => state.activeProviderProfileId);
   const saveProfile = useDesktop((state) => state.saveProviderProfile);
-  const refreshProfileModels = useDesktop((state) => state.refreshProviderModels);
+  const fetchProfileModels = useDesktop((state) => state.fetchProviderModels);
   const activateProfile = useDesktop((state) => state.activateProviderProfile);
   const deleteProfile = useDesktop((state) => state.deleteProviderProfile);
   const [kind, setKind] = useState<ProviderKind>(provider.kind);
   const [editingProfileId, setEditingProfileId] = useState<string | undefined>();
   const [profileName, setProfileName] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState(provider.baseUrl ?? "");
+  const [apiKeyHidden, setApiKeyHidden] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(provider.kind === "compatible" ? "" : (provider.baseUrl ?? ""));
   const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("auto");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [residentModels, setResidentModels] = useState<string[]>([]);
@@ -165,7 +171,7 @@ function ProviderAndModels() {
 
   useEffect(() => {
     setKind(provider.kind);
-    setBaseUrl(provider.baseUrl ?? "");
+    if (provider.kind !== "compatible") setBaseUrl(provider.baseUrl ?? "");
   }, [provider]);
 
   const editProfile = (id: string) => {
@@ -178,7 +184,8 @@ function ProviderAndModels() {
     setApiBackend(profile.apiBackend);
     setAvailableModels(profile.availableModels);
     setResidentModels(profile.residentModels);
-    setApiKey("");
+    setApiKey(profile.apiKey);
+    setApiKeyHidden(false);
     setCustomModel("");
     setModelQuery("");
   };
@@ -188,11 +195,29 @@ function ProviderAndModels() {
     setEditingProfileId(undefined);
     setProfileName("");
     setApiKey("");
+    setApiKeyHidden(false);
     setBaseUrl("");
-    setApiBackend("responses");
+    setApiBackend("auto");
     setAvailableModels([]);
     setResidentModels([]);
     setCustomModel("");
+    setModelQuery("");
+    setError("");
+  };
+
+  const selectProviderKind = (next: ProviderKind) => {
+    if (next === "compatible") {
+      startNewProfile();
+      return;
+    }
+    setKind(next);
+    setEditingProfileId(undefined);
+    setApiKey("");
+    setApiKeyHidden(false);
+    setBaseUrl("");
+    setAvailableModels([]);
+    setResidentModels([]);
+    setError("");
   };
 
   const addResident = (id: string) => {
@@ -216,7 +241,7 @@ function ProviderAndModels() {
         setEditingProfileId(saved.id);
         setAvailableModels(saved.availableModels);
         setResidentModels(saved.residentModels);
-        setApiKey("");
+        setApiKey(saved.apiKey);
       } else {
         await configure({ kind, apiKey, baseUrl });
       }
@@ -228,13 +253,11 @@ function ProviderAndModels() {
   };
 
   const refreshCompatibleModels = async () => {
-    if (!editingProfileId) return;
     setBusy(true);
     setError("");
     try {
-      const profile = await refreshProfileModels(editingProfileId);
-      setAvailableModels(profile.availableModels);
-      setResidentModels(profile.residentModels);
+      const discovered = await fetchProfileModels({ apiKey, baseUrl });
+      setAvailableModels(discovered);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -245,23 +268,32 @@ function ProviderAndModels() {
   const filteredModels = availableModels.filter((id) => id.toLocaleLowerCase().includes(modelQuery.trim().toLocaleLowerCase()));
 
   return <div className="mt-7" data-testid="provider-manager">
-    <div className="mb-3 flex items-end justify-between"><div><h3 className="text-[12px] font-medium text-fg">{zh ? "模型服务" : "Model provider"}</h3><p className="mt-1 text-[10px] text-dim">{zh ? "供应商切换只重连后台 Grok Build ACP，会话与界面保持不动；密钥不会回传到 WebView。" : "Provider changes reconnect only the Grok Build ACP process. The session and UI stay in place, and secrets never return to the WebView."}</p></div><span className="chip">{provider.kind.toUpperCase()}</span></div>
+    <div className="mb-3 flex items-end justify-between"><div><h3 className="text-[12px] font-medium text-fg">{zh ? "模型服务" : "Model provider"}</h3><p className="mt-1 text-[10px] text-dim">{zh ? "供应商切换只重连后台 Grok Build ACP；密钥仅保存在本机配置与当前 WebView 内存中。" : "Provider changes reconnect only the Grok Build ACP process. Keys remain in local configuration and the current WebView memory."}</p></div><span className="chip">{provider.kind.toUpperCase()}</span></div>
     <div className="grid grid-cols-3 gap-2">
-      {(["oauth", "official", "compatible"] as ProviderKind[]).map((item) => <button key={item} onClick={() => item === "compatible" ? startNewProfile() : setKind(item)} className={`min-w-0 rounded-[5px] border px-3 py-2.5 text-left transition-colors ${kind === item ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise hover:border-line3"}`}><Icon name={item === "oauth" ? "user" : item === "official" ? "bolt" : "globe"} size={12} className={kind === item ? "text-acc" : "text-dim"} /><p className="mt-2 truncate font-mono text-[9.5px] text-fg2">{item === "oauth" ? t("oauth") : item === "official" ? t("officialApi") : t("compatibleApi")}</p></button>)}
+      {(["oauth", "official", "compatible"] as ProviderKind[]).map((item) => <button key={item} onClick={() => selectProviderKind(item)} className={`min-w-0 rounded-[5px] border px-3 py-2.5 text-left transition-colors ${kind === item ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise hover:border-line3"}`}><Icon name={item === "oauth" ? "user" : item === "official" ? "bolt" : "globe"} size={12} className={kind === item ? "text-acc" : "text-dim"} /><p className="mt-2 truncate font-mono text-[9.5px] text-fg2">{item === "oauth" ? t("oauth") : item === "official" ? t("officialApi") : t("compatibleApi")}</p></button>)}
     </div>
-    {kind === "oauth" ? <div className="mt-3 rounded-[5px] border border-line bg-raise p-3 text-[10px] leading-relaxed text-dim"><span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse-dot rounded-full bg-acc" />{zh ? "模型目录由 Grok OAuth 实时提供；上游目录变化会自动同步到设置和输入框。" : "The model catalog is supplied live by Grok OAuth and synchronized with every composer."}</div> : <div className="mt-3 rounded-[6px] border border-line2 bg-raise p-3">
+    {kind === "oauth" ? <div className="mt-3 rounded-[5px] border border-line bg-raise p-3 text-[10px] leading-relaxed text-dim"><span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse-dot rounded-full bg-acc" />{zh ? "模型目录由 Grok OAuth 实时提供；上游目录变化会自动同步到设置和输入框。" : "The model catalog is supplied live by Grok OAuth and synchronized with every composer."}</div> : <div className={`mt-3 ${kind === "compatible" ? "grid min-h-[430px] grid-cols-[168px_minmax(0,1fr)] overflow-hidden rounded-[7px] border border-line2 bg-raise" : ""}`}>
+      {kind === "compatible" && <aside className="flex min-w-0 flex-col border-r border-line bg-void/55 p-2">
+        <div className="mb-2 flex items-center justify-between px-1"><span className="lbl !text-[8.5px]">{zh ? "供应商" : "PROVIDERS"}</span><span className="tnum text-[8.5px] text-faint">{profiles.length}</span></div>
+        <button onClick={startNewProfile} className={`mb-2 flex h-8 items-center gap-2 rounded-[4px] border px-2 font-mono text-[9px] transition-colors ${editingProfileId === undefined ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim hover:border-line3 hover:text-fg"}`}><Icon name="plus" size={10} /><span className="truncate">{zh ? "新建供应商" : "NEW PROVIDER"}</span></button>
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-0.5">{profiles.map((profile) => <div key={profile.id} className={`group rounded-[4px] border px-2 py-2 transition-colors ${editingProfileId === profile.id ? "border-acc-dim bg-acc-wash" : "border-transparent bg-high/45 hover:border-line2"}`}>
+          <button onClick={() => editProfile(profile.id)} className="block w-full min-w-0 text-left"><span className="flex items-center gap-1.5"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeProfileId === profile.id ? "bg-acc" : "bg-faint"}`} /><span className="min-w-0 flex-1 truncate text-[9.5px] font-medium text-fg2" title={profile.name}>{profile.name}</span></span><span className="mt-1 block truncate pl-3 font-mono text-[7.5px] text-faint" title={profile.baseUrl}>{profile.baseUrl.replace(/^https?:\/\//, "")}</span></button>
+          <div className="mt-1.5 flex items-center justify-end gap-2 border-t border-line/70 pt-1.5">{activeProfileId === profile.id ? <span className="mr-auto font-mono text-[7.5px] text-acc">{zh ? "使用中" : "ACTIVE"}</span> : <button onClick={() => void activateProfile(profile.id).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))} className="mr-auto font-mono text-[8px] text-acc hover:text-fg">{zh ? "切换" : "USE"}</button>}<button onClick={() => editProfile(profile.id)} className="font-mono text-[8px] text-dim hover:text-fg">{zh ? "编辑" : "EDIT"}</button><button onClick={() => { if (window.confirm(zh ? `删除供应商“${profile.name}”？` : `Delete provider “${profile.name}”?`)) { if (editingProfileId === profile.id) startNewProfile(); void deleteProfile(profile.id); } }} className="text-faint hover:text-red" title={zh ? "删除" : "Delete"}><Icon name="trash" size={9} /></button></div>
+        </div>)}</div>
+      </aside>}
+      <div className={kind === "compatible" ? "min-w-0 p-4" : "rounded-[6px] border border-line2 bg-raise p-3"}>
       <div className="grid grid-cols-2 gap-3">
         {kind === "compatible" && <label className="block"><span className="lbl !text-[9px]">{zh ? "供应商名称" : "PROVIDER NAME"}</span><Input value={profileName} onChange={setProfileName} placeholder={zh ? "例如：公司中转 / OpenRouter" : "e.g. Company gateway / OpenRouter"} /></label>}
-        <label className="block"><span className="lbl !text-[9px]">API KEY</span><Input value={apiKey} onChange={setApiKey} type="password" placeholder={(editingProfileId ? profiles.find((item) => item.id === editingProfileId)?.hasApiKey : provider.hasApiKey) ? (zh ? "已保存 · 留空保持" : "Stored · leave blank") : "xai-…"} /></label>
-        {kind === "official" ? <div><span className="lbl !text-[9px]">BASE URL</span><div className="h-8 rounded-[4px] border border-line bg-void px-2.5 font-mono text-[10px] leading-8 text-dim">https://api.x.ai/v1</div></div> : <label className="block"><span className="lbl !text-[9px]">BASE URL</span><Input value={baseUrl} onChange={setBaseUrl} placeholder="https://example.com/v1" /></label>}
+        <label className="block"><span className="lbl !text-[9px]">API KEY</span><SecretInput value={apiKey} onChange={(value) => { setApiKey(value); if (kind === "compatible") setAvailableModels([]); }} hidden={apiKeyHidden} onToggle={() => setApiKeyHidden((value) => !value)} placeholder="xai-…" /></label>
+        {kind === "official" ? <div><span className="lbl !text-[9px]">BASE URL</span><div className="h-8 rounded-[4px] border border-line bg-void px-2.5 font-mono text-[10px] leading-8 text-dim">https://api.x.ai/v1</div></div> : <label className="block"><span className="lbl !text-[9px]">BASE URL</span><Input value={baseUrl} onChange={(value) => { setBaseUrl(value); setAvailableModels([]); setResidentModels([]); }} placeholder="https://example.com/v1" /></label>}
         {kind === "compatible" && <label className="col-span-2 block"><span className="lbl !text-[9px]">{zh ? "接口协议" : "API PROTOCOL"}</span><select value={apiBackend} onChange={(event) => setApiBackend(event.target.value as ProviderApiBackend)} className="mt-1 h-8 w-full rounded-[4px] border border-line2 bg-void px-2.5 font-mono text-[9.5px] text-fg2 outline-none focus:border-acc-dim"><option value="responses">Responses · {zh ? "推荐，保留搜索工具与可公开的推理摘要" : "recommended; preserves search and reasoning summaries"}</option><option value="chat_completions">Chat Completions · {zh ? "旧服务兼容；代理可能丢弃托管工具事件" : "legacy compatibility; hosted tool events may be dropped"}</option><option value="auto">AUTO · grok2api / CLIProxyAPI / NewAPI → Responses</option></select></label>}
       </div>
       {kind === "compatible" && <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4">
         <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-[10.5px] text-fg2">{zh ? "自动获取的可用模型" : "Discovered models"}</p><p className="truncate font-mono text-[8.5px] text-faint">{baseUrl ? `${baseUrl.replace(/\/$/, "")}/models` : (zh ? "保存后自动获取" : "Fetched after save")}</p></div><ActionButton disabled={!editingProfileId || busy} onClick={() => void refreshCompatibleModels()}>{zh ? "重新获取" : "FETCH"}</ActionButton></div>
+          <div className="mb-2 flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-[10.5px] text-fg2">{zh ? "当前草稿的可用模型" : "Models for this draft"}</p><p className="truncate font-mono text-[8.5px] text-faint">{baseUrl ? `${baseUrl.replace(/\/$/, "")}/models` : (zh ? "输入 URL 与 Key 后直接获取" : "Enter URL and key to fetch")}</p></div><ActionButton disabled={busy || !baseUrl.trim() || !apiKey.trim()} onClick={() => void refreshCompatibleModels()}>{zh ? "获取模型" : "FETCH"}</ActionButton></div>
           <Input value={modelQuery} onChange={setModelQuery} placeholder={zh ? "筛选模型…" : "Filter models…"} />
           <div className="mt-2 max-h-48 overflow-y-auto rounded-[5px] border border-line bg-void/60 p-1">
-            {filteredModels.length === 0 ? <p className="px-2 py-5 text-center text-[9.5px] text-faint">{editingProfileId ? (zh ? "暂无模型；可重新获取或添加自定义模型" : "No models; fetch again or add a custom model") : (zh ? "先保存供应商以获取模型" : "Save the provider to discover models")}</p> : filteredModels.map((id) => <div key={id} className="flex h-7 min-w-0 items-center gap-2 rounded-[3px] px-2 hover:bg-high"><span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2" title={id}>{id}</span><button disabled={residentModels.includes(id)} onClick={() => addResident(id)} className="shrink-0 font-mono text-[8.5px] text-acc disabled:text-faint">{residentModels.includes(id) ? (zh ? "已常驻" : "ADDED") : (zh ? "加入" : "ADD")}</button></div>)}
+            {filteredModels.length === 0 ? <p className="px-2 py-5 text-center text-[9.5px] text-faint">{zh ? "尚未获取当前草稿的模型" : "No models fetched for this draft"}</p> : filteredModels.map((id) => <div key={id} className="flex h-7 min-w-0 items-center gap-2 rounded-[3px] px-2 hover:bg-high"><span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2" title={id}>{id}</span><button disabled={residentModels.includes(id)} onClick={() => addResident(id)} className="shrink-0 font-mono text-[8.5px] text-acc disabled:text-faint">{residentModels.includes(id) ? (zh ? "已常驻" : "ADDED") : (zh ? "加入" : "ADD")}</button></div>)}
           </div>
         </div>
         <div className="min-w-0">
@@ -272,11 +304,10 @@ function ProviderAndModels() {
           </div>
         </div>
       </div>}
+      </div>
     </div>}
     {error && <p className="mt-2 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{error}</p>}
     <div className="mt-3 flex justify-end"><ActionButton tone="accent" disabled={busy} onClick={() => void save()}>{busy ? t("loading") : kind === "oauth" ? (zh ? "使用 Grok OAuth" : "Use Grok OAuth") : (zh ? "保存" : "Save")}</ActionButton></div>
-
-    {profiles.length > 0 && <div className="mt-5"><div className="mb-2 flex items-center justify-between"><p className="lbl !text-[9.5px]">{zh ? "已保存的第三方供应商" : "SAVED COMPATIBLE PROVIDERS"}</p><span className="tnum text-[9px] text-faint">{profiles.length}</span></div><div className="space-y-1.5">{profiles.map((profile) => <div key={profile.id} className={`flex min-w-0 items-center gap-3 rounded-[5px] border px-3 py-2.5 ${activeProfileId === profile.id ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise"}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeProfileId === profile.id ? "bg-acc" : "bg-faint"}`} /><div className="min-w-0 flex-1"><p className="truncate text-[10.5px] text-fg2" title={profile.name}>{profile.name}</p><p className="mt-0.5 truncate font-mono text-[8.5px] text-faint" title={profile.baseUrl}>{profile.baseUrl} · {profile.residentModels.length} {zh ? "个常驻模型" : "resident"}</p></div>{activeProfileId === profile.id && <span className="chip shrink-0">{zh ? "使用中" : "ACTIVE"}</span>}<button onClick={() => editProfile(profile.id)} className="shrink-0 font-mono text-[9px] text-dim hover:text-fg">{zh ? "编辑" : "EDIT"}</button>{activeProfileId !== profile.id && <button onClick={() => void activateProfile(profile.id).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))} className="shrink-0 font-mono text-[9px] text-acc hover:text-fg">{zh ? "切换" : "USE"}</button>}<button onClick={() => { if (window.confirm(zh ? `删除供应商“${profile.name}”？` : `Delete provider “${profile.name}”?`)) void deleteProfile(profile.id); }} className="shrink-0 text-faint hover:text-red" title={zh ? "删除" : "Delete"}><Icon name="trash" size={10} /></button></div>)}</div></div>}
 
     <div className="mt-5 rounded-[6px] border border-line2 bg-raise p-3">
       <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 rounded-full ${provider.kind === "oauth" ? "animate-pulse-dot bg-acc" : "bg-gold"}`} /><div className="min-w-0 flex-1"><p className="text-[11px] text-fg2">{zh ? "常驻模型" : "Resident model"}</p><p className="mt-0.5 text-[9.5px] text-dim">{provider.kind === "oauth" ? (zh ? "实时目录" : "Live catalog") : (zh ? "API 模型目录" : "API catalog")} · {models.length} {zh ? "个模型" : "models"}{modelsUpdatedAt ? ` · ${new Date(modelsUpdatedAt).toLocaleTimeString()}` : ""}</p></div><ActionButton onClick={() => void refreshModels()}>{t("refresh")}</ActionButton></div>
@@ -374,10 +405,10 @@ function MarketLinks({ kind }: { kind: "mcp" | "skills" | "plugins" }) {
 }
 
 function ConfigDocumentsPanel() {
-  const { t, language } = useI18n(); const zh = language === "zh-CN"; const cwd = useDesktop((state) => state.workspace);
+  const { t, language } = useI18n(); const zh = language === "zh-CN"; const cwd = useDesktop((state) => state.workspace); const activeId = useDesktop((state) => state.activeId); const activeStatus = useDesktop((state) => activeId ? state.sessions[activeId]?.status : undefined);
   const [documents, setDocuments] = useState<ConfigDocument[]>([]); const [active, setActive] = useState<ConfigDocument["id"]>("config"); const [drafts, setDrafts] = useState<Record<string, string>>({}); const [dirty, setDirty] = useState<Record<string, boolean>>({}); const [status, setStatus] = useState("");
   useEffect(() => { let live = true; const load = async () => { try { const next = await bridge.readConfigDocuments(cwd); if (!live) return; setDocuments(next); setDrafts((current) => { const updated = { ...current }; for (const document of next) if (!dirty[document.id]) updated[document.id] = document.content; return updated; }); } catch (cause) { if (live) setStatus(cause instanceof Error ? cause.message : String(cause)); } }; void load(); const timer = window.setInterval(load, 1500); return () => { live = false; window.clearInterval(timer); }; }, [cwd, dirty]);
   const document = useMemo(() => documents.find((item) => item.id === active), [documents, active]);
-  const save = async () => { if (!document) return; try { const saved = await bridge.writeConfigDocument({ ...document, content: drafts[document.id] ?? "" }); setDocuments((items) => items.map((item) => item.id === saved.id ? saved : item)); setDirty((current) => ({ ...current, [saved.id]: false })); setStatus(t("saved")); } catch (cause) { setStatus(cause instanceof Error ? cause.message : String(cause)); } };
+  const save = async () => { if (!document) return; try { const saved = await bridge.writeConfigDocument({ ...document, content: drafts[document.id] ?? "" }); setDocuments((items) => items.map((item) => item.id === saved.id ? saved : item)); setDirty((current) => ({ ...current, [saved.id]: false })); if (saved.id === "system-prompt" && activeId && activeStatus === "idle") { await bridge.loadSession(activeId); setStatus(zh ? "已保存并应用到当前会话" : "Saved and applied to the current session"); } else if (saved.id === "system-prompt") setStatus(zh ? "已保存；将在新会话或重新打开会话时应用" : "Saved; applies to new or reopened sessions"); else setStatus(t("saved")); } catch (cause) { setStatus(cause instanceof Error ? cause.message : String(cause)); } };
   return <div className="flex min-h-[520px] flex-col"><Heading title={t("configuration")} description={zh ? "配置文件已并入账户模块。每 1.5 秒检查本地变动；config.toml、系统提示词和项目 AGENTS.md 均保持双向热同步。环境变量不再作为可编辑栏目暴露，API 接入统一由上方模型服务表单管理。" : "Configuration now lives with the account. config.toml, the system prompt, and project AGENTS.md stay in two-way hot sync. Raw environment variables are no longer exposed; API access is managed by the provider form above."} /><div className="flex gap-1 border-b border-line">{documents.map((item) => <button key={item.id} onClick={() => setActive(item.id)} className={`border-b px-3 py-2 font-mono text-[9.5px] ${active === item.id ? "border-acc text-acc" : "border-transparent text-dim"}`}>{item.label}{dirty[item.id] ? " •" : ""}</button>)}</div>{document ? <><div className="flex items-center gap-2 py-2"><span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-faint">{document.path}</span><span className="font-mono text-[9.5px] text-dim">{document.exists ? zh ? "已同步" : "SYNCED" : zh ? "新建" : "NEW"}</span><ActionButton tone="accent" onClick={() => void save()}>{t("save")}</ActionButton></div><textarea value={drafts[document.id] ?? ""} onChange={(event) => { setDrafts((current) => ({ ...current, [document.id]: event.target.value })); setDirty((current) => ({ ...current, [document.id]: true })); }} spellCheck={false} className="min-h-[360px] flex-1 resize-none rounded-[5px] border border-line2 bg-void p-3 font-mono text-[10.5px] leading-relaxed text-fg2 outline-none focus:border-acc-dim" /></> : <ExtensionState error={null} empty={t("loading")} />}{status && <p className="mt-2 font-mono text-[9.5px] text-dim">{status}</p>}</div>;
 }

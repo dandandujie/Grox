@@ -17,6 +17,7 @@ export function AccountSetup() {
   const installOfficialRuntime = useDesktop((state) => state.installOfficialRuntime);
   const [kind, setKind] = useState<ProviderKind>("oauth");
   const [apiKey, setApiKey] = useState("");
+  const [apiKeyHidden, setApiKeyHidden] = useState(false);
   const [providerName, setProviderName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("auto");
@@ -127,7 +128,7 @@ export function AccountSetup() {
 
         {kind !== "oauth" && (
           <div className="mt-4 space-y-3">
-            <Field label={t("apiKey")} value={apiKey} onChange={setApiKey} type="password" placeholder="xai-…" />
+            <KeyField label={t("apiKey")} value={apiKey} onChange={setApiKey} hidden={apiKeyHidden} onToggle={() => setApiKeyHidden((value) => !value)} language={language} />
             {kind === "compatible" && (
               <>
                 <Field label={language === "zh-CN" ? "供应商名称" : "Provider name"} value={providerName} onChange={setProviderName} placeholder={language === "zh-CN" ? "例如：公司中转 / OpenRouter" : "e.g. Company gateway / OpenRouter"} />
@@ -184,4 +185,8 @@ function Field({ label, value, onChange, placeholder, type = "text" }: { label: 
       />
     </label>
   );
+}
+
+function KeyField({ label, value, onChange, hidden, onToggle, language }: { label: string; value: string; onChange(value: string): void; hidden: boolean; onToggle(): void; language: string }) {
+  return <label className="block"><span className="lbl !text-[9.5px]">{label}</span><div className="relative mt-1.5"><input type={hidden ? "password" : "text"} value={value} onChange={(event) => onChange(event.target.value)} placeholder="xai-…" autoComplete="off" spellCheck={false} className="h-9 w-full rounded-[4px] border border-line2 bg-void py-0 pl-3 pr-16 font-mono text-[10.5px] text-fg outline-none placeholder:text-faint focus:border-acc-dim" /><button type="button" onClick={onToggle} className="absolute inset-y-0 right-0 w-14 border-l border-line font-mono text-[8.5px] text-dim hover:text-fg">{hidden ? (language === "zh-CN" ? "显示" : "SHOW") : (language === "zh-CN" ? "隐藏" : "HIDE")}</button></div></label>;
 }

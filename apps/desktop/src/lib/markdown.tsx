@@ -3,6 +3,8 @@
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { marked } from "marked";
+import markedKatex from "marked-katex-extension";
+import "katex/dist/katex.min.css";
 import { invoke } from "@tauri-apps/api/core";
 import type { MouseEvent } from "react";
 import { memo, useMemo } from "react";
@@ -40,34 +42,72 @@ marked.use({
     },
   },
 });
+marked.use(markedKatex({ throwOnError: false, nonStandard: true, output: "mathml" }));
 
-function readableStreamingText(text: string): string {
-  return text
-    .replace(/^\s{0,3}```[^\n]*$/gm, "")
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s{0,3}>\s?/gm, "")
-    .replace(/^\s*[-*+]\s+/gm, "• ")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "$1")
-    .replace(/(?<!_)_([^_\n]+)_(?!_)/g, "$1")
-    .replace(/`([^`\n]+)`/g, "$1")
-    .replace(/\[([^\]]+)]\((?:[^()]|\([^)]*\))*\)/g, "$1");
+export function normalizeMathDelimiters(text: string): string {
+  let fence: { marker: string; length: number } | undefined;
+  let displayMath = false;
+  return text.split("\n").map((line) => {
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      if (fenceMatch && fenceMatch[1][0] === fence.marker && fenceMatch[1].length >= fence.length) fence = undefined;
+      return line;
+    }
+    if (fenceMatch) {
+      fence = { marker: fenceMatch[1][0], length: fenceMatch[1].length };
+      return line;
+    }
+
+    let output = "";
+    let inlineTicks = 0;
+    for (let index = 0; index < line.length;) {
+      if (line[index] === "`") {
+        let end = index + 1;
+        while (line[end] === "`") end += 1;
+        const ticks = end - index;
+        inlineTicks = inlineTicks === 0 ? ticks : inlineTicks === ticks ? 0 : inlineTicks;
+        output += line.slice(index, end);
+        index = end;
+        continue;
+      }
+      const next = line[index + 1];
+      if (inlineTicks === 0 && line.startsWith("$$", index)) {
+        output += displayMath ? "\n$$\n\n" : "\n\n$$\n";
+        displayMath = !displayMath;
+        index += 2;
+        continue;
+      }
+      if (inlineTicks === 0 && line[index] === "\\" && line[index - 1] !== "\\" && (next === "(" || next === ")" || next === "[" || next === "]")) {
+        if (next === "[") {
+          output += "\n\n$$\n";
+          displayMath = true;
+        } else if (next === "]") {
+          output += "\n$$\n\n";
+          displayMath = false;
+        } else {
+          output += "$";
+        }
+        index += 2;
+        continue;
+      }
+      output += line[index];
+      index += 1;
+    }
+    return output;
+  }).join("\n");
+}
+
+export function renderMarkdownHtml(text: string): string {
+  const rendered = marked.parse(normalizeMathDelimiters(text), { async: false });
+  return DOMPurify.sanitize(rendered, {
+    USE_PROFILES: { html: true, mathMl: true },
+    FORBID_TAGS: ["style", "iframe", "object", "embed"],
+    FORBID_ATTR: ["style"],
+  });
 }
 
 export const Markdown = memo(function Markdown({ text, className = "", streaming = false }: { text: string; className?: string; streaming?: boolean }) {
-  const html = useMemo(() => {
-    if (streaming) return "";
-    const rendered = marked.parse(text, { async: false });
-    return DOMPurify.sanitize(rendered, {
-      USE_PROFILES: { html: true },
-      FORBID_TAGS: ["style", "iframe", "object", "embed"],
-      FORBID_ATTR: ["style"],
-    });
-  }, [streaming, text]);
-  if (streaming) {
-    return <div className={`md md-streaming whitespace-pre-wrap ${className}`}>{readableStreamingText(text)}</div>;
-  }
+  const html = useMemo(() => renderMarkdownHtml(text), [text]);
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as Element;
     const copyButton = target.closest("[data-code-copy]");
@@ -99,7 +139,7 @@ export const Markdown = memo(function Markdown({ text, className = "", streaming
   };
   return (
     <div
-      className={`md ${className}`}
+      className={`md ${streaming ? "md-streaming" : ""} ${className}`}
       onClick={handleClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />

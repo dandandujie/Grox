@@ -10,7 +10,7 @@ use std::{
     collections::BTreeMap,
     fs,
     io::Write as _,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::Stdio,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -20,10 +20,12 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{TcpListener, TcpStream},
     process::{Child, ChildStdin, Command},
     sync::Mutex,
 };
@@ -71,6 +73,12 @@ struct PreviewProcess {
 #[derive(Default)]
 struct PreviewState {
     process: Mutex<Option<PreviewProcess>>,
+}
+
+#[derive(Default)]
+struct FilePreviewState {
+    port: Mutex<Option<u16>>,
+    roots: Arc<Mutex<BTreeMap<String, PathBuf>>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -268,6 +276,7 @@ struct ProviderProfilesFile {
 struct ProviderProfileSummary {
     id: String,
     name: String,
+    api_key: String,
     has_api_key: bool,
     base_url: String,
     api_backend: ProviderApiBackend,
@@ -307,6 +316,7 @@ struct OpenAiModelsResponse {
 
 const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_ACP_TEXT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES: usize = 2_000;
 static CONFIG_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
 
@@ -740,6 +750,87 @@ fn configured_grok_command(_app: &tauri::AppHandle) -> GrokRuntimeInfo {
     runtime_info(executable.to_string(), "missing", None, true)
 }
 
+fn checked_workspace_target(workspace: &Path, requested: &str) -> Result<PathBuf, String> {
+    let requested_path = PathBuf::from(requested);
+    if requested_path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("文件路径不能包含 ..".into());
+    }
+    let candidate = if requested_path.is_absolute() {
+        requested_path
+    } else {
+        workspace.join(requested_path)
+    };
+    if candidate.exists() {
+        return checked_workspace_file(workspace, &path_for_webview(&candidate));
+    }
+
+    let mut ancestor = candidate.as_path();
+    while !ancestor.exists() {
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| "无法定位文件的现有父目录".to_string())?;
+    }
+    let canonical_ancestor = ancestor
+        .canonicalize()
+        .map_err(|error| format!("无法解析父目录 {}：{error}", ancestor.display()))?;
+    if !canonical_ancestor.starts_with(workspace) {
+        return Err("只能访问当前项目内的文件".into());
+    }
+    let suffix = candidate
+        .strip_prefix(ancestor)
+        .map_err(|_| "无法解析项目文件路径".to_string())?;
+    Ok(canonical_ancestor.join(suffix))
+}
+
+#[tauri::command]
+fn acp_read_text_file(
+    cwd: String,
+    path: String,
+    line: Option<u32>,
+    limit: Option<u32>,
+) -> Result<String, String> {
+    let workspace = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&workspace, &path)?;
+    let content = read_bounded_text(&file, MAX_ACP_TEXT_BYTES)?;
+    if line.is_none() && limit.is_none() {
+        return Ok(content);
+    }
+    let start = line.unwrap_or(1).max(1).saturating_sub(1) as usize;
+    let take = limit.map(|value| value as usize).unwrap_or(usize::MAX);
+    Ok(content
+        .split_inclusive('\n')
+        .skip(start)
+        .take(take)
+        .collect())
+}
+
+#[tauri::command]
+fn acp_write_text_file(cwd: String, path: String, content: String) -> Result<(), String> {
+    if content.len() as u64 > MAX_ACP_TEXT_BYTES {
+        return Err("单个文本文件不能超过 16 MB".into());
+    }
+    let workspace = checked_workspace(&cwd)?;
+    let file = checked_workspace_target(&workspace, &path)?;
+    if file.exists() && !file.is_file() {
+        return Err(format!("目标不是文件：{}", file.display()));
+    }
+    let parent = file.parent().ok_or("文件路径缺少父目录")?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("无法创建目录 {}：{error}", parent.display()))?;
+    fs::write(&file, content.as_bytes())
+        .map_err(|error| format!("无法写入 {}：{error}", file.display()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FetchProviderModels {
+    api_key: String,
+    base_url: String,
+}
+
 #[tauri::command]
 fn grok_runtime_info(app: tauri::AppHandle) -> GrokRuntimeInfo {
     configured_grok_command(&app)
@@ -1110,6 +1201,224 @@ fn list_workspace_files(cwd: String) -> Result<Vec<WorkspaceEntry>, String> {
     Ok(output)
 }
 
+fn static_preview_mime(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" | "jsx" => "text/javascript; charset=utf-8",
+        "json" | "map" => "application/json; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "wasm" => "application/wasm",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn send_static_preview_response(
+    stream: &mut TcpStream,
+    status: &str,
+    mime: &str,
+    body: &[u8],
+    head_only: bool,
+) {
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    if stream.write_all(header.as_bytes()).await.is_ok() && !head_only {
+        let _ = stream.write_all(body).await;
+    }
+    let _ = stream.shutdown().await;
+}
+
+async fn handle_static_preview_request(
+    mut stream: TcpStream,
+    roots: Arc<Mutex<BTreeMap<String, PathBuf>>>,
+) {
+    let mut request = [0_u8; 16 * 1024];
+    let Ok(size) = stream.read(&mut request).await else {
+        return;
+    };
+    let request = String::from_utf8_lossy(&request[..size]);
+    let Some(line) = request.lines().next() else {
+        return;
+    };
+    let mut request_parts = line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default();
+    let target = request_parts.next().unwrap_or_default();
+    let head_only = method == "HEAD";
+    if method != "GET" && !head_only {
+        send_static_preview_response(
+            &mut stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"Method not allowed",
+            false,
+        )
+        .await;
+        return;
+    }
+
+    let path = target.split(['?', '#']).next().unwrap_or_default();
+    let segments = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let Some(first_segment) = segments.first() else {
+        send_static_preview_response(&mut stream, "404 Not Found", "text/plain", b"Not found", head_only).await;
+        return;
+    };
+    let (root, path_start) = {
+        let roots = roots.lock().await;
+        if let Some(root) = roots.get(*first_segment) {
+            (root.clone(), 1)
+        } else if roots.len() == 1 {
+            // Root-relative resources such as /assets/app.css omit the
+            // unguessable document token. There is only one active file
+            // preview, so they can safely resolve inside that same workspace.
+            (roots.values().next().expect("one preview root").clone(), 0)
+        } else {
+            send_static_preview_response(&mut stream, "404 Not Found", "text/plain", b"Not found", head_only).await;
+            return;
+        }
+    };
+
+    let mut candidate = root.clone();
+    for encoded in &segments[path_start..] {
+        let Ok(decoded) = percent_decode_str(encoded).decode_utf8() else {
+            send_static_preview_response(&mut stream, "400 Bad Request", "text/plain", b"Bad path", head_only).await;
+            return;
+        };
+        if decoded.is_empty()
+            || decoded == "."
+            || decoded == ".."
+            || decoded.contains('/')
+            || decoded.contains('\\')
+            || decoded.chars().any(char::is_control)
+        {
+            send_static_preview_response(&mut stream, "400 Bad Request", "text/plain", b"Bad path", head_only).await;
+            return;
+        }
+        candidate.push(decoded.as_ref());
+    }
+    if candidate.is_dir() {
+        candidate.push("index.html");
+    }
+    let Ok(candidate) = candidate.canonicalize() else {
+        send_static_preview_response(&mut stream, "404 Not Found", "text/plain", b"Not found", head_only).await;
+        return;
+    };
+    if !candidate.starts_with(&root) || !candidate.is_file() {
+        send_static_preview_response(&mut stream, "403 Forbidden", "text/plain", b"Forbidden", head_only).await;
+        return;
+    }
+    let Ok(metadata) = fs::metadata(&candidate) else {
+        send_static_preview_response(&mut stream, "404 Not Found", "text/plain", b"Not found", head_only).await;
+        return;
+    };
+    if metadata.len() > MAX_PREVIEW_BYTES {
+        send_static_preview_response(&mut stream, "413 Content Too Large", "text/plain", b"File too large", head_only).await;
+        return;
+    }
+    let Ok(body) = fs::read(&candidate) else {
+        send_static_preview_response(&mut stream, "500 Internal Server Error", "text/plain", b"Read failed", head_only).await;
+        return;
+    };
+    send_static_preview_response(
+        &mut stream,
+        "200 OK",
+        static_preview_mime(&candidate),
+        &body,
+        head_only,
+    )
+    .await;
+}
+
+#[tauri::command]
+async fn start_file_preview(
+    state: tauri::State<'_, Arc<FilePreviewState>>,
+    cwd: String,
+    path: String,
+) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&root, &path)?;
+    if !file.is_file() || !matches!(preview_type(&file).0, "html") {
+        return Err("只能在浏览器预览 HTML 文件".into());
+    }
+    let relative = file
+        .strip_prefix(&root)
+        .map_err(|_| "预览文件不在当前项目中".to_string())?;
+
+    let port = {
+        let mut port = state.port.lock().await;
+        if let Some(port) = *port {
+            port
+        } else {
+            let listener = TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .map_err(|error| format!("无法启动 HTML 预览服务：{error}"))?;
+            let listener_port = listener
+                .local_addr()
+                .map_err(|error| format!("无法读取 HTML 预览地址：{error}"))?
+                .port();
+            let roots = state.roots.clone();
+            tauri::async_runtime::spawn(async move {
+                while let Ok((stream, _)) = listener.accept().await {
+                    let roots = roots.clone();
+                    tauri::async_runtime::spawn(handle_static_preview_request(stream, roots));
+                }
+            });
+            *port = Some(listener_port);
+            listener_port
+        }
+    };
+
+    let mut token_bytes = [0_u8; 16];
+    getrandom::fill(&mut token_bytes)
+        .map_err(|error| format!("无法创建 HTML 预览令牌：{error}"))?;
+    let token = token_bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    {
+        let mut roots = state.roots.lock().await;
+        roots.clear();
+        roots.insert(token.clone(), root);
+    }
+
+    let mut url = url::Url::parse(&format!("http://127.0.0.1:{port}/"))
+        .map_err(|error| format!("无法创建 HTML 预览地址：{error}"))?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| "无法创建 HTML 预览路径".to_string())?;
+        segments.push(&token);
+        for component in relative.components() {
+            if let Component::Normal(segment) = component {
+                segments.push(&segment.to_string_lossy());
+            }
+        }
+    }
+    Ok(url.to_string())
+}
+
 #[tauri::command]
 fn read_preview_file(cwd: String, path: String) -> Result<PreviewFile, String> {
     let root = checked_workspace(&cwd)?;
@@ -1268,6 +1577,7 @@ fn provider_profile_summary(profile: &StoredProviderProfile) -> ProviderProfileS
     ProviderProfileSummary {
         id: profile.id.clone(),
         name: profile.name.clone(),
+        api_key: profile.api_key.clone(),
         has_api_key: !profile.api_key.is_empty(),
         base_url: profile.base_url.clone(),
         api_backend: profile.api_backend,
@@ -1358,17 +1668,16 @@ fn save_provider_profile(request: SaveProviderProfile) -> Result<ProviderProfile
         .id
         .as_deref()
         .and_then(|id| value.profiles.iter().find(|profile| profile.id == id));
-    let current_values = parse_env_file(&grok_home()?.join(".env"));
     let key = request
         .api_key
         .as_deref()
         .map(str::trim)
         .filter(|key| !key.is_empty())
         .or_else(|| existing.map(|profile| profile.api_key.as_str()))
-        .or_else(|| current_values.get("XAI_API_KEY").map(String::as_str))
         .ok_or("API Key 不能为空")?;
     compatible_provider_env(key, &request.base_url, name, request.api_backend)?;
     let resident_models = checked_model_ids(request.resident_models)?;
+    let base_url = checked_service_url(&request.base_url, "服务地址")?;
     let id = request.id.unwrap_or_else(|| {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1388,11 +1697,12 @@ fn save_provider_profile(request: SaveProviderProfile) -> Result<ProviderProfile
         id: id.clone(),
         name: name.to_owned(),
         api_key: checked_api_key(key)?.to_owned(),
-        base_url: checked_service_url(&request.base_url, "服务地址")?,
+        base_url: base_url.clone(),
         api_backend: request.api_backend,
         models_url: None,
         model: resident_models.first().cloned(),
         available_models: existing
+            .filter(|profile| profile.base_url == base_url && profile.api_key == key)
             .map(|profile| profile.available_models.clone())
             .unwrap_or_default(),
         resident_models,
@@ -1406,21 +1716,19 @@ fn save_provider_profile(request: SaveProviderProfile) -> Result<ProviderProfile
     Ok(provider_profile_summary(&profile))
 }
 
-#[tauri::command]
-async fn refresh_provider_models(id: String) -> Result<ProviderProfileSummary, String> {
-    let profile = read_provider_profiles_file()?
-        .profiles
-        .into_iter()
-        .find(|profile| profile.id == id)
-        .ok_or("供应商档案不存在")?;
-    let endpoint = compatible_models_url(&profile.base_url)?;
+async fn fetch_compatible_models(api_key: &str, base_url: &str) -> Result<Vec<String>, String> {
+    let key = checked_api_key(api_key.trim())?;
+    if key.is_empty() {
+        return Err("API Key 不能为空".into());
+    }
+    let endpoint = compatible_models_url(base_url)?;
     let response = reqwest::Client::builder()
         .user_agent(format!("Grox/{CLIENT_VERSION}"))
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|error| format!("无法创建模型目录客户端：{error}"))?
         .get(endpoint)
-        .bearer_auth(&profile.api_key)
+        .bearer_auth(key)
         .header("Accept", "application/json")
         .send()
         .await
@@ -1438,6 +1746,22 @@ async fn refresh_provider_models(id: String) -> Result<ProviderProfileSummary, S
     models.sort_by_key(|model| model.to_ascii_lowercase());
     models.dedup();
     models.truncate(1_000);
+    Ok(models)
+}
+
+#[tauri::command]
+async fn fetch_provider_models(request: FetchProviderModels) -> Result<Vec<String>, String> {
+    fetch_compatible_models(&request.api_key, &request.base_url).await
+}
+
+#[tauri::command]
+async fn refresh_provider_models(id: String) -> Result<ProviderProfileSummary, String> {
+    let profile = read_provider_profiles_file()?
+        .profiles
+        .into_iter()
+        .find(|profile| profile.id == id)
+        .ok_or("供应商档案不存在")?;
+    let models = fetch_compatible_models(&profile.api_key, &profile.base_url).await?;
 
     let mut value = read_provider_profiles_file()?;
     let stored = value
@@ -1886,6 +2210,7 @@ fn main() {
     tauri::Builder::default()
         .manage(Arc::new(AcpState::default()))
         .manage(Arc::new(PreviewState::default()))
+        .manage(Arc::new(FilePreviewState::default()))
         .setup(|app| {
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
             if let Some(window) = app.get_webview_window("main") {
@@ -1899,6 +2224,9 @@ fn main() {
             pick_workspace,
             list_workspace_files,
             read_preview_file,
+            start_file_preview,
+            acp_read_text_file,
+            acp_write_text_file,
             open_in_explorer,
             read_config_documents,
             write_config_document,
@@ -1906,6 +2234,7 @@ fn main() {
             configure_provider,
             list_provider_profiles,
             save_provider_profile,
+            fetch_provider_models,
             refresh_provider_models,
             activate_provider_profile,
             delete_provider_profile,
@@ -1951,6 +2280,93 @@ mod tests {
     fn accepts_existing_workspace() {
         let workspace = checked_workspace(env!("CARGO_MANIFEST_DIR")).unwrap();
         assert!(workspace.is_dir());
+    }
+
+    #[test]
+    fn acp_text_files_round_trip_inside_workspace() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-acp-fs-{}-{}",
+            std::process::id(),
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("nested").join("sample.txt");
+        acp_write_text_file(
+            path_for_webview(&root),
+            path_for_webview(&file),
+            "one\ntwo\nthree\n".into(),
+        )
+        .unwrap();
+        assert_eq!(
+            acp_read_text_file(
+                path_for_webview(&root),
+                path_for_webview(&file),
+                Some(2),
+                Some(1),
+            )
+            .unwrap(),
+            "two\n"
+        );
+        let escape = PathBuf::from("..").join("escape.txt");
+        assert!(checked_workspace_target(
+            &root.canonicalize().unwrap(),
+            &path_for_webview(&escape)
+        )
+        .is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn static_preview_serves_project_assets_and_rejects_parent_paths() {
+        tauri::async_runtime::block_on(async {
+            let root = std::env::temp_dir().join(format!(
+                "grox-html-preview-{}-{}",
+                std::process::id(),
+                CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let assets = root.join("assets");
+            fs::create_dir_all(&assets).unwrap();
+            fs::write(assets.join("app.css"), b"body{color:green}").unwrap();
+            let root = root.canonicalize().unwrap();
+            let roots = Arc::new(Mutex::new(BTreeMap::from([(
+                "preview-token".to_string(),
+                root.clone(),
+            )])));
+            let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server_roots = roots.clone();
+            let server = tauri::async_runtime::spawn(async move {
+                for _ in 0..3 {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    handle_static_preview_request(stream, server_roots.clone()).await;
+                }
+            });
+
+            async fn request(address: std::net::SocketAddr, path: &str) -> String {
+                let mut client = TcpStream::connect(address).await.unwrap();
+                client
+                    .write_all(format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
+                    .await
+                    .unwrap();
+                let mut response = Vec::new();
+                client.read_to_end(&mut response).await.unwrap();
+                String::from_utf8(response).unwrap()
+            }
+
+            let relative = request(address, "/preview-token/assets/app.css").await;
+            assert!(relative.starts_with("HTTP/1.1 200 OK"));
+            assert!(relative.contains("Content-Type: text/css; charset=utf-8"));
+            assert!(relative.ends_with("body{color:green}"));
+
+            let root_relative = request(address, "/assets/app.css").await;
+            assert!(root_relative.starts_with("HTTP/1.1 200 OK"));
+
+            let traversal = request(address, "/preview-token/%2e%2e/secret.txt").await;
+            assert!(traversal.starts_with("HTTP/1.1 400 Bad Request"));
+
+            server.await.unwrap();
+            fs::remove_dir_all(root).unwrap();
+        });
     }
 
     #[test]

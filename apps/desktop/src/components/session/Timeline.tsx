@@ -103,6 +103,9 @@ function TurnGroup({ turn, sessionId, status, active }: TurnGroupProps) {
 
   if (!complete) {
     const liveBlocks = turn.blocks.filter((block) => block !== user);
+    const lastLiveBlock = liveBlocks.at(-1);
+    const streamingAnswer = lastLiveBlock?.type === "assistant" ? lastLiveBlock : undefined;
+    const processBlocks = streamingAnswer ? liveBlocks.slice(0, -1) : liveBlocks;
     return (
       <section className="timeline-turn mb-8">
         {user && <UserMsg block={user} />}
@@ -113,17 +116,18 @@ function TurnGroup({ turn, sessionId, status, active }: TurnGroupProps) {
             <span className="h-1 w-1 animate-pulse-dot rounded-full bg-acc" />
             <span className="font-mono text-[9px] tracking-[0.08em] text-faint">{language === "zh-CN" ? `${liveBlocks.length} 条事件` : `${liveBlocks.length} events`}</span>
           </div>
-          <div className="process-sequence process-rail ml-[7px] pl-5">
-            {liveBlocks.length > 0 ? (
-              <RenderSequence blocks={liveBlocks} sessionId={sessionId} processing />
-            ) : (
+          {processBlocks.length > 0 ? <div className="process-sequence process-rail ml-[7px] pl-5">
+            <RenderSequence blocks={processBlocks} sessionId={sessionId} processing />
+          </div> : !streamingAnswer ? (
+            <div className="process-sequence process-rail ml-[7px] pl-5">
               <div className="mb-3 flex items-center gap-2 text-[10.5px] text-dim">
                 <span className="h-1 w-1 animate-pulse-dot rounded-full bg-acc-dim" />
                 {language === "zh-CN" ? "等待模型返回第一个事件…" : "Waiting for the first model event…"}
               </div>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
+        {streamingAnswer && <AssistantMsg block={streamingAnswer} />}
       </section>
     );
   }

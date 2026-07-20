@@ -31,6 +31,7 @@ import type {
   ProviderConfig,
   ProviderProfileSummary,
   SaveProviderProfile,
+  FetchProviderModels,
   GrokRuntimeInfo,
   WorkspaceEntry,
   RewindMode,
@@ -139,6 +140,7 @@ interface DesktopState {
   configureProvider(config: ProviderConfig): Promise<void>;
   refreshProviderProfiles(): Promise<void>;
   saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary>;
+  fetchProviderModels(config: FetchProviderModels): Promise<string[]>;
   refreshProviderModels(id: string): Promise<ProviderProfileSummary>;
   activateProviderProfile(id: string): Promise<void>;
   deleteProviderProfile(id: string): Promise<void>;
@@ -946,6 +948,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
       return profile;
     },
 
+    async fetchProviderModels(config) {
+      return bridge.fetchProviderModels(config);
+    },
+
     async refreshProviderModels(id) {
       const profile = await bridge.refreshProviderModels(id);
       await get().refreshProviderProfiles();
@@ -1069,10 +1075,17 @@ export const useDesktop = create<DesktopState>((set, get) => {
     async openPreview(path) {
       set({ previewOpen: true, previewLoading: true, previewError: null });
       try {
-        const previewFile = await invoke<PreviewFile>("read_preview_file", {
+        let previewFile = await invoke<PreviewFile>("read_preview_file", {
           cwd: get().workspace,
           path,
         });
+        if (previewFile.kind === "html") {
+          const url = await invoke<string>("start_file_preview", {
+            cwd: get().workspace,
+            path,
+          });
+          previewFile = { ...previewFile, url };
+        }
         set({ previewFile, previewLoading: false });
       } catch (error) {
         set({

@@ -27,6 +27,7 @@ import type {
   ProviderProfilesState,
   ProviderStatus,
   SaveProviderProfile,
+  FetchProviderModels,
   RewindMode,
   RewindPoint,
   RewindResult,
@@ -55,6 +56,7 @@ export interface GrokBridge {
   configureProvider(config: ProviderConfig): Promise<void>;
   listProviderProfiles(): Promise<ProviderProfilesState>;
   saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary>;
+  fetchProviderModels(config: FetchProviderModels): Promise<string[]>;
   refreshProviderModels(id: string): Promise<ProviderProfileSummary>;
   activateProviderProfile(id: string): Promise<void>;
   deleteProviderProfile(id: string): Promise<void>;

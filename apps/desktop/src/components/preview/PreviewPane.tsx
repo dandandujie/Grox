@@ -1,5 +1,3 @@
-import DOMPurify from "dompurify";
-import { useMemo } from "react";
 import { useDesktop } from "../../state/store";
 import { usePreferences } from "../../state/preferences";
 import { useI18n } from "../../lib/i18n";
@@ -15,11 +13,6 @@ export function PreviewPane() {
   const close = useDesktop((state) => state.closePreview);
   const width = usePreferences((state) => state.previewWidth);
   const setWidth = usePreferences((state) => state.setPreviewWidth);
-
-  const safeHtml = useMemo(
-    () => (file?.kind === "html" ? DOMPurify.sanitize(file.content) : ""),
-    [file],
-  );
 
   return (
     <>
@@ -56,9 +49,10 @@ export function PreviewPane() {
             </article>
           ) : file.kind === "html" ? (
             <iframe
+              key={file.url}
               title={file.name}
-              sandbox=""
-              srcDoc={safeHtml}
+              sandbox="allow-scripts allow-same-origin allow-modals"
+              src={file.url}
               className="h-full min-h-[320px] w-full border-0 bg-white"
             />
           ) : file.kind === "image" ? (

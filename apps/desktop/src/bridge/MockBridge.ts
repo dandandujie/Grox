@@ -165,6 +165,7 @@ export class MockBridge implements GrokBridge {
     const profile: ProviderProfileSummary = {
       id: config.id ?? crypto.randomUUID(),
       name: config.name,
+      apiKey: config.apiKey ?? "",
       hasApiKey: Boolean(config.apiKey),
       baseUrl: config.baseUrl,
       apiBackend: config.apiBackend,
@@ -173,6 +174,10 @@ export class MockBridge implements GrokBridge {
     };
     this.providerProfiles = [profile, ...this.providerProfiles.filter((item) => item.id !== profile.id)];
     return profile;
+  }
+
+  async fetchProviderModels(): Promise<string[]> {
+    return ["grok-4.5", "grok-code-fast", "grok-4.20-reasoning"];
   }
 
   async refreshProviderModels(id: string): Promise<ProviderProfileSummary> {

@@ -241,6 +241,7 @@ export interface ProviderStatus {
 export interface ProviderProfileSummary {
   id: string;
   name: string;
+  apiKey: string;
   hasApiKey: boolean;
   baseUrl: string;
   apiBackend: ProviderApiBackend;
@@ -260,6 +261,11 @@ export interface SaveProviderProfile {
   baseUrl: string;
   apiBackend: ProviderApiBackend;
   residentModels: string[];
+}
+
+export interface FetchProviderModels {
+  apiKey: string;
+  baseUrl: string;
 }
 
 export interface GrokRuntimeInfo {
@@ -329,6 +335,7 @@ export interface PreviewFile {
   kind: "markdown" | "html" | "image" | "text";
   mime: string;
   content: string;
+  url?: string;
 }
 
 export interface WorkspaceEntry {

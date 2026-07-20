@@ -665,6 +665,16 @@ html[data-reduce-motion="1"] * {
     font-family: var(--font-mono);
     font-size: 0.82em;
   }
+  .md .katex-display {
+    max-width: 100%;
+    margin: 1em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.2em 0;
+  }
+  .md .katex math {
+    color: var(--color-fg);
+  }
 
   .assistant-message__content {
     max-width: min(100%, 740px);
