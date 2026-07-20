@@ -20,7 +20,7 @@ export function AccountSetup() {
   const [apiKey, setApiKey] = useState("");
   const [providerName, setProviderName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("responses");
+  const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +90,10 @@ export function AccountSetup() {
         });
         localStorage.setItem("grox.accountSetupComplete", "1");
         await activateProviderProfile(profile.id);
+        // Mirror configureProvider: a successful first-run setup must close
+        // the modal, otherwise the user stays stuck on it (issue: 卡在初次设置).
+        setBusy(false);
+        setOpen(false);
       } else {
         await configure({ kind, apiKey, baseUrl });
       }

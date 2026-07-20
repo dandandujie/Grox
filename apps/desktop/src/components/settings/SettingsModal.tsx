@@ -157,7 +157,7 @@ function ProviderAndModels() {
   const [profileName, setProfileName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl ?? "");
-  const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("responses");
+  const [apiBackend, setApiBackend] = useState<ProviderApiBackend>("auto");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [residentModels, setResidentModels] = useState<string[]>([]);
   const [customModel, setCustomModel] = useState("");

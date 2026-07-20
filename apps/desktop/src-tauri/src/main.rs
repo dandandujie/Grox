@@ -223,6 +223,7 @@ impl ProviderApiBackend {
                     "cli proxy",
                     "router-for-me",
                     "newapi",
+                    "new-api",
                     "new api",
                 ]
                     .iter()
@@ -728,6 +729,37 @@ fn write_runtime_preference(app: &tauri::AppHandle, preference: &str) -> Result<
     atomic_write(&runtime_preference_path(app)?, &content)
 }
 
+/// Extract the semver token from a `grok --version` line such as
+/// "grok 0.2.106 (abc1234) [stable]".
+fn cli_version_number(raw: &str) -> Option<semver::Version> {
+    raw.split_whitespace()
+        .find_map(|token| semver::Version::parse(token.trim_start_matches(['v', 'V'])).ok())
+}
+
+/// Pick which runtime to try first in `auto` mode. The inference proxy gates
+/// on the client version, so a stale bundled CLI is rejected by the server
+/// even when a newer system CLI exists — prefer the newer of the two.
+/// Unparseable or missing versions keep the historical system-first order.
+fn newer_runtime_is_system(
+    system: Option<semver::Version>,
+    bundled: Option<semver::Version>,
+) -> bool {
+    match (system, bundled) {
+        (Some(system), Some(bundled)) => system >= bundled,
+        _ => true,
+    }
+}
+
+fn auto_prefers_system(system: Option<&PathBuf>, bundled: Option<&PathBuf>) -> bool {
+    let (Some(system), Some(bundled)) = (system, bundled) else {
+        return true;
+    };
+    let version_of = |path: &PathBuf| {
+        grok_binary_version(&path.to_string_lossy()).and_then(|raw| cli_version_number(&raw))
+    };
+    newer_runtime_is_system(version_of(system), version_of(bundled))
+}
+
 fn grok_binary_version(path: &str) -> Option<String> {
     let mut command = std::process::Command::new(path);
     command
@@ -807,25 +839,29 @@ fn configured_grok_command(app: &tauri::AppHandle) -> GrokRuntimeInfo {
         );
     }
 
-    if let Some(path) = system.as_deref() {
+    // Honor an explicit runtime preference first, falling back to whatever is
+    // installed rather than leaving the app unusable. In `auto` mode the newer
+    // of the two runtimes wins so an aging bundled CLI cannot silently stay
+    // behind the server-side version gate.
+    let prefer_system = match preference.as_str() {
+        "system" => true,
+        "bundled" => false,
+        _ => auto_prefers_system(system.as_ref(), bundled.as_ref()),
+    };
+    let chosen = if prefer_system {
+        system.as_ref().or(bundled.as_ref())
+    } else {
+        bundled.as_ref().or(system.as_ref())
+    };
+    if let Some(path) = chosen {
+        let is_system = system.as_ref() == Some(path);
+        let selection_required = !is_system && system.is_none() && preference != "bundled";
         return runtime_info(
             path.to_string_lossy().into_owned(),
-            "system",
+            if is_system { "system" } else { "bundled" },
             preference,
-            Some(path_for_webview(path)),
+            system.as_deref().map(path_for_webview),
             bundled.as_deref().map(path_for_webview),
-            false,
-        );
-    }
-
-    if let Some(path) = bundled.as_deref() {
-        let selection_required = preference != "bundled";
-        return runtime_info(
-            path.to_string_lossy().into_owned(),
-            "bundled",
-            preference,
-            None,
-            Some(path_for_webview(path)),
             selection_required,
         );
     }
@@ -1337,8 +1373,27 @@ fn read_provider_profiles_file() -> Result<ProviderProfilesFile, String> {
         return Ok(ProviderProfilesFile::default());
     }
     let content = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
-    serde_json::from_str(&content)
-        .map_err(|error| format!("无法解析供应商档案 {}：{error}", path.display()))
+    match serde_json::from_str(&content) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            // A corrupt profiles file must not brick every profile command
+            // (it survives app reinstalls because it lives in ~/.grok).
+            // Quarantine it and start from an empty file so the user can
+            // re-save their profiles instead of hitting a dead end.
+            let millis = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let backup = path.with_extension(format!("corrupt-{millis}.bak"));
+            if let Err(rename_error) = fs::rename(&path, &backup) {
+                return Err(format!(
+                    "无法解析供应商档案 {}：{error}；备份失败：{rename_error}",
+                    path.display()
+                ));
+            }
+            Ok(ProviderProfilesFile::default())
+        }
+    }
 }
 
 fn write_provider_profiles_file(value: &ProviderProfilesFile) -> Result<(), String> {
@@ -1713,11 +1768,22 @@ async fn acp_spawn(
     command
         .args(["agent", "stdio"])
         .current_dir(&cwd)
-        .env("GROK_CLIENT_VERSION", CLIENT_VERSION)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // Identify the launching client with the spawned CLI's own version, never
+    // the Grox app version. The value is written into the agent's diagnostic
+    // logs and may be read by newer upstream builds; a stale "0.2.0" there
+    // both misleads auth diagnostics and can trip the server-side version
+    // gate that answers inference with 403 "Grok Build is coming soon".
+    if let Some(version) = runtime
+        .version
+        .as_deref()
+        .and_then(cli_version_number)
+    {
+        command.env("GROK_CLIENT_VERSION", version.to_string());
+    }
     if let Ok(home) = grok_home() {
         for (key, value) in parse_env_file(&home.join(".env")) {
             command.env(key, value);
@@ -1733,15 +1799,28 @@ async fn acp_spawn(
                 .iter()
                 .find(|profile| profile.id == active_id)
         }) {
-            let base = checked_service_url(&profile.base_url, "服务地址")?;
-            command
-                .env("XAI_API_KEY", &profile.api_key)
-                .env("GROK_MODELS_BASE_URL", &base)
-                .env("GROK_MODELS_LIST_URL", compatible_models_url(&base)?)
-                .env(
-                    "GROK_MODELS_API_BACKEND",
-                    profile.api_backend.resolved(&profile.name, &base),
+            // A stored profile that no longer passes validation (written by an
+            // older build, hand-edited, ...) must not abort the whole spawn:
+            // skip the injection so the agent still starts, and let the user
+            // fix the profile in settings instead of facing a dead app.
+            let injected = checked_service_url(&profile.base_url, "服务地址")
+                .and_then(|base| compatible_models_url(&base).map(|list| (base, list)))
+                .map(|(base, list)| {
+                    command
+                        .env("XAI_API_KEY", &profile.api_key)
+                        .env("GROK_MODELS_BASE_URL", &base)
+                        .env("GROK_MODELS_LIST_URL", list)
+                        .env(
+                            "GROK_MODELS_API_BACKEND",
+                            profile.api_backend.resolved(&profile.name, &base),
+                        );
+                });
+            if let Err(error) = injected {
+                eprintln!(
+                    "grox: 跳过无效的供应商档案 {}（{}）：{error}",
+                    profile.name, profile.id
                 );
+            }
         }
     }
     // This is deliberately applied after the user environment so neither a
@@ -2082,5 +2161,31 @@ mod tests {
         assert!(!update_available("0.2.0", "V0.2.0").unwrap());
         assert!(!update_available("0.3.0", "v0.2.9").unwrap());
         assert!(update_available("0.2.0-beta.1", "v0.2.0").unwrap());
+    }
+
+    #[test]
+    fn cli_version_number_extracts_semver_from_version_output() {
+        assert_eq!(
+            cli_version_number("grok 0.2.106 (abc1234) [stable]"),
+            Some(semver::Version::new(0, 2, 106))
+        );
+        assert_eq!(
+            cli_version_number("0.2.102"),
+            Some(semver::Version::new(0, 2, 102))
+        );
+        assert_eq!(cli_version_number("grok"), None);
+        assert_eq!(cli_version_number(""), None);
+    }
+
+    #[test]
+    fn auto_mode_prefers_the_newer_runtime() {
+        let v = |major, minor, patch| Some(semver::Version::new(major, minor, patch));
+        assert!(newer_runtime_is_system(v(0, 2, 106), v(0, 2, 102)));
+        assert!(!newer_runtime_is_system(v(0, 2, 102), v(0, 2, 106)));
+        assert!(newer_runtime_is_system(v(0, 2, 106), v(0, 2, 106)));
+        // Unknown versions keep the historical system-first order.
+        assert!(newer_runtime_is_system(None, v(0, 2, 106)));
+        assert!(newer_runtime_is_system(v(0, 2, 106), None));
+        assert!(newer_runtime_is_system(None, None));
     }
 }

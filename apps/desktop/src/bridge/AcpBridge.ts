@@ -1,6 +1,7 @@
 /* Real Grok Build bridge over ACP / newline-delimited JSON-RPC 2.0. */
 
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { GrokBridge } from "./GrokBridge";
 import { MODELS } from "./types";
@@ -17,6 +18,7 @@ import type {
   PromptOptions,
   QuestionItem,
   QuestionResponse,
+  GrokRuntimeInfo,
   ModelState,
   Session,
   SessionBlock,
@@ -59,6 +61,9 @@ export const ACP_METHODS = {
   compact: "x.ai/compact_conversation",
   promptHistory: "x.ai/prompt_history",
 } as const;
+
+/** No session-scoped traffic for this long during a turn = wedged upstream. */
+const PROMPT_STALL_MS = 5 * 60_000;
 
 type JsonObject = Record<string, unknown>;
 type RpcId = string | number;
@@ -642,6 +647,7 @@ export class AcpBridge implements GrokBridge {
   private usage = new Map<string, Usage>();
   private sessionOptions = new Map<string, PromptOptions>();
   private knownSessions = new Set<string>();
+  private lastActivity = new Map<string, number>();
   private unlisten: UnlistenFn[] = [];
   private streamAppends = new Map<string, Extract<BridgeEvent, { type: "assistant_append" | "thinking_append" }>>();
   private streamFlushTimer: number | undefined;
@@ -771,20 +777,40 @@ export class AcpBridge implements GrokBridge {
     // process replaced during a Tauri hot reload produces misleading errors.
     this.diagnostics = [];
     await invoke("acp_spawn", { cwd: this.workspace });
+    // The inference proxy gates on the client version, so never assert a
+    // hardcoded one: report the actual CLI version whenever it is detectable.
+    const clientVersion = await this.detectCliVersion();
     const response = await this.requestRaw(ACP_METHODS.initialize, {
       protocolVersion: 1,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       },
-      clientInfo: { name: "grox-desktop", title: "Grox Desktop", version: "0.1.0" },
+      clientInfo: {
+        name: "grox-desktop",
+        title: "Grox Desktop",
+        version: clientVersion ?? (await getVersion().catch(() => "0.2.0")),
+      },
       _meta: {
         clientIdentifier: "grok-desktop",
         clientType: "desktop",
+        ...(clientVersion ? { clientVersion } : {}),
       },
     }, 15_000);
     this.captureModelState(response);
     await this.configureAuthentication(response);
+  }
+
+  /** Best-effort version of the spawned `grok` CLI ("grok 0.2.106 (abc) [stable]" → "0.2.106"). */
+  private async detectCliVersion(): Promise<string | undefined> {
+    try {
+      const runtime = await invoke<GrokRuntimeInfo>("grok_runtime_info");
+      return runtime.version
+        ?.split(/\s+/)
+        .find((token) => /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(token));
+    } catch {
+      return undefined;
+    }
   }
 
   private async restartAgent(): Promise<void> {
@@ -811,11 +837,10 @@ export class AcpBridge implements GrokBridge {
     const response = record(responseValue);
     const methods = array(response?.authMethods).map((value) => record(value) ?? {});
     if (methods.length === 0) {
-      this.setAuthState({
-        required: true,
-        inProgress: false,
-        error: "Grok Agent 没有可用的认证方式，请检查认证配置或 XAI_API_KEY。",
-      });
+      // Per ACP semantics an empty authMethods list means the agent needs no
+      // authentication — treating it as "required" wedges the UI with no
+      // usable recovery path (the OAuth button has no method id to call).
+      this.setAuthState({ required: false, inProgress: false, error: undefined });
       return;
     }
 
@@ -931,6 +956,11 @@ export class AcpBridge implements GrokBridge {
       }
       return;
     }
+
+    // Any session-scoped traffic (updates, permission prompts, ...) proves the
+    // agent is still alive; the prompt watchdog keys off this timestamp.
+    const activitySession = string(record(message.params)?.sessionId);
+    if (activitySession) this.lastActivity.set(activitySession, Date.now());
 
     if (message.method && message.id !== undefined) {
       this.onServerRequest(message);
@@ -1336,6 +1366,12 @@ export class AcpBridge implements GrokBridge {
         case "deny":
           optionIds.deny ??= optionId;
           break;
+        default:
+          // Unknown kind from a newer/mismatched agent build: fall back to
+          // the option id so the card never collapses to a deny-only choice.
+          if (/allow/.test(optionId)) optionIds.allow_once ??= optionId;
+          else if (/reject|deny/.test(optionId)) optionIds.deny ??= optionId;
+          break;
       }
     }
     const options = (["allow_once", "allow_always", "deny"] as PermissionOption[]).filter(
@@ -1453,8 +1489,9 @@ export class AcpBridge implements GrokBridge {
     await invoke("acp_send", { line: JSON.stringify(message) });
   }
 
-  private requestRaw(method: string, params: unknown, timeoutMs = 30_000): Promise<unknown> {
+  private requestRaw(method: string, params: unknown, timeoutMs = 30_000, onPending?: (id: RpcId) => void): Promise<unknown> {
     const id = ++this.requestId;
+    onPending?.(id);
     return new Promise((resolve, reject) => {
       const timeoutId = timeoutMs > 0
         ? window.setTimeout(() => {
@@ -1859,10 +1896,35 @@ export class AcpBridge implements GrokBridge {
         mode: options.mode,
       });
 
-      const responseValue = await this.requestRaw(ACP_METHODS.sessionPrompt, {
+      let promptRpcId: RpcId | undefined;
+      const promptRequest = this.requestRaw(ACP_METHODS.sessionPrompt, {
         sessionId,
         prompt: promptContent(text, options.attachments ?? []),
-      }, 0);
+      }, 0, (id) => {
+        promptRpcId = id;
+      });
+      // session/prompt intentionally has no fixed timeout (long turns stream
+      // for many minutes), but a completely silent agent means a wedged
+      // upstream gateway or a dead socket — surface that instead of leaving
+      // the session spinning forever.
+      this.lastActivity.set(sessionId, Date.now());
+      const watchdog = window.setInterval(() => {
+        const silentFor = Date.now() - (this.lastActivity.get(sessionId) ?? 0);
+        if (silentFor <= PROMPT_STALL_MS || promptRpcId === undefined) return;
+        const pending = this.pending.get(promptRpcId);
+        if (!pending) return;
+        this.pending.delete(promptRpcId);
+        pending.reject(
+          new Error("Grok Agent 长时间没有任何响应：上游服务可能无返回。请检查网络、模型或供应商配置后重试。"),
+        );
+        this.cancel(sessionId);
+      }, 15_000);
+      let responseValue: unknown;
+      try {
+        responseValue = await promptRequest;
+      } finally {
+        window.clearInterval(watchdog);
+      }
       const response = record(responseValue);
       const meta = record(response?._meta);
       const promptUsage = record(meta?.usage);

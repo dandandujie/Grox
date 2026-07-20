@@ -96,6 +96,22 @@ impl GrokRequestHeaders<'_> {
 /// `ResponseUsage` unchanged so billing telemetry stays correct. When
 /// the API doesn't emit `context_details` (older deployments) `total_tokens`
 /// passes through unchanged.
+/// Third-party OpenAI-compatible gateways (new-api, grok2api, ...) often omit
+/// `created_at` on the Responses-API response object, or send the
+/// chat-completions-style `created` instead. async-openai's `rs::Response`
+/// requires `created_at`, and nothing downstream reads it, so backfill it
+/// before handing the payload to the typed deserializer.
+fn backfill_response_created_at(response: &mut serde_json::Map<String, serde_json::Value>) {
+    if response.contains_key("created_at") {
+        return;
+    }
+    let fallback = response
+        .get("created")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    response.insert("created_at".to_string(), fallback.into());
+}
+
 fn deserialize_response_event(data: &str) -> Result<rs::ResponseStreamEvent> {
     let mut event = match serde_json::from_str::<rs::ResponseStreamEvent>(data) {
         Ok(event) => event,
@@ -111,6 +127,12 @@ fn deserialize_response_event(data: &str) -> Result<rs::ResponseStreamEvent> {
                     .and_then(|v| v.as_array_mut())
                 {
                     tools.retain(|t| serde_json::from_value::<rs::Tool>(t.clone()).is_ok());
+                }
+                if let Some(response) = value
+                    .pointer_mut("/response")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    backfill_response_created_at(response);
                 }
                 if let Ok(mut event) = serde_json::from_value::<rs::ResponseStreamEvent>(value) {
                     apply_terminal_event_overrides(&mut event, data);
@@ -1193,15 +1215,22 @@ impl SamplingClient {
             });
         }
 
-        let response_obj = serde_json::from_slice::<rs::Response>(&bytes).map_err(|e| {
-            let raw_body = String::from_utf8_lossy(&bytes);
-            tracing::error!(
-                error = %e,
-                raw_body = %raw_body,
-                "Failed to deserialize rs::Response"
-            );
-            SamplingError::Serialization(e)
-        })?;
+        let response_obj = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .and_then(|mut value| {
+                if let Some(response) = value.as_object_mut() {
+                    backfill_response_created_at(response);
+                }
+                serde_json::from_value::<rs::Response>(value)
+            })
+            .map_err(|e| {
+                let raw_body = String::from_utf8_lossy(&bytes);
+                tracing::error!(
+                    error = %e,
+                    raw_body = %raw_body,
+                    "Failed to deserialize rs::Response"
+                );
+                SamplingError::Serialization(e)
+            })?;
         Ok(response_obj)
     }
 
@@ -2564,6 +2593,48 @@ mod tests {
         let client = SamplingClient::new(cfg).expect("client should build");
         // Must not panic.
         client.record_401_attribution(crate::attribution::SamplingConsumer::ChatCompletions);
+    }
+
+    /// Third-party OpenAI-compatible gateways (new-api, grok2api) often emit
+    /// Responses-API events whose `response` object omits `created_at` (or
+    /// sends chat-completions-style `created`). The sanitizer must backfill
+    /// the field instead of failing the whole turn with a serialization error.
+    #[test]
+    fn deserialize_response_event_backfills_missing_created_at() {
+        let without_field = r#"{
+            "type": "response.completed",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_1",
+                "object": "response",
+                "model": "grok-build",
+                "status": "completed",
+                "output": []
+            }
+        }"#;
+        let event = deserialize_response_event(without_field).expect("parse");
+        let rs::ResponseStreamEvent::ResponseCompleted(e) = event else {
+            panic!("expected ResponseCompleted");
+        };
+        assert_eq!(e.response.created_at, 0);
+
+        let chat_style = r#"{
+            "type": "response.completed",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_1",
+                "object": "response",
+                "created": 1700000000,
+                "model": "grok-build",
+                "status": "completed",
+                "output": []
+            }
+        }"#;
+        let event = deserialize_response_event(chat_style).expect("parse");
+        let rs::ResponseStreamEvent::ResponseCompleted(e) = event else {
+            panic!("expected ResponseCompleted");
+        };
+        assert_eq!(e.response.created_at, 1_700_000_000);
     }
 
     /// `response.completed` carrying
