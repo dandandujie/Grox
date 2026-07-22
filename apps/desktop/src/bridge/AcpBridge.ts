@@ -39,6 +39,7 @@ import type {
   RewindMode,
   RewindPoint,
   RewindResult,
+  SlashCommand,
 } from "./types";
 
 export const ACP_METHODS = {
@@ -544,6 +545,7 @@ function applyToSession(session: Session, event: BridgeEvent): Session {
     case "auth_state":
     case "model_state":
     case "mode_state":
+    case "available_commands":
       return session;
     case "session_meta":
       return { ...session, ...event.patch };
@@ -1150,6 +1152,22 @@ export class AcpBridge implements GrokBridge {
         this.emit({ type: "mode_state", sessionId, mode });
         return;
       }
+      case "available_commands_update": {
+        const commands: SlashCommand[] = [];
+        for (const value of array(update.availableCommands ?? update.available_commands)) {
+          const command = record(value);
+          const name = string(command?.name)?.replace(/^\//, "");
+          if (!command || !name) continue;
+          const inputHint = string(record(command.input)?.hint);
+          commands.push({
+            name,
+            description: string(command.description) ?? "Grok Runtime command",
+            ...(inputHint ? { inputHint } : {}),
+          });
+        }
+        this.emit({ type: "available_commands", sessionId, commands });
+        return;
+      }
       case "tool_call":
         this.closeUser(sessionId);
         this.addTool(sessionId, update);
@@ -1440,6 +1458,7 @@ export class AcpBridge implements GrokBridge {
         description: string(tool.kind) ?? "Grok requests permission to continue.",
         payload: jsonText(tool.rawInput),
         options,
+        purpose: "tool",
       },
     });
   }
@@ -1471,6 +1490,7 @@ export class AcpBridge implements GrokBridge {
         description: "Grok has finished planning and is waiting to enter agent mode.",
         payload: string(params.planContent),
         options: ["allow_once", "deny"],
+        purpose: "plan",
       },
     });
   }
@@ -2045,14 +2065,17 @@ export class AcpBridge implements GrokBridge {
     });
   }
 
-  respondPermission(sessionId: string, blockId: string, option: PermissionOption): void {
+  respondPermission(sessionId: string, blockId: string, option: PermissionOption, feedback?: string): void {
     const pending = this.interactions.get(blockId);
     if (!pending || pending.sessionId !== sessionId) return;
     this.interactions.delete(blockId);
 
     let result: unknown;
     if (pending.kind === "plan") {
-      result = { outcome: option === "deny" ? "cancelled" : "approved" };
+      result = {
+        outcome: option === "deny" ? "cancelled" : "approved",
+        ...(option === "deny" && feedback?.trim() ? { feedback: feedback.trim() } : {}),
+      };
     } else {
       const optionId = pending.optionIds[option];
       result = optionId

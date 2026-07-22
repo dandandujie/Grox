@@ -13,6 +13,7 @@ import { CommandPalette } from "./components/palette/CommandPalette";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { BlackHole } from "./components/fx/BlackHole";
 import { PreviewPane } from "./components/preview/PreviewPane";
+import { PlanPreviewPane } from "./components/preview/PlanPreviewPane";
 import { ResizeHandle } from "./components/common/ResizeHandle";
 import { usePreferences } from "./state/preferences";
 import { useI18n } from "./lib/i18n";
@@ -28,6 +29,7 @@ export default function App() {
   const session = useDesktop((s) => (s.activeId ? s.sessions[s.activeId] : null));
   const inspectorOpen = useDesktop((s) => s.inspectorOpen);
   const previewOpen = useDesktop((s) => s.previewOpen);
+  const planPreviewOpen = useDesktop((s) => s.planPreviewOpen);
   const sidebarWidth = usePreferences((s) => s.sidebarWidth);
   const setSidebarWidth = usePreferences((s) => s.setSidebarWidth);
 
@@ -92,8 +94,9 @@ export default function App() {
             <Home />
           )}
         </main>
-        {inspectorOpen && inSession && session && <Inspector />}
+        {inspectorOpen && !planPreviewOpen && inSession && session && <Inspector />}
         {previewOpen && <PreviewPane />}
+        {planPreviewOpen && inSession && session && <PlanPreviewPane />}
       </div>
       <StatusBar />
       <CommandPalette />

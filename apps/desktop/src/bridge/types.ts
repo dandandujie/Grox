@@ -107,6 +107,14 @@ export interface PermissionRequest {
   description: string;
   payload?: string;
   options: PermissionOption[];
+  /** Distinguishes the plan review surface from ordinary tool approval. */
+  purpose?: "tool" | "plan";
+}
+
+export interface SlashCommand {
+  name: string;
+  description: string;
+  inputHint?: string;
 }
 
 export interface QuestionOption {
@@ -368,6 +376,7 @@ export type BridgeEvent =
   | { type: "auth_state"; state: AuthState }
   | { type: "model_state"; state: ModelState }
   | { type: "mode_state"; sessionId: string; mode: AgentMode }
+  | { type: "available_commands"; sessionId: string; commands: SlashCommand[] }
   | { type: "session_ready"; session: Session }
   | { type: "session_meta"; sessionId: string; patch: Partial<SessionMeta> }
   | { type: "block_add"; sessionId: string; block: SessionBlock }

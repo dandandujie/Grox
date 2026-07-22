@@ -101,6 +101,7 @@ export interface GrokBridge {
     sessionId: string,
     blockId: string,
     option: PermissionOption,
+    feedback?: string,
   ): void;
 
   /** Resolve a structured x.ai/ask_user_question interaction. */

@@ -37,6 +37,7 @@ import type {
   RewindMode,
   RewindPoint,
   RewindResult,
+  SlashCommand,
 } from "../bridge/types";
 import { DEMO_CWD } from "../demo/data";
 
@@ -99,6 +100,8 @@ interface DesktopState {
   previewFile: PreviewFile | null;
   previewLoading: boolean;
   previewError: string | null;
+  planPreviewOpen: boolean;
+  slashCommands: Record<string, SlashCommand[]>;
 
   model: string;
   models: ModelInfo[];
@@ -160,7 +163,7 @@ interface DesktopState {
   listRewindPoints(): Promise<RewindPoint[]>;
   previewRewind(targetPromptIndex: number, mode: RewindMode): Promise<RewindResult>;
   executeRewind(point: RewindPoint, mode: RewindMode): Promise<RewindResult>;
-  resolvePermission(blockId: string, option: PermissionOption): void;
+  resolvePermission(blockId: string, option: PermissionOption, feedback?: string): void;
   resolveQuestion(blockId: string, response: QuestionResponse): void;
 
   setModel(model: string): void;
@@ -170,6 +173,7 @@ interface DesktopState {
   setDraft(text: string): void;
   setComposerAttachments(attachments: PromptAttachment[]): void;
   setInspectorTab(tab: InspectorTab): void;
+  setPlanPreviewOpen(open: boolean): void;
   toggleInspector(): void;
   setPaletteOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
@@ -474,6 +478,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
         });
         break;
       }
+      case "available_commands":
+        set({ slashCommands: { ...get().slashCommands, [e.sessionId]: e.commands } });
+        break;
       case "session_meta": {
         const current = sessions[e.sessionId];
         const nextIndex = sessionIndex.map((meta) =>
@@ -529,6 +536,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
       }
       case "block_add":
         withSession(e.sessionId, (s) => ({ ...s, blocks: [...s.blocks, e.block] }));
+        if (e.block.type === "plan" && get().activeId === e.sessionId) {
+          set({ planPreviewOpen: true, previewOpen: false });
+        }
         break;
       case "block_patch":
         withSession(e.sessionId, (s) => ({
@@ -570,6 +580,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
             { type: "permission", id: e.blockId, req: e.req, ts: Date.now() },
           ],
         }));
+        if (e.req.purpose === "plan" && get().activeId === e.sessionId) {
+          set({ planPreviewOpen: true, previewOpen: false });
+        }
         break;
       case "permission_resolved":
         withSession(e.sessionId, (s) => ({
@@ -653,6 +666,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
     previewFile: null,
     previewLoading: false,
     previewError: null,
+    planPreviewOpen: false,
+    slashCommands: {},
 
     model: localStorage.getItem("grok.model") ?? "grok-build",
     models: MODELS,
@@ -852,6 +867,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         projectPreview: { status: "idle" },
         previewOpen: false,
         previewFile: null,
+        planPreviewOpen: false,
       });
       void get().refreshWorkspaceFiles();
       void get().refreshWorkspaceDiffs();
@@ -1073,7 +1089,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     async openPreview(path) {
-      set({ previewOpen: true, previewLoading: true, previewError: null });
+      set({ previewOpen: true, planPreviewOpen: false, previewLoading: true, previewError: null });
       try {
         let previewFile = await invoke<PreviewFile>("read_preview_file", {
           cwd: get().workspace,
@@ -1247,9 +1263,15 @@ export const useDesktop = create<DesktopState>((set, get) => {
       return result;
     },
 
-    resolvePermission(blockId, option) {
-      const { activeId } = get();
-      if (activeId) bridge.respondPermission(activeId, blockId, option);
+    resolvePermission(blockId, option, feedback) {
+      const { activeId, sessions } = get();
+      if (activeId) {
+        bridge.respondPermission(activeId, blockId, option, feedback);
+        const block = sessions[activeId]?.blocks.find((candidate) => candidate.id === blockId);
+        if (block?.type === "permission" && block.req.purpose === "plan" && (option !== "deny" || !feedback?.trim())) {
+          set({ planPreviewOpen: false });
+        }
+      }
     },
 
     resolveQuestion(blockId, response) {
@@ -1311,6 +1333,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       set({ sessionComposers: { ...sessionComposers, [activeId]: { ...current, attachments } } });
     },
     setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true }),
+    setPlanPreviewOpen: (planPreviewOpen) => set({ planPreviewOpen, ...(planPreviewOpen ? { previewOpen: false } : {}) }),
     toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
     setSettingsOpen: (settingsOpen) => set({ settingsOpen }),

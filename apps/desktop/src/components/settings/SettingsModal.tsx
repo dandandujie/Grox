@@ -23,6 +23,15 @@ export function SettingsModal() {
   const open = useDesktop((state) => state.settingsOpen);
   const setOpen = useDesktop((state) => state.setSettingsOpen);
   const [section, setSection] = useState<Section>("general");
+
+  useEffect(() => {
+    const openSection = (event: Event) => {
+      const next = (event as CustomEvent<Section>).detail;
+      if (["general", "account", "appearance", "mcp", "skills", "plugins"].includes(next)) setSection(next);
+    };
+    window.addEventListener("grox:settings-section", openSection);
+    return () => window.removeEventListener("grox:settings-section", openSection);
+  }, []);
   if (!open) return null;
 
   const sections: { id: Section; label: string; icon: React.ComponentProps<typeof Icon>["name"] }[] = [

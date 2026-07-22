@@ -36,7 +36,7 @@ function renderBlock(block: SessionBlock, sessionId: string, processing = false)
     case "thinking": return <ThinkingBlock key={block.id} block={block} processing={processing} />;
     case "tool": return <ToolCallCard key={block.id} block={block} />;
     case "plan": return <PlanCard key={block.id} block={block} />;
-    case "permission": return <PermissionCard key={block.id} block={block} sessionId={sessionId} />;
+    case "permission": return block.req.purpose === "plan" ? null : <PermissionCard key={block.id} block={block} sessionId={sessionId} />;
     case "question": return <QuestionCard key={block.id} block={block} />;
     case "system": return <SystemEvent key={block.id} block={block} />;
   }

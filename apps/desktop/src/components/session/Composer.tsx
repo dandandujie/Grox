@@ -9,6 +9,7 @@ import { useDesktop } from "../../state/store";
 import {
   EFFORTS,
   type PromptAttachment,
+  type SlashCommand,
 } from "../../bridge/types";
 import { ChipSelect } from "../common/ChipSelect";
 import { PromptOptionsMenu, ProviderSwitcher } from "../common/PromptControls";
@@ -25,7 +26,10 @@ interface SlashCmd {
   id: string;
   hint: string;
   run: () => void;
+  source?: "gui" | "runtime";
 }
+
+const NO_RUNTIME_COMMANDS: SlashCommand[] = [];
 
 export function Composer() {
   const { language } = useI18n();
@@ -56,6 +60,14 @@ export function Composer() {
   const newProject = useDesktop((s) => s.newProject);
   const goHome = useDesktop((s) => s.goHome);
   const setSettingsOpen = useDesktop((s) => s.setSettingsOpen);
+  const setInspectorTab = useDesktop((s) => s.setInspectorTab);
+  const setPlanPreviewOpen = useDesktop((s) => s.setPlanPreviewOpen);
+  const runtimeCommands = useDesktop((s) => s.activeId ? s.slashCommands[s.activeId] ?? NO_RUNTIME_COMMANDS : NO_RUNTIME_COMMANDS);
+
+  const openExtensionSettings = (section: "mcp" | "skills" | "plugins") => {
+    setSettingsOpen(true);
+    window.dispatchEvent(new CustomEvent("grox:settings-section", { detail: section }));
+  };
 
   const running =
     status === "running" || status === "awaiting_permission" || status === "awaiting_input";
@@ -72,6 +84,14 @@ export function Composer() {
     { id: "/new", hint: language === "zh-CN" ? "创建新项目" : "start a new project", run: () => void newProject() },
     { id: "/home", hint: language === "zh-CN" ? "返回任务控制台" : "return to mission control", run: goHome },
     { id: "/settings", hint: language === "zh-CN" ? "打开设置" : "open settings", run: () => setSettingsOpen(true) },
+    { id: "/view-plan", hint: language === "zh-CN" ? "在右侧重新打开计划" : "reopen plan preview", run: () => setPlanPreviewOpen(true) },
+    { id: "/auto", hint: language === "zh-CN" ? "自动批准安全工具" : "auto-approve safe tools", run: () => setPermissionMode(permissionMode === "auto" ? "default" : "auto") },
+    { id: "/always-approve", hint: language === "zh-CN" ? "切换始终批准" : "toggle always approve", run: () => setPermissionMode(permissionMode === "bypass" ? "default" : "bypass") },
+    { id: "/tasks", hint: language === "zh-CN" ? "查看任务和工具活动" : "show tasks and tool activity", run: () => setInspectorTab("tasks") },
+    { id: "/context", hint: language === "zh-CN" ? "查看上下文和用量" : "show context and usage", run: () => setInspectorTab("usage") },
+    { id: "/skills", hint: language === "zh-CN" ? "管理 Skill" : "manage skills", run: () => openExtensionSettings("skills") },
+    { id: "/mcps", hint: language === "zh-CN" ? "管理 MCP Server" : "manage MCP servers", run: () => openExtensionSettings("mcp") },
+    { id: "/plugins", hint: language === "zh-CN" ? "管理 Plugin 与市场" : "manage plugins and marketplace", run: () => openExtensionSettings("plugins") },
     {
       id: "/model",
       hint: "cycle model",
@@ -90,9 +110,25 @@ export function Composer() {
     },
   ];
 
+  const localIds = new Set(slashCommands.map((command) => command.id));
+  const commands: SlashCmd[] = [
+    ...slashCommands,
+    ...runtimeCommands
+      .filter((command) => !localIds.has(`/${command.name}`))
+      .map((command) => ({
+        id: `/${command.name}`,
+        hint: command.description || command.inputHint || (language === "zh-CN" ? "由 Grok Runtime 提供" : "Provided by Grok Runtime"),
+        source: "runtime" as const,
+        run: () => {
+          setText(`/${command.name}${command.inputHint ? " " : ""}`);
+          requestAnimationFrame(() => taRef.current?.focus());
+        },
+      })),
+  ];
+
   const slashOpen = text.startsWith("/") && !text.includes(" ");
   const query = slashOpen ? text.slice(1).toLowerCase() : "";
-  const matches = slashOpen ? slashCommands.filter((c) => c.id.slice(1).startsWith(query)) : [];
+  const matches = slashOpen ? commands.filter((c) => c.id.slice(1).toLowerCase().startsWith(query)) : [];
 
   useEffect(() => setSlashIdx(0), [query]);
 
@@ -130,7 +166,14 @@ export function Composer() {
   const send = () => {
     const t = text.trim();
     if ((!t && attachments.length === 0) || running || readingFiles) return;
-    sendPrompt(t, attachments);
+    const modeCommand = t.match(/^\/(plan|agent|ask)(?:\s+([\s\S]+))?$/i);
+    if (modeCommand?.[2]) {
+      const nextMode = modeCommand[1].toLowerCase() as "plan" | "agent" | "ask";
+      setMode(nextMode);
+      sendPrompt(modeCommand[2].trim(), attachments);
+    } else {
+      sendPrompt(t, attachments);
+    }
     setText("");
     setAttachments([]);
     setAttachmentError("");
@@ -197,7 +240,8 @@ export function Composer() {
                 }`}
               >
                 <span className="w-20 shrink-0 font-mono text-[11px] text-acc">{c.id}</span>
-                <span className="text-[11px] text-mute">{c.hint}</span>
+                <span className="min-w-0 flex-1 truncate text-[11px] text-mute">{c.hint}</span>
+                {c.source === "runtime" && <span className="rounded-[3px] border border-line2 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.08em] text-faint">RUNTIME</span>}
               </button>
             ))}
           </div>
@@ -267,6 +311,7 @@ export function Composer() {
               className="flex h-7 items-center gap-1.5 rounded-[5px] border border-line2 px-2 font-mono text-[9.5px] text-dim transition-colors hover:border-line3 hover:text-fg2 disabled:opacity-40"
             >
               <Icon name="clip" size={11} />
+              {readingFiles && <span className="plan-spinner !h-[10px] !w-[10px] !basis-[10px]" />}
               {readingFiles ? (language === "zh-CN" ? "读取中" : "READING") : (language === "zh-CN" ? "附件" : "ATTACH")}
             </button>
 

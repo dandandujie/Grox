@@ -5,6 +5,7 @@
 import type { SessionBlock } from "../../bridge/types";
 import { Icon } from "../fx/Icon";
 import { useI18n } from "../../lib/i18n";
+import { useDesktop } from "../../state/store";
 
 type PlanBlock = Extract<SessionBlock, { type: "plan" }>;
 
@@ -12,9 +13,10 @@ export function PlanCard({ block }: { block: PlanBlock }) {
   const { language } = useI18n();
   const done = block.steps.filter((s) => s.status === "completed").length;
   const total = block.steps.length;
+  const openPreview = useDesktop((state) => state.setPlanPreviewOpen);
 
   return (
-    <div className="mb-4 animate-fade-up pl-0.5">
+    <button onClick={() => openPreview(true)} className="mb-4 block w-full animate-fade-up pl-0.5 text-left" title={language === "zh-CN" ? "在右侧预览计划" : "Preview plan on the right"}>
       <div className="border-l border-gold/50 pl-3">
         <div className="flex items-center gap-2">
           <span className="lbl !text-gold">{language === "zh-CN" ? "计划" : "PLAN"}</span>
@@ -22,7 +24,7 @@ export function PlanCard({ block }: { block: PlanBlock }) {
             {done}/{total}
           </span>
           <span className="relative h-[2px] w-16 overflow-hidden rounded-full bg-high">
-            <span className="absolute inset-y-0 left-0 bg-gold/70" style={{ width: `${(done / total) * 100}%` }} />
+            <span className="absolute inset-y-0 left-0 bg-gold/70" style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }} />
           </span>
         </div>
         <div className="mt-2 space-y-1.5">
@@ -44,7 +46,7 @@ export function PlanCard({ block }: { block: PlanBlock }) {
           ))}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 

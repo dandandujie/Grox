@@ -246,6 +246,24 @@ html[data-reduce-motion="1"] * {
   }
 }
 
+@keyframes planSpin {
+  to { transform: rotate(360deg); }
+}
+
+.plan-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 1.5px solid color-mix(in srgb, var(--color-acc) 24%, transparent);
+  border-top-color: var(--color-acc);
+  border-radius: 999px;
+  animation: planSpin 0.75s linear infinite;
+}
+
+html[data-reduce-motion="1"] .plan-spinner {
+  animation-duration: 2s;
+}
+
 @layer base {
   * {
     border-color: var(--color-line);

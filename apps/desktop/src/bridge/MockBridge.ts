@@ -324,7 +324,7 @@ export class MockBridge implements GrokBridge {
     };
   }
 
-  respondPermission(sessionId: string, _blockId: string, option: PermissionOption): void {
+  respondPermission(sessionId: string, _blockId: string, option: PermissionOption, _feedback?: string): void {
     const waiter = this.permissionWaiters.get(sessionId);
     if (waiter) {
       this.permissionWaiters.delete(sessionId);
