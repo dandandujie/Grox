@@ -261,25 +261,19 @@ function persistSessionCatalog(metas: SessionMeta[]) {
   localStorage.setItem("grox.sessionCatalog", JSON.stringify(clean));
 }
 
-function mergeProjectSessions(
+function mergeSessions(
   existing: SessionMeta[],
-  cwd: string,
   incoming: SessionMeta[],
+  cwd?: string,
 ): SessionMeta[] {
   const incomingIds = new Set(incoming.map((meta) => meta.id));
   const merged = [
     ...decorateSessions(incoming),
-    ...existing.filter((meta) => !samePath(meta.cwd, cwd) && !incomingIds.has(meta.id)),
-  ].sort((a, b) => b.updatedAt - a.updatedAt);
-  persistSessionCatalog(merged);
-  return merged;
-}
-
-function mergeAllSessions(existing: SessionMeta[], incoming: SessionMeta[]): SessionMeta[] {
-  const incomingIds = new Set(incoming.map((meta) => meta.id));
-  const merged = [
-    ...decorateSessions(incoming),
-    ...existing.filter((meta) => !incomingIds.has(meta.id)),
+    ...existing.filter(
+      (meta) =>
+        !incomingIds.has(meta.id) &&
+        (cwd === undefined || !samePath(meta.cwd, cwd)),
+    ),
   ].sort((a, b) => b.updatedAt - a.updatedAt);
   persistSessionCatalog(merged);
   return merged;
@@ -852,7 +846,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       await bridge.setWorkspace(cwd);
       const workspace = await bridge.getWorkspace();
       const fetchedSessions = await bridge.listSessions(workspace);
-      const sessionIndex = mergeProjectSessions(get().sessionIndex, workspace, fetchedSessions);
+      const sessionIndex = mergeSessions(get().sessionIndex, fetchedSessions, workspace);
       const projects = ensureProject(get().projects, workspace);
       set({
         workspace,
@@ -1343,7 +1337,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         set({ historySyncing: true, historyError: null });
         try {
           const imported = await bridge.listSessions();
-          const sessionIndex = mergeAllSessions(get().sessionIndex, imported);
+          const sessionIndex = mergeSessions(get().sessionIndex, imported);
           const projects = mergeDiscoveredProjects(get().projects, imported);
           set({
             sessionIndex,
