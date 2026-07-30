@@ -5,6 +5,7 @@ import { MAX_ATTACHMENTS, prepareAttachment, validateAttachmentSet } from "../..
 import { baseName } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "../fx/Icon";
+import { ChipSelect } from "../common/ChipSelect";
 
 interface GitSummary {
   isRepository: boolean;
@@ -17,6 +18,15 @@ interface GitSummary {
   defaultBranch?: string;
   ahead: number;
   behind: number;
+}
+
+interface GitWorktree {
+  path: string;
+  branch?: string;
+  bare: boolean;
+  detached: boolean;
+  locked: boolean;
+  prunable: boolean;
 }
 
 interface SummarySource {
@@ -49,12 +59,14 @@ export function EnvironmentSummary() {
   const zh = language === "zh-CN";
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<GitSummary | null>(null);
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState<"checkout" | "commit" | "push" | null>(null);
+  const [busy, setBusy] = useState<"checkout" | "commit" | "push" | "worktree" | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
+  const [worktreeName, setWorktreeName] = useState("");
   const [showAllSources, setShowAllSources] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -95,7 +107,12 @@ export function EnvironmentSummary() {
     setError("");
     try {
       if (inTauri()) {
-        setSummary(await invoke<GitSummary>("git_summary", { cwd: workspace }));
+        const [nextSummary, nextWorktrees] = await Promise.all([
+          invoke<GitSummary>("git_summary", { cwd: workspace }),
+          invoke<GitWorktree[]>("git_worktrees", { cwd: workspace }).catch(() => [] as GitWorktree[]),
+        ]);
+        setSummary(nextSummary);
+        setWorktrees(nextWorktrees);
       } else {
         setSummary({
           isRepository: true,
@@ -109,6 +126,7 @@ export function EnvironmentSummary() {
           ahead: 0,
           behind: 0,
         });
+        setWorktrees([]);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -137,7 +155,7 @@ export function EnvironmentSummary() {
     };
   }, [open]);
 
-  const runAction = async (kind: "checkout" | "commit" | "push", action: () => Promise<string>) => {
+  const runAction = async (kind: "checkout" | "commit" | "push" | "worktree", action: () => Promise<string>) => {
     setBusy(kind);
     setError("");
     setNotice("");
@@ -165,10 +183,12 @@ export function EnvironmentSummary() {
   const commit = () => {
     const message = commitMessage.trim();
     if (!message) return;
-    if (!window.confirm(zh ? "确认暂存全部变更并创建提交？" : "Stage all changes and create this commit?")) return;
-    void runAction("commit", () =>
-      inTauri() ? invoke<string>("git_commit", { cwd: workspace, message }) : Promise.resolve(zh ? "提交已创建" : "Commit created"),
-    ).then((succeeded) => {
+    void runAction("commit", async () => {
+      if (!inTauri()) return zh ? "提交已创建" : "Commit created";
+      // Native shell shows the OS confirm dialog inside prepare_git_commit.
+      const confirmToken = await invoke<string>("prepare_git_commit", { cwd: workspace });
+      return invoke<string>("git_commit", { cwd: workspace, message, confirmToken });
+    }).then((succeeded) => {
       if (succeeded) {
         setCommitMessage("");
         setCommitOpen(false);
@@ -177,10 +197,12 @@ export function EnvironmentSummary() {
   };
 
   const push = () => {
-    if (!window.confirm(zh ? "确认将当前分支推送到 origin？" : "Push the current branch to origin?")) return;
-    void runAction("push", () =>
-      inTauri() ? invoke<string>("git_push", { cwd: workspace }) : Promise.resolve(zh ? "推送已完成" : "Push completed"),
-    );
+    void runAction("push", async () => {
+      if (!inTauri()) return zh ? "推送已完成" : "Push completed";
+      // Native shell shows the OS confirm dialog inside prepare_git_push.
+      const confirmToken = await invoke<string>("prepare_git_push", { cwd: workspace });
+      return invoke<string>("git_push", { cwd: workspace, confirmToken });
+    });
   };
 
   const openCompare = () => {
@@ -258,17 +280,45 @@ export function EnvironmentSummary() {
               <Icon name="external" size={10} className="text-faint" />
             </button>
 
+            <div className="mx-2 mb-2 grid grid-cols-4 gap-1">
+              {([
+                ["cursor", "Cursor"],
+                ["code", "VS Code"],
+                ["terminal", zh ? "终端" : "Term"],
+                ["explorer", zh ? "目录" : "Files"],
+              ] as const).map(([app, label]) => (
+                <button
+                  key={app}
+                  disabled={!inTauri()}
+                  onClick={() => {
+                    void invoke("open_in_app", { cwd: workspace, app }).then(
+                      () => setNotice(zh ? `已打开 ${label}` : `Opened ${label}`),
+                      (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+                    );
+                  }}
+                  className="summary-action !px-1"
+                  title={zh ? `在 ${label} 中打开` : `Open in ${label}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <SummaryRow icon="branch" label={summary?.isRepository ? (summary.branch ?? "DETACHED HEAD") : (zh ? "非 Git 仓库" : "Not a Git repository")}>
               {summary?.isRepository && (
-                <select
-                  value={summary.branch ?? ""}
+                <ChipSelect
+                  variant="ghost"
+                  menuPlacement="down"
+                  align="end"
+                  width={180}
                   disabled={busy !== null}
-                  onChange={(event) => checkout(event.target.value)}
-                  className="ml-auto max-w-[145px] bg-transparent text-right font-mono text-[10px] text-dim outline-none"
+                  activeId={summary.branch ?? ""}
+                  label={summary.branch ?? "DETACHED"}
+                  items={summary.branches.map((branch) => ({ id: branch, label: branch }))}
+                  onSelect={checkout}
                   aria-label={zh ? "切换分支" : "Switch branch"}
-                >
-                  {summary.branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-                </select>
+                  triggerClassName="ml-auto max-w-[145px] justify-end"
+                />
               )}
             </SummaryRow>
 
@@ -309,6 +359,71 @@ export function EnvironmentSummary() {
                   <span className="ml-auto font-mono text-[9px] text-faint">{summary.defaultBranch ?? "main"} ← {summary.branch}</span>
                   <Icon name="external" size={10} className="text-faint" />
                 </button>
+
+                <div className="mx-2 mt-2 rounded-[6px] border border-line bg-void p-2">
+                  <p className="mb-1.5 font-mono text-[9px] tracking-[0.08em] text-dim">{zh ? "WORKTREES" : "WORKTREES"}</p>
+                  {worktrees.length === 0 ? (
+                    <p className="text-[10px] text-faint">{zh ? "暂无附加 worktree" : "No linked worktrees"}</p>
+                  ) : (
+                    <div className="mb-2 space-y-1">
+                      {worktrees.map((item) => (
+                        <div key={item.path} className="flex items-center gap-2 rounded-[4px] px-1.5 py-1 hover:bg-high">
+                          <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2">{item.branch ?? (item.detached ? "DETACHED" : baseName(item.path))}</span>
+                          <button
+                            disabled={busy !== null}
+                            onClick={() => void useDesktop.getState().setWorkspace(item.path)}
+                            className="text-[9px] text-acc hover:text-fg"
+                          >
+                            {zh ? "打开" : "Open"}
+                          </button>
+                          <button
+                            disabled={busy !== null}
+                            onClick={() => {
+                              void runAction("worktree", async () => {
+                                if (!inTauri()) return zh ? "Worktree 已移除" : "Worktree removed";
+                                // Native shell confirms via OS dialog inside prepare_git_worktree_remove.
+                                const confirmToken = await invoke<string>("prepare_git_worktree_remove", {
+                                  cwd: workspace,
+                                  path: item.path,
+                                });
+                                return invoke<string>("git_worktree_remove", {
+                                  cwd: workspace,
+                                  path: item.path,
+                                  confirmToken,
+                                });
+                              });
+                            }}
+                            className="text-[9px] text-faint hover:text-red"
+                          >
+                            {zh ? "删" : "RM"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-1.5">
+                    <input
+                      value={worktreeName}
+                      onChange={(event) => setWorktreeName(event.target.value)}
+                      placeholder={zh ? "名称，如 fix-auth" : "name, e.g. fix-auth"}
+                      className="h-7 min-w-0 flex-1 rounded-[4px] border border-line2 bg-raise px-2 font-mono text-[10px] text-fg2 outline-none"
+                    />
+                    <button
+                      disabled={!worktreeName.trim() || busy !== null}
+                      onClick={() => {
+                        const name = worktreeName.trim();
+                        void runAction("worktree", async () => {
+                          const path = await invoke<string>("git_worktree_add", { cwd: workspace, name, branch: null });
+                          setWorktreeName("");
+                          return path;
+                        });
+                      }}
+                      className="summary-action"
+                    >
+                      {busy === "worktree" ? "…" : (zh ? "新建" : "Add")}
+                    </button>
+                  </div>
+                </div>
               </>
             )}
 

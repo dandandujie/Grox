@@ -434,7 +434,7 @@ function PreviewTab() {
         )}
       </form>
       {preview.status === "ready" && preview.url ? (
-        <iframe key={`${preview.url}-${frameKey}`} src={preview.url} title="Project preview" className="min-h-0 flex-1 border-0 bg-white" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups" />
+        <iframe key={`${preview.url}-${frameKey}`} src={preview.url} title="Project preview" className="min-h-0 flex-1 border-0 bg-white" sandbox="allow-scripts allow-same-origin allow-forms allow-modals" />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-5 text-center">
           <span className={`h-2 w-2 rounded-full ${preview.status === "starting" ? "animate-pulse-dot bg-acc" : preview.status === "error" ? "bg-red" : "bg-faint"}`} />

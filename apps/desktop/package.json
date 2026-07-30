@@ -3,20 +3,16 @@
   "private": true,
   "version": "0.2.6",
   "type": "module",
-  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "desktop:dev": "pnpm tauri dev",
     "desktop:build": "pnpm tauri build",
-    "tauri": "tauri",
-    "electron": "electron .",
-    "electron:dev": "node scripts/dev-electron.mjs"
+    "tauri": "tauri"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron",
       "esbuild"
     ]
   },

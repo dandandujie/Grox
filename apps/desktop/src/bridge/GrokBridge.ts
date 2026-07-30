@@ -74,6 +74,14 @@ export interface GrokBridge {
   /** Change permission policy for existing and future sessions. */
   setPermissionMode(mode: PermissionMode): void;
 
+  /** Arm or disarm Computer Use MCP injection for new/restored sessions. */
+  setComputerUseEnabled(enabled: boolean): void;
+  getComputerUseEnabled(): boolean;
+
+  /** Arm or disarm Browser Use MCP (open URL / headless screenshot). */
+  setBrowserUseEnabled(enabled: boolean): void;
+  getBrowserUseEnabled(): boolean;
+
   /** Change the real Grok Build harness mode for an existing session. */
   setSessionMode(sessionId: string, mode: AgentMode): Promise<void>;
 

@@ -3,7 +3,7 @@ import { useDesktop } from "../../state/store";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "../fx/Icon";
 
-export function TerminalPanel() {
+export function TerminalPanel({ embedded = false }: { embedded?: boolean }) {
   const { t, language } = useI18n();
   const session = useDesktop((state) => (state.activeId ? state.sessions[state.activeId] : null));
   const toggleTerminal = useDesktop((state) => state.toggleTerminal);
@@ -21,29 +21,7 @@ export function TerminalPanel() {
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [calls, lineCount]);
 
-  return (
-    <section
-      className="flex h-[min(280px,42vh)] shrink-0 flex-col overflow-hidden border-t border-line2 bg-void animate-fade-up"
-      aria-label={t("terminal")}
-    >
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
-        <Icon name="terminal" size={12} className="text-acc" />
-        <span className="font-mono text-[10px] tracking-[0.14em] text-fg2">{t("terminal").toUpperCase()}</span>
-        {calls.length > 0 && (
-          <span className="font-mono text-[9px] text-faint">
-            {calls.length} {language === "zh-CN" ? "条命令" : calls.length === 1 ? "COMMAND" : "COMMANDS"}
-          </span>
-        )}
-        <button
-          onClick={toggleTerminal}
-          className="ml-auto flex h-6 w-6 items-center justify-center text-dim transition-colors hover:bg-high hover:text-fg"
-          title={language === "zh-CN" ? "关闭终端" : "Close terminal"}
-          aria-label={language === "zh-CN" ? "关闭终端" : "Close terminal"}
-        >
-          <Icon name="x" size={10} />
-        </button>
-      </div>
-
+  const body = (
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2 font-mono text-[10.5px] leading-[1.65] select-text">
         {calls.length === 0 ? (
           <div className="flex h-full items-center justify-center">
@@ -86,6 +64,35 @@ export function TerminalPanel() {
           </div>
         )}
       </div>
+  );
+
+  if (embedded) {
+    return <div className="flex h-full min-h-0 flex-col overflow-hidden">{body}</div>;
+  }
+
+  return (
+    <section
+      className="flex h-[min(280px,42vh)] shrink-0 flex-col overflow-hidden border-t border-line2 bg-void animate-fade-up"
+      aria-label={t("terminal")}
+    >
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
+        <Icon name="terminal" size={12} className="text-acc" />
+        <span className="font-mono text-[10px] tracking-[0.14em] text-fg2">{t("terminal").toUpperCase()}</span>
+        {calls.length > 0 && (
+          <span className="font-mono text-[9px] text-faint">
+            {calls.length} {language === "zh-CN" ? "条命令" : calls.length === 1 ? "COMMAND" : "COMMANDS"}
+          </span>
+        )}
+        <button
+          onClick={toggleTerminal}
+          className="ml-auto flex h-6 w-6 items-center justify-center text-dim transition-colors hover:bg-high hover:text-fg"
+          title={language === "zh-CN" ? "关闭终端" : "Close terminal"}
+          aria-label={language === "zh-CN" ? "关闭终端" : "Close terminal"}
+        >
+          <Icon name="x" size={10} />
+        </button>
+      </div>
+      {body}
     </section>
   );
 }

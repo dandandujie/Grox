@@ -162,14 +162,17 @@ export class MockBridge implements GrokBridge {
   }
 
   async saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary> {
+    const existing = config.id
+      ? this.providerProfiles.find((item) => item.id === config.id)
+      : undefined;
     const profile: ProviderProfileSummary = {
       id: config.id ?? crypto.randomUUID(),
       name: config.name,
-      apiKey: config.apiKey ?? "",
-      hasApiKey: Boolean(config.apiKey),
+      apiKey: "",
+      hasApiKey: Boolean(config.apiKey?.trim()) || Boolean(existing?.hasApiKey),
       baseUrl: config.baseUrl,
       apiBackend: config.apiBackend,
-      availableModels: ["grok-4.5", "grok-code-fast"],
+      availableModels: existing?.availableModels ?? ["grok-4.5", "grok-code-fast"],
       residentModels: config.residentModels,
     };
     this.providerProfiles = [profile, ...this.providerProfiles.filter((item) => item.id !== profile.id)];
@@ -219,6 +222,28 @@ export class MockBridge implements GrokBridge {
 
   setPermissionMode(mode: PermissionMode): void {
     this.permissionMode = mode;
+  }
+
+  private computerUseEnabled = localStorage.getItem("grox.computerUseEnabled") !== "0";
+
+  setComputerUseEnabled(enabled: boolean): void {
+    this.computerUseEnabled = enabled;
+    localStorage.setItem("grox.computerUseEnabled", enabled ? "1" : "0");
+  }
+
+  getComputerUseEnabled(): boolean {
+    return this.computerUseEnabled;
+  }
+
+  private browserUseEnabled = localStorage.getItem("grox.browserUseEnabled") !== "0";
+
+  setBrowserUseEnabled(enabled: boolean): void {
+    this.browserUseEnabled = enabled;
+    localStorage.setItem("grox.browserUseEnabled", enabled ? "1" : "0");
+  }
+
+  getBrowserUseEnabled(): boolean {
+    return this.browserUseEnabled;
   }
 
   async setSessionMode(sessionId: string, mode: AgentMode): Promise<void> {

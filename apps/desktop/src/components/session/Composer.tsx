@@ -268,14 +268,14 @@ export function Composer() {
 
   return (
     <div className="shrink-0 px-6 pb-4 pt-1">
-      <div className="relative mx-auto max-w-[760px]">
+      <div className="relative mx-auto max-w-[920px]">
         {/* slash menu */}
         {slashOpen && matches.length > 0 && (
           <div
             ref={slashMenuRef}
             role="listbox"
             aria-label={language === "zh-CN" ? "斜杠命令" : "Slash commands"}
-            className="absolute bottom-full left-0 z-40 mb-2 w-full overflow-y-auto overflow-x-hidden overscroll-contain rounded-[6px] border border-line2 bg-raise py-1 shadow-[0_8px_28px_rgba(0,0,0,0.55)] animate-fade-up"
+            className="absolute bottom-full left-0 z-40 mb-2 w-full overflow-y-auto overflow-x-hidden overscroll-contain rounded-[16px] border border-line2 bg-raise p-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.55)] animate-fade-up"
             style={{ maxHeight: "min(24rem, calc(100dvh - 13rem))" }}
           >
             {matches.map((c, i) => (
@@ -288,20 +288,21 @@ export function Composer() {
                 onClick={() => {
                   chooseSlashCommand(c);
                 }}
-                className={`flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors ${
+                className={`flex w-full items-center gap-3 rounded-full px-3 py-1.5 text-left transition-colors ${
                   i === slashIdx ? "bg-high" : "hover:bg-high/60"
                 }`}
               >
                 <span className="w-20 shrink-0 font-mono text-[11px] text-acc">{c.id}</span>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-mute">{c.hint}</span>
-                {c.tag && <span className="rounded-[3px] bg-acc/10 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.08em] text-acc">{c.tag}</span>}
-                {c.source === "runtime" && <span className="rounded-[3px] border border-line2 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.08em] text-faint">RUNTIME</span>}
+                {c.tag && <span className="rounded-full bg-acc/10 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.08em] text-acc">{c.tag}</span>}
+                {c.source === "runtime" && <span className="rounded-full border border-line2 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.08em] text-faint">RUNTIME</span>}
               </button>
             ))}
           </div>
         )}
 
-        <div className="rounded-[8px] border border-line2 bg-raise transition-colors focus-within:border-acc-dim">
+        <div className="aurora-rim">
+        <div className="aurora-rim__core">
           <input
             ref={fileRef}
             type="file"
@@ -315,14 +316,14 @@ export function Composer() {
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 border-b border-line px-3 py-2.5">
               {attachments.map((attachment) => (
-                <div key={attachment.id} className="group flex h-9 max-w-[220px] items-center gap-2 rounded-[5px] border border-line2 bg-high/70 pl-1.5 pr-1">
+                <div key={attachment.id} className="group flex h-9 max-w-[220px] items-center gap-2 rounded-full border border-line2 bg-high/70 pl-1.5 pr-1">
                   {attachment.kind === "image" && attachment.data ? (
-                    <img src={`data:${attachment.mime};base64,${attachment.data}`} alt="" className="h-6 w-6 rounded-[3px] object-cover" />
+                    <img src={`data:${attachment.mime};base64,${attachment.data}`} alt="" className="h-6 w-6 rounded-full object-cover" />
                   ) : (
-                    <span className="flex h-6 w-6 items-center justify-center rounded-[3px] bg-raise text-dim"><Icon name="file" size={11} /></span>
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-raise text-dim"><Icon name="file" size={11} /></span>
                   )}
                   <div className="min-w-0 flex-1"><p className="truncate font-mono text-[9.5px] text-fg2">{attachment.name}</p><p className="font-mono text-[8.5px] text-faint">{attachment.size < 1024 * 1024 ? `${Math.max(1, Math.round(attachment.size / 1024))} KB` : `${(attachment.size / 1024 / 1024).toFixed(1)} MB`}</p></div>
-                  <button onClick={() => setAttachments(attachments.filter((item) => item.id !== attachment.id))} className="flex h-6 w-6 items-center justify-center rounded-[3px] text-faint hover:bg-raise hover:text-fg" title={language === "zh-CN" ? "移除附件" : "Remove attachment"}><Icon name="x" size={9} /></button>
+                  <button onClick={() => setAttachments(attachments.filter((item) => item.id !== attachment.id))} className="flex h-6 w-6 items-center justify-center rounded-full text-faint hover:bg-raise hover:text-fg" title={language === "zh-CN" ? "移除附件" : "Remove attachment"}><Icon name="x" size={9} /></button>
                 </div>
               ))}
             </div>
@@ -346,11 +347,11 @@ export function Composer() {
                 ? (language === "zh-CN" ? "Grok 正在处理 — 可以准备下一条请求…" : "Grok is working — queue the next directive…")
                 : (language === "zh-CN" ? "发送给 Grok…" : "Transmit to Grok…")
             }
-            className="block w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+            className="block w-full resize-none bg-transparent px-5 pb-1.5 pt-3.5 text-[16px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
           />
 
           {/* control strip */}
-          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-1">
+          <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-1.5">
             <ProviderSwitcher />
 
             <ChipSelect
@@ -380,7 +381,7 @@ export function Composer() {
               }}
               disabled={running}
               title={language === "zh-CN" ? "启动 Deep Research" : "Start Deep Research"}
-              className="flex h-7 items-center gap-1.5 rounded-[5px] border border-acc/30 bg-acc/5 px-2 font-mono text-[9.5px] text-acc transition-colors hover:border-acc/60 hover:bg-acc/10 disabled:opacity-40"
+              className="flex h-8 items-center gap-1.5 rounded-full border border-acc/30 bg-acc/5 px-3 font-mono text-[10.5px] text-acc transition-colors hover:border-acc/60 hover:bg-acc/10 disabled:opacity-40"
             >
               <Icon name="search" size={11} />
               {language === "zh-CN" ? "深度研究" : "RESEARCH"}
@@ -390,7 +391,7 @@ export function Composer() {
               onClick={() => fileRef.current?.click()}
               disabled={creating || running || readingFiles || attachments.length >= MAX_ATTACHMENTS}
               title={language === "zh-CN" ? "上传文件；也可直接粘贴剪贴板图片" : "Upload files; clipboard images can also be pasted"}
-              className="flex h-7 items-center gap-1.5 rounded-[5px] border border-line2 px-2 font-mono text-[9.5px] text-dim transition-colors hover:border-line3 hover:text-fg2 disabled:opacity-40"
+              className="flex h-8 items-center gap-1.5 rounded-full border border-line2 px-3 font-mono text-[10.5px] text-dim transition-colors hover:border-line3 hover:text-fg2 disabled:opacity-40"
             >
               <Icon name="clip" size={11} />
               {readingFiles && <span className="plan-spinner !h-[10px] !w-[10px] !basis-[10px]" />}
@@ -408,7 +409,7 @@ export function Composer() {
                 {computerRunning && <button
                   onClick={emergencyStopComputer}
                   title={language === "zh-CN" ? "紧急停止 Computer Use，并锁定当前控制租约" : "Emergency stop Computer Use and lock this control lease"}
-                  className="flex h-7 items-center gap-1.5 rounded-[5px] border border-red/70 bg-red/5 px-2 font-mono text-[9px] text-red transition-colors hover:bg-red/10"
+                  className="flex h-8 items-center gap-1.5 rounded-full border border-red/70 bg-red/5 px-3 font-mono text-[10px] text-red transition-colors hover:bg-red/10"
                 >
                   <Icon name="stop" size={10} />
                   {language === "zh-CN" ? "紧急停止" : "E-STOP"}
@@ -416,7 +417,7 @@ export function Composer() {
                 <button
                   onClick={stop}
                   title="Abort turn"
-                  className="flex h-7 w-7 items-center justify-center rounded-[5px] border border-red/50 text-red transition-colors hover:bg-red/10"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-red/50 text-red transition-colors hover:bg-red/10"
                 >
                   <Icon name="stop" size={11} />
                 </button>
@@ -426,7 +427,7 @@ export function Composer() {
                 onClick={send}
                 disabled={creating || (!text.trim() && attachments.length === 0) || readingFiles}
                 title="Transmit"
-                className={`flex h-7 w-7 items-center justify-center rounded-[5px] transition-colors ${
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
                   text.trim() || attachments.length > 0
                     ? "bg-acc text-base hover:bg-acc-deep"
                     : "bg-high text-faint"
@@ -437,6 +438,7 @@ export function Composer() {
             )}
           </div>
           {attachmentError && <p className="border-t border-red/20 px-3 py-1.5 text-[9.5px] text-red">{attachmentError}</p>}
+        </div>
         </div>
 
         <div className="mt-1.5 flex items-center justify-between px-1">

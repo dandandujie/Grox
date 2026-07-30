@@ -6,7 +6,11 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod browser_mcp;
 mod computer_mcp;
+mod git_confirm;
+mod mcp_leases;
+mod path_sandbox;
 
 use std::{
     collections::BTreeMap,
@@ -22,6 +26,12 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use git_confirm::GitConfirmStore;
+use mcp_leases::McpLeaseStore;
+use path_sandbox::{
+    checked_workspace, checked_workspace_file, checked_workspace_target, is_workspace_file,
+    path_for_webview,
+};
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -190,8 +200,18 @@ struct MediaGenerationResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ComputerSessionExtensions {
+    /// Intentionally empty: bearer tokens stay in native `McpLeaseStore` and
+    /// are injected by `acp_send` when `_meta.groxComputerLeaseId` is set.
     mcp_servers: Vec<serde_json::Value>,
     plugin_dirs: Vec<String>,
+    lease_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserSessionExtensions {
+    /// Intentionally empty — see `ComputerSessionExtensions`.
+    mcp_servers: Vec<serde_json::Value>,
     lease_id: String,
 }
 
@@ -435,11 +455,6 @@ const MAX_ACP_TEXT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES: usize = 2_000;
 static CONFIG_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
 
-fn path_for_webview(path: &Path) -> String {
-    let raw = path.to_string_lossy();
-    raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
-}
-
 fn default_workspace() -> PathBuf {
     if let Some(path) = std::env::var_os("GROK_DESKTOP_CWD").filter(|v| !v.is_empty()) {
         return PathBuf::from(path);
@@ -555,9 +570,41 @@ fn restrict_private_file(path: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(unix))]
-fn restrict_private_file(_path: &Path) -> Result<(), String> {
-    // Windows user profiles inherit a per-user ACL from their parent folder.
-    Ok(())
+fn restrict_private_file(path: &Path) -> Result<(), String> {
+    // Restrict the credential file to the current Windows user when possible.
+    // Inheritance from the profile directory is usually enough; this is defense
+    // in depth for shared or relocated config folders.
+    let path_text = path.to_string_lossy();
+    let user = std::env::var("USERNAME").unwrap_or_else(|_| String::from("%USERNAME%"));
+    let status = std::process::Command::new("icacls")
+        .args([
+            path_text.as_ref(),
+            "/inheritance:r",
+            "/grant:r",
+            &format!("{user}:(R,W)"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(code) if code.success() => Ok(()),
+        Ok(code) => {
+            eprintln!(
+                "grox: 无法限制凭据文件权限 {}（icacls 退出码 {:?}）；将继续依赖用户配置目录 ACL",
+                path.display(),
+                code.code()
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!(
+                "grox: 无法启动 icacls 限制凭据文件权限 {}：{error}；将继续依赖用户配置目录 ACL",
+                path.display()
+            );
+            Ok(())
+        }
+    }
 }
 
 fn replace_managed_env_block(content: &str, replacement: &str) -> String {
@@ -670,22 +717,6 @@ fn apply_grox_provider_environment(command: &mut Command) {
             command.env(key, value);
         }
     }
-}
-
-fn checked_workspace_file(workspace: &Path, requested: &str) -> Result<PathBuf, String> {
-    let candidate = PathBuf::from(requested);
-    let candidate = if candidate.is_absolute() {
-        candidate
-    } else {
-        workspace.join(candidate)
-    };
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|error| format!("无法解析文件 {}：{error}", candidate.display()))?;
-    if !canonical.starts_with(workspace) {
-        return Err("只能访问当前项目内的文件".into());
-    }
-    Ok(canonical)
 }
 
 fn is_loopback_host(host: Option<&str>) -> bool {
@@ -925,41 +956,6 @@ fn configured_grok_command(_app: &tauri::AppHandle) -> GrokRuntimeInfo {
     runtime_info(executable.to_string(), "missing", None, true)
 }
 
-fn checked_workspace_target(workspace: &Path, requested: &str) -> Result<PathBuf, String> {
-    let requested_path = PathBuf::from(requested);
-    if requested_path
-        .components()
-        .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err("文件路径不能包含 ..".into());
-    }
-    let candidate = if requested_path.is_absolute() {
-        requested_path
-    } else {
-        workspace.join(requested_path)
-    };
-    if candidate.exists() {
-        return checked_workspace_file(workspace, &path_for_webview(&candidate));
-    }
-
-    let mut ancestor = candidate.as_path();
-    while !ancestor.exists() {
-        ancestor = ancestor
-            .parent()
-            .ok_or_else(|| "无法定位文件的现有父目录".to_string())?;
-    }
-    let canonical_ancestor = ancestor
-        .canonicalize()
-        .map_err(|error| format!("无法解析父目录 {}：{error}", ancestor.display()))?;
-    if !canonical_ancestor.starts_with(workspace) {
-        return Err("只能访问当前项目内的文件".into());
-    }
-    let suffix = candidate
-        .strip_prefix(ancestor)
-        .map_err(|_| "无法解析项目文件路径".to_string())?;
-    Ok(canonical_ancestor.join(suffix))
-}
-
 #[tauri::command]
 fn acp_read_text_file(
     cwd: String,
@@ -1011,6 +1007,71 @@ fn grok_runtime_info(app: tauri::AppHandle) -> GrokRuntimeInfo {
     configured_grok_command(&app)
 }
 
+fn is_trusted_cli_install_host(host: Option<&str>) -> bool {
+    let Some(host) = host else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    host == "x.ai"
+        || host == "www.x.ai"
+        || host.ends_with(".x.ai")
+        || host == "cdn.x.ai"
+}
+
+async fn download_official_install_script(script_url: &str) -> Result<String, String> {
+    let parsed = url::Url::parse(script_url).map_err(|error| format!("无效安装地址：{error}"))?;
+    if parsed.scheme() != "https" || !is_trusted_cli_install_host(parsed.host_str()) {
+        return Err("官方安装脚本必须来自受信任的 x.ai HTTPS 地址".into());
+    }
+    let response = reqwest::Client::builder()
+        .user_agent(format!("Grox/{CLIENT_VERSION}"))
+        .timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.url().scheme() == "https"
+                && is_trusted_cli_install_host(attempt.url().host_str())
+            {
+                attempt.follow()
+            } else {
+                attempt.error(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "官方安装脚本重定向到了不受信任的主机",
+                ))
+            }
+        }))
+        .build()
+        .map_err(|error| format!("无法创建安装客户端：{error}"))?
+        .get(parsed)
+        .send()
+        .await
+        .map_err(|error| format!("无法下载官方安装脚本：{error}"))?
+        .error_for_status()
+        .map_err(|error| format!("官方安装脚本下载失败：{error}"))?;
+    let script_bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("无法读取官方安装脚本：{error}"))?;
+    if script_bytes.is_empty() || script_bytes.len() > 2 * 1024 * 1024 {
+        return Err("官方安装脚本大小异常".into());
+    }
+    let script_text = String::from_utf8(script_bytes.to_vec())
+        .map_err(|_| "官方安装脚本不是合法 UTF-8 文本".to_string())?;
+    let looks_like_installer = if cfg!(windows) {
+        (script_text.contains("grok") || script_text.contains("Grok"))
+            && (script_text.contains("xAI")
+                || script_text.contains("x.ai")
+                || script_text.contains("Invoke-WebRequest")
+                || script_text.contains("iwr"))
+    } else {
+        script_text.contains("#!/")
+            && (script_text.contains("grok") || script_text.contains("Grok"))
+            && (script_text.contains("x.ai") || script_text.contains("curl") || script_text.contains("wget"))
+    };
+    if !looks_like_installer {
+        return Err("官方安装脚本内容未通过基本校验，已取消执行".into());
+    }
+    Ok(script_text)
+}
+
 #[tauri::command]
 async fn install_official_grok_cli(
     app: tauri::AppHandle,
@@ -1022,6 +1083,33 @@ async fn install_official_grok_cli(
     if let Some(process) = state.process.lock().await.take() {
         terminate_process(process).await;
     }
+
+    let script_url = if cfg!(windows) {
+        GROK_INSTALL_PS1_URL
+    } else if cfg!(target_os = "macos") {
+        GROK_INSTALL_SH_URL
+    } else {
+        return Err("Grox 当前仅支持在 Windows 和 macOS 上自动安装 CLI".into());
+    };
+    let script_text = download_official_install_script(script_url).await?;
+
+    let work = std::env::temp_dir().join(format!(
+        "grox-cli-install-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    fs::create_dir_all(&work).map_err(|error| format!("无法创建安装临时目录：{error}"))?;
+    let script_path = work.join(if cfg!(windows) {
+        "install-official-cli.ps1"
+    } else {
+        "install-official-cli.sh"
+    });
+    fs::write(&script_path, script_text.as_bytes())
+        .map_err(|error| format!("无法保存官方安装脚本：{error}"))?;
+
     let mut command = if cfg!(windows) {
         let mut command = Command::new("powershell.exe");
         command.args([
@@ -1030,16 +1118,13 @@ async fn install_official_grok_cli(
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
-            "-Command",
-            &format!("irm '{}' | iex", GROK_INSTALL_PS1_URL),
+            "-File",
         ]);
+        command.arg(&script_path);
         command
     } else if cfg!(target_os = "macos") {
         let mut command = Command::new("/bin/bash");
-        command.args([
-            "-c",
-            &format!("curl -fsSL '{}' | bash", GROK_INSTALL_SH_URL),
-        ]);
+        command.arg(&script_path);
         command
     } else {
         return Err("Grox 当前仅支持在 Windows 和 macOS 上自动安装 CLI".into());
@@ -1058,6 +1143,7 @@ async fn install_official_grok_cli(
         .await
         .map_err(|_| "官方 Grok CLI 安装超过 5 分钟，已停止等待".to_string())?
         .map_err(|error| format!("无法启动官方 Grok CLI 安装程序：{error}"))?;
+    let _ = fs::remove_dir_all(&work);
     if !status.success() {
         return Err(format!(
             "官方 Grok CLI 安装失败（退出码 {}）",
@@ -1071,22 +1157,6 @@ async fn install_official_grok_cli(
         return Err("安装程序已完成，但 Grox 尚未在标准位置检测到 grok；请重启后重试".into());
     }
     Ok(runtime)
-}
-
-fn checked_workspace(cwd: &str) -> Result<PathBuf, String> {
-    let trimmed = cwd.trim();
-    if trimmed.is_empty() {
-        return Err("工作区路径不能为空".into());
-    }
-    let path = PathBuf::from(trimmed);
-    if !path.exists() {
-        return Err(format!("工作区不存在：{}", path.display()));
-    }
-    if !path.is_dir() {
-        return Err(format!("工作区不是目录：{}", path.display()));
-    }
-    path.canonicalize()
-        .map_err(|error| format!("无法解析工作区 {}：{error}", path.display()))
 }
 
 fn detect_frontend(workspace: &Path) -> Option<FrontendTarget> {
@@ -1482,6 +1552,263 @@ fn git_summary(cwd: String) -> Result<GitSummary, String> {
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitWorktree {
+    path: String,
+    branch: Option<String>,
+    bare: bool,
+    detached: bool,
+    locked: bool,
+    prunable: bool,
+}
+
+#[tauri::command]
+fn git_worktrees(cwd: String) -> Result<Vec<GitWorktree>, String> {
+    let root = checked_workspace(&cwd)?;
+    let is_repository = optional_git_text(&root, &["rev-parse", "--is-inside-work-tree"])
+        .is_some_and(|value| value == "true");
+    if !is_repository {
+        return Ok(Vec::new());
+    }
+    let porcelain = optional_git_text(&root, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+    let mut items = Vec::new();
+    let mut current: Option<GitWorktree> = None;
+    for line in porcelain.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            if let Some(item) = current.take() {
+                items.push(item);
+            }
+            current = Some(GitWorktree {
+                path: path_for_webview(Path::new(path)),
+                branch: None,
+                bare: false,
+                detached: false,
+                locked: false,
+                prunable: false,
+            });
+            continue;
+        }
+        let Some(item) = current.as_mut() else { continue };
+        if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            item.branch = Some(branch.to_string());
+        } else if line == "bare" {
+            item.bare = true;
+        } else if line == "detached" {
+            item.detached = true;
+        } else if line.starts_with("locked") {
+            item.locked = true;
+        } else if line.starts_with("prunable") {
+            item.prunable = true;
+        }
+    }
+    if let Some(item) = current {
+        items.push(item);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+fn git_worktree_add(cwd: String, name: String, branch: Option<String>) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    let name = name.trim();
+    if name.is_empty()
+        || name.len() > 64
+        || name.chars().any(|character| {
+            character.is_control()
+                || matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+    {
+        return Err("Worktree 名称需为 1–64 个安全字符".into());
+    }
+    let home = grok_home()?;
+    let project = root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("project");
+    let target = home.join("worktrees").join(project).join(name);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("无法创建 worktree 目录：{error}"))?;
+    }
+    let target_text = target.to_string_lossy().to_string();
+    let branch = branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let mut args = vec!["worktree".to_string(), "add".to_string()];
+    if let Some(branch_name) = branch.as_deref() {
+        let branches = git_text(&root, &["branch", "--format=%(refname:short)"])?;
+        if branches.lines().any(|candidate| candidate == branch_name) {
+            args.push(target_text.clone());
+            args.push(branch_name.to_string());
+        } else {
+            args.push("-b".into());
+            args.push(branch_name.to_string());
+            args.push(target_text.clone());
+        }
+    } else {
+        args.push(target_text.clone());
+    }
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    git_text(&root, &arg_refs)?;
+    Ok(path_for_webview(&target))
+}
+
+#[tauri::command]
+fn git_worktree_remove(
+    confirms: tauri::State<'_, Arc<GitConfirmStore>>,
+    cwd: String,
+    path: String,
+    confirm_token: String,
+) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    let root_key = path_for_webview(&root);
+    confirms.consume_worktree_remove(&root_key, &confirm_token)?;
+    let target = checked_removable_worktree(&root, &path)?;
+    let target_text = target.to_string_lossy().to_string();
+    git_text(&root, &["worktree", "remove", "--force", &target_text])?;
+    Ok("Worktree 已移除".into())
+}
+
+#[tauri::command]
+fn open_in_app(cwd: String, app: String) -> Result<(), String> {
+    let root = checked_workspace(&cwd)?;
+    let app = app.trim().to_ascii_lowercase();
+    let path = root.to_string_lossy().to_string();
+
+    let mut command = match app.as_str() {
+        "cursor" => {
+            let mut command = std::process::Command::new(if cfg!(windows) { "cursor.cmd" } else { "cursor" });
+            command.arg(&path);
+            command
+        }
+        "code" | "vscode" => {
+            let mut command = std::process::Command::new(if cfg!(windows) { "code.cmd" } else { "code" });
+            command.arg(&path);
+            command
+        }
+        "zed" => {
+            let mut command = std::process::Command::new("zed");
+            command.arg(&path);
+            command
+        }
+        "terminal" => {
+            #[cfg(windows)]
+            {
+                let mut command = std::process::Command::new("wt.exe");
+                command.args(["-d", &path]);
+                command
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let mut command = std::process::Command::new("open");
+                command.args(["-a", "Terminal", &path]);
+                command
+            }
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                let mut command = std::process::Command::new("x-terminal-emulator");
+                command.arg("--working-directory").arg(&path);
+                command
+            }
+        }
+        "explorer" | "finder" => {
+            return open_in_explorer(cwd, None);
+        }
+        _ => return Err(format!("不支持的应用：{app}")),
+    };
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(0x0800_0000);
+    }
+
+    match command.spawn() {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            if app == "terminal" && cfg!(windows) {
+                // Avoid cmd.exe metacharacter injection: pass the path as a
+                // single PowerShell -LiteralPath argument, never interpolate
+                // into a /K command string.
+                use std::os::windows::process::CommandExt as _;
+                std::process::Command::new("powershell.exe")
+                    .args([
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "Start-Process",
+                        "-FilePath",
+                        "cmd.exe",
+                        "-WorkingDirectory",
+                        &path,
+                    ])
+                    .creation_flags(0x0800_0000)
+                    .spawn()
+                    .map_err(|fallback| format!("无法打开终端：{error} / {fallback}"))?;
+                return Ok(());
+            }
+            Err(format!("无法打开 {app}：{error}。请确认已安装并在 PATH 中。"))
+        }
+    }
+}
+
+#[tauri::command]
+fn notify_desktop(title: String, body: String) -> Result<(), String> {
+    let title = title.chars().take(120).collect::<String>();
+    let body = body.chars().take(280).collect::<String>();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        let script = format!(
+            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $text = $template.GetElementsByTagName('text'); $text.Item(0).AppendChild($template.CreateTextNode({})); $text.Item(1).AppendChild($template.CreateTextNode({})); $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Grox').Show($toast)",
+            powershell_quote(&title),
+            powershell_quote(&body),
+        );
+        let status = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x0800_0000)
+            .status()
+            .map_err(|error| format!("无法发送通知：{error}"))?;
+        if !status.success() {
+            return Err("系统通知发送失败".into());
+        }
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display notification {} with title {}",
+            applescript_quote(&body),
+            applescript_quote(&title)
+        );
+        std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .spawn()
+            .map_err(|error| format!("无法发送通知：{error}"))?;
+        return Ok(());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("notify-send")
+            .args([&title, &body])
+            .spawn()
+            .map_err(|error| format!("无法发送通知：{error}"))?;
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 #[tauri::command]
 fn git_checkout(cwd: String, branch: String) -> Result<String, String> {
     let root = checked_workspace(&cwd)?;
@@ -1494,9 +1821,113 @@ fn git_checkout(cwd: String, branch: String) -> Result<String, String> {
     Ok(format!("已切换到 {branch}"))
 }
 
+fn confirm_destructive_git_action(title: &str, description: &str) -> Result<(), String> {
+    let result = rfd::MessageDialog::new()
+        .set_title(title)
+        .set_description(description)
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::OkCancel)
+        .show();
+    if matches!(result, rfd::MessageDialogResult::Ok) {
+        Ok(())
+    } else {
+        Err("用户取消了操作".into())
+    }
+}
+
+/// Media generation must never widen beyond this closed allowlist without a
+/// real permission path — `--always-approve` is intentional only for these tools.
+const MEDIA_GENERATION_TOOLS: &str = "image_gen,video_gen,image_to_video,reference_to_video";
+
+fn checked_removable_worktree(root: &Path, requested: &str) -> Result<PathBuf, String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Err("Worktree 路径不能为空".into());
+    }
+    let canonical = PathBuf::from(requested)
+        .canonicalize()
+        .map_err(|error| format!("无法解析 Worktree 路径：{error}"))?;
+    let primary = root
+        .canonicalize()
+        .map_err(|error| format!("无法解析仓库根目录：{error}"))?;
+    if canonical == primary {
+        return Err("不能移除仓库主工作树".into());
+    }
+    let managed_ok = grok_home()?
+        .join("worktrees")
+        .canonicalize()
+        .ok()
+        .is_some_and(|managed| canonical.starts_with(&managed));
+    let listed = git_text(root, &["worktree", "list", "--porcelain"])?;
+    let mut known = false;
+    for line in listed.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            let Ok(entry) = PathBuf::from(path).canonicalize() else {
+                continue;
+            };
+            if entry == canonical {
+                known = true;
+                break;
+            }
+        }
+    }
+    if !known {
+        return Err("只能移除当前仓库已登记的 worktree".into());
+    }
+    if !managed_ok {
+        return Err("只能移除 Grox 管理目录下的 worktree".into());
+    }
+    Ok(canonical)
+}
+
 #[tauri::command]
-fn git_commit(cwd: String, message: String) -> Result<String, String> {
+fn prepare_git_commit(
+    confirms: tauri::State<'_, Arc<GitConfirmStore>>,
+    cwd: String,
+) -> Result<String, String> {
     let root = checked_workspace(&cwd)?;
+    confirm_destructive_git_action(
+        "Grox",
+        "确认暂存全部变更并创建提交？未提交前可在界面中取消。",
+    )?;
+    confirms.issue_commit(&path_for_webview(&root))
+}
+
+#[tauri::command]
+fn prepare_git_push(
+    confirms: tauri::State<'_, Arc<GitConfirmStore>>,
+    cwd: String,
+) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    confirm_destructive_git_action("Grox", "确认将当前分支推送到 origin？")?;
+    confirms.issue_push(&path_for_webview(&root))
+}
+
+#[tauri::command]
+fn prepare_git_worktree_remove(
+    confirms: tauri::State<'_, Arc<GitConfirmStore>>,
+    cwd: String,
+    path: String,
+) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    let target = checked_removable_worktree(&root, &path)?;
+    confirm_destructive_git_action(
+        "Grox",
+        &format!("确认强制移除 worktree？\n{}", path_for_webview(&target)),
+    )?;
+    confirms.issue_worktree_remove(&path_for_webview(&root))
+}
+
+#[tauri::command]
+fn git_commit(
+    confirms: tauri::State<'_, Arc<GitConfirmStore>>,
+    cwd: String,
+    message: String,
+    confirm_token: String,
+) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    let root_key = path_for_webview(&root);
+    confirms.consume_commit(&root_key, &confirm_token)?;
     let message = message.trim();
     if message.is_empty() || message.len() > 200 || message.chars().any(char::is_control) {
         return Err("提交说明需为 1–200 个字符，且不能包含控制字符".into());
@@ -1507,8 +1938,14 @@ fn git_commit(cwd: String, message: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn git_push(cwd: String) -> Result<String, String> {
+fn git_push(
+    confirms: tauri::State<'_, Arc<GitConfirmStore>>,
+    cwd: String,
+    confirm_token: String,
+) -> Result<String, String> {
     let root = checked_workspace(&cwd)?;
+    let root_key = path_for_webview(&root);
+    confirms.consume_push(&root_key, &confirm_token)?;
     let branch = git_text(&root, &["branch", "--show-current"])?;
     if branch.is_empty() {
         return Err("当前处于 detached HEAD，无法直接推送".into());
@@ -1568,8 +2005,13 @@ async fn send_static_preview_response(
     body: &[u8],
     head_only: bool,
 ) {
+    let csp = if mime.starts_with("text/html") {
+        "default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'none'; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'; object-src 'none'"
+    } else {
+        "default-src 'none'; frame-ancestors 'none'"
+    };
     let header = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: {csp}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     if stream.write_all(header.as_bytes()).await.is_ok() && !head_only {
@@ -1626,12 +2068,9 @@ async fn handle_static_preview_request(
         let roots = roots.lock().await;
         if let Some(root) = roots.get(*first_segment) {
             (root.clone(), 1)
-        } else if roots.len() == 1 {
-            // Root-relative resources such as /assets/app.css omit the
-            // unguessable document token. There is only one active file
-            // preview, so they can safely resolve inside that same workspace.
-            (roots.values().next().expect("one preview root").clone(), 0)
         } else {
+            // Always require the unguessable document token. Omitting it would
+            // let any local process that discovers the port read the workspace.
             send_static_preview_response(
                 &mut stream,
                 "404 Not Found",
@@ -1755,9 +2194,15 @@ async fn start_file_preview(
     if !file.is_file() || !matches!(preview_type(&file).0, "html") {
         return Err("只能在浏览器预览 HTML 文件".into());
     }
+    // Scope the static server to the HTML file's directory so a hostile page
+    // cannot read unrelated workspace paths via the preview token.
+    let preview_root = file
+        .parent()
+        .ok_or_else(|| "预览文件缺少父目录".to_string())?
+        .to_path_buf();
     let relative = file
-        .strip_prefix(&root)
-        .map_err(|_| "预览文件不在当前项目中".to_string())?;
+        .strip_prefix(&preview_root)
+        .map_err(|_| "预览文件不在预览根目录中".to_string())?;
 
     let port = {
         let mut port = state.port.lock().await;
@@ -1793,7 +2238,7 @@ async fn start_file_preview(
     {
         let mut roots = state.roots.lock().await;
         roots.clear();
-        roots.insert(token.clone(), root);
+        roots.insert(token.clone(), preview_root);
     }
 
     let mut url = url::Url::parse(&format!("http://127.0.0.1:{port}/"))
@@ -2354,7 +2799,9 @@ fn provider_profile_summary(profile: &StoredProviderProfile) -> ProviderProfileS
     ProviderProfileSummary {
         id: profile.id.clone(),
         name: profile.name.clone(),
-        api_key: profile.api_key.clone(),
+        // Never return the raw key to the WebView. The renderer only needs a
+        // presence bit; updates use empty-key-means-keep semantics.
+        api_key: String::new(),
         has_api_key: !profile.api_key.is_empty(),
         base_url: profile.base_url.clone(),
         api_backend: profile.api_backend,
@@ -2747,19 +3194,19 @@ fn ensure_computer_plugin() -> Result<PathBuf, String> {
     fs::create_dir_all(&skill).map_err(|error| format!("无法创建 Computer Use Skill：{error}"))?;
     fs::write(
         root.join("plugin.json"),
-        r#"{"name":"grox-desktop-computer-use","version":"0.3.1","description":"Grox Windows foreground Computer Use harness"}"#,
+        r#"{"name":"grox-desktop-computer-use","version":"0.3.2","description":"Grox desktop Computer Use harness (Windows full control; macOS/Linux observation-first)"}"#,
     )
     .map_err(|error| format!("无法写入 Computer Use Plugin：{error}"))?;
     fs::write(
         skill.join("SKILL.md"),
         r#"---
 name: computer
-description: Use Grox's experimental Windows foreground Computer Use harness only when the user explicitly asks for visual desktop control or uses @Computer.
+description: Use Grox's Computer Use harness when the user asks for visual desktop control or uses @Computer. Full mouse/keyboard automation is strongest on Windows; macOS and Linux expose observation and limited control that may require Accessibility / input permissions.
 ---
 
 # Grox Computer Use
 
-Use only the grok_desktop_computer MCP tools for an explicit `/computer` or `@Computer` request. Start with `list_apps`/`list_windows`, select an exact controllable window with `start`, then repeat observation → exactly one action → observation. Every state-changing action must use the latest `stateId`; stale state must be rejected. Screenshot and element coordinates are local to the selected window and are clamped to that window. Prefer UI Automation `elementId` and `set_value` when available. Use `deltaX` for horizontal scrolling and `deltaY` for vertical scrolling. Never control Grox, terminals, UAC, Windows Security, a higher-integrity window, or the secure desktop. A permanent `elevation-blocked` result cannot be resumed; ask the user to restart the target without administrator privileges or run Grox at matching integrity. Use `stop` immediately when the user asks. Emergency stop is sticky: the agent must not attempt `start` again, and only an explicit user reload/new session may re-arm control.
+Use only the grok_desktop_computer MCP tools for an explicit `/computer` or `@Computer` request (or when the user clearly asks for desktop control). Start with `list_apps`/`list_windows`, select an exact controllable window with `start`, then repeat observation → exactly one action → observation. Every state-changing action must use the latest `stateId`; stale state must be rejected. Prefer UI Automation `elementId` and `set_value` when available. Never send Win/Meta keys or system chords such as Alt+Tab, Alt+F4, or Ctrl+Esc. Never control Grox itself, installers, UAC, elevated windows, or the secure desktop. Use `stop` immediately when the user asks. Emergency stop is sticky.
 "#,
     )
     .map_err(|error| format!("无法写入 Computer Use Skill：{error}"))?;
@@ -2767,7 +3214,9 @@ Use only the grok_desktop_computer MCP tools for an explicit `/computer` or `@Co
 }
 
 #[tauri::command]
-fn computer_session_extensions() -> Result<ComputerSessionExtensions, String> {
+fn computer_session_extensions(
+    leases: tauri::State<'_, Arc<McpLeaseStore>>,
+) -> Result<ComputerSessionExtensions, String> {
     let mut lease_bytes = [0_u8; 16];
     getrandom::fill(&mut lease_bytes)
         .map_err(|error| format!("无法创建 Computer Use 租约：{error}"))?;
@@ -2776,31 +3225,30 @@ fn computer_session_extensions() -> Result<ComputerSessionExtensions, String> {
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     computer_mcp::clear_emergency_stop(&lease_id)?;
-    // The foreground harness is intentionally Windows-only.  Do not advertise
-    // an HTTP MCP server on macOS/Linux: the CLI would repeatedly attempt a
-    // handshake and surface a misleading "MCP transport error" to users.
-    if !cfg!(target_os = "windows") {
-        return Ok(ComputerSessionExtensions {
-            mcp_servers: Vec::new(),
-            plugin_dirs: Vec::new(),
-            lease_id,
-        });
-    }
+    // Prefer a real desktop harness wherever we can observe the screen.
+    // Windows keeps the full UIA controller; macOS/Linux expose the same MCP
+    // surface with platform-limited executors so agents degrade gracefully.
     let plugin = ensure_computer_plugin()?;
     let endpoint = computer_mcp::serve_http(lease_id.clone())?;
+    leases.put_computer(
+        lease_id.clone(),
+        mcp_leases::computer_server_config(&endpoint.url, &endpoint.token),
+    )?;
     Ok(ComputerSessionExtensions {
-        mcp_servers: vec![serde_json::json!({
-            "type": "http",
-            "name": "grok_desktop_computer",
-            "url": endpoint.url,
-            "headers": [{
-                "name": "Authorization",
-                "value": format!("Bearer {}", endpoint.token)
-            }]
-        })],
+        mcp_servers: Vec::new(),
         plugin_dirs: vec![path_for_webview(&plugin)],
         lease_id,
     })
+}
+
+#[tauri::command]
+fn computer_shutdown_lease(
+    leases: tauri::State<'_, Arc<McpLeaseStore>>,
+    lease_id: String,
+) -> Result<(), String> {
+    leases.remove_computer(&lease_id);
+    computer_mcp::shutdown_http(&lease_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2811,6 +3259,38 @@ fn computer_emergency_stop(lease_id: String) -> Result<(), String> {
 #[tauri::command]
 fn computer_clear_emergency_stop(lease_id: String) -> Result<(), String> {
     computer_mcp::clear_emergency_stop(&lease_id)
+}
+
+#[tauri::command]
+fn browser_session_extensions(
+    leases: tauri::State<'_, Arc<McpLeaseStore>>,
+) -> Result<BrowserSessionExtensions, String> {
+    let mut lease_bytes = [0_u8; 16];
+    getrandom::fill(&mut lease_bytes)
+        .map_err(|error| format!("无法创建 Browser Use 租约：{error}"))?;
+    let lease_id = lease_bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let endpoint = browser_mcp::serve_http(lease_id.clone())?;
+    leases.put_browser(
+        lease_id.clone(),
+        mcp_leases::browser_server_config(&endpoint.url, &endpoint.token),
+    )?;
+    Ok(BrowserSessionExtensions {
+        mcp_servers: Vec::new(),
+        lease_id,
+    })
+}
+
+#[tauri::command]
+fn browser_shutdown_lease(
+    leases: tauri::State<'_, Arc<McpLeaseStore>>,
+    lease_id: String,
+) -> Result<(), String> {
+    leases.remove_browser(&lease_id);
+    browser_mcp::shutdown_http(&lease_id);
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -2859,7 +3339,7 @@ fn save_media_reference(cwd: String, name: String, data: String) -> Result<Strin
         return Err("参考图片仅支持 PNG、JPEG 或 WebP".into());
     }
     if data.len() > 32 * 1024 * 1024 {
-        return Err("参考图片不能超过 24 MB".into());
+        return Err("参考图片不能超过 32 MB".into());
     }
     let payload = data
         .rsplit_once(',')
@@ -2896,10 +3376,7 @@ async fn generate_media(
         .arg("--single")
         .arg(&prompt)
         .args(["--output-format", "streaming-json", "--always-approve"])
-        .args([
-            "--tools",
-            "image_gen,video_gen,image_to_video,reference_to_video",
-        ])
+        .args(["--tools", MEDIA_GENERATION_TOOLS])
         .current_dir(&cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2961,6 +3438,7 @@ async fn generate_media(
 }
 
 fn checked_media_prompt(request: &MediaGenerationRequest) -> Result<String, String> {
+    let cwd = checked_workspace(&request.cwd)?;
     let prompt = request.prompt.trim();
     if prompt.is_empty() || prompt.chars().count() > 4_000 {
         return Err("媒体提示词必须为 1–4000 个字符".into());
@@ -2975,9 +3453,18 @@ fn checked_media_prompt(request: &MediaGenerationRequest) -> Result<String, Stri
             count = request.count.clamp(1, 4)
         ),
         "video" => {
-            let reference = request.reference_path.as_deref()
-                .map(|path| format!("参考图片绝对路径：{path}。必须使用 image_to_video 或 reference_to_video。"))
-                .unwrap_or_else(|| "必须使用 video_gen。".to_string());
+            let reference = if let Some(path) = request.reference_path.as_deref() {
+                let file = checked_workspace_file(&cwd, path)?;
+                if !file.is_file() {
+                    return Err("参考图片不存在".into());
+                }
+                format!(
+                    "参考图片绝对路径：{}。必须使用 image_to_video 或 reference_to_video。",
+                    path_for_webview(&file)
+                )
+            } else {
+                "必须使用 video_gen。".to_string()
+            };
             format!(
                 "{reference}真实生成视频，画面比例 {aspect}，时长 {duration} 秒，分辨率 {resolution}。生成完成后仅列出实际输出文件的绝对路径或 URL。用户提示：{prompt}",
                 duration = request.duration.clamp(1, 30),
@@ -3036,18 +3523,22 @@ fn extract_media_artifacts(output: &str, cwd: &Path) -> Result<Vec<MediaArtifact
         } else {
             cwd.join(path)
         };
-        if path.is_file() {
-            let display = path_for_webview(&path);
-            if !artifacts
-                .iter()
-                .any(|item| item.path.as_deref() == Some(&display))
-            {
-                artifacts.push(MediaArtifact {
-                    path: Some(display),
-                    url: None,
-                    mime: mime.into(),
-                });
-            }
+        if !is_workspace_file(cwd, &path) {
+            continue;
+        }
+        let Ok(canonical) = path.canonicalize() else {
+            continue;
+        };
+        let display = path_for_webview(&canonical);
+        if !artifacts
+            .iter()
+            .any(|item| item.path.as_deref() == Some(&display))
+        {
+            artifacts.push(MediaArtifact {
+                path: Some(display),
+                url: None,
+                mime: mime.into(),
+            });
         }
     }
     Ok(artifacts)
@@ -3088,12 +3579,8 @@ async fn acp_spawn(
     }
 
     let runtime = configured_grok_command(&app);
-    let computer_plugin = if cfg!(target_os = "windows") {
-        Some(ensure_computer_plugin()
-            .map_err(|error| format!("Computer Use Plugin 初始化失败：{error}"))?)
-    } else {
-        None
-    };
+    let computer_plugin = Some(ensure_computer_plugin()
+        .map_err(|error| format!("Computer Use Plugin 初始化失败：{error}"))?);
     let command_path = PathBuf::from(&runtime.path);
     let mut command = Command::new(&command_path);
     command.arg("agent");
@@ -3223,7 +3710,15 @@ async fn acp_spawn(
 }
 
 #[tauri::command]
-async fn acp_send(state: tauri::State<'_, Arc<AcpState>>, line: String) -> Result<(), String> {
+async fn acp_send(
+    state: tauri::State<'_, Arc<AcpState>>,
+    leases: tauri::State<'_, Arc<McpLeaseStore>>,
+    line: String,
+) -> Result<(), String> {
+    if line.contains('\n') || line.contains('\r') {
+        return Err("ACP 消息必须是单行 JSON".into());
+    }
+    let line = mcp_leases::inject_mcp_servers(&line, leases.inner())?;
     if line.contains('\n') || line.contains('\r') {
         return Err("ACP 消息必须是单行 JSON".into());
     }
@@ -3443,6 +3938,17 @@ fn update_temp_dir(version: &str) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
+fn is_trusted_github_download_host(host: Option<&str>) -> bool {
+    let Some(host) = host else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    host == "github.com"
+        || host == "objects.githubusercontent.com"
+        || host == "release-assets.githubusercontent.com"
+        || host.ends_with(".githubusercontent.com")
+}
+
 async fn download_update_asset(asset: &GitHubAsset, target: &Path) -> Result<(), String> {
     use sha2::{Digest as _, Sha256};
 
@@ -3451,12 +3957,24 @@ async fn download_update_asset(asset: &GitHubAsset, target: &Path) -> Result<(),
     }
     let url = url::Url::parse(&asset.browser_download_url)
         .map_err(|error| format!("无效的更新下载地址：{error}"))?;
-    if url.scheme() != "https" || url.host_str() != Some("github.com") {
+    if url.scheme() != "https" || !is_trusted_github_download_host(url.host_str()) {
         return Err("更新安装包不是来自受信任的 GitHub 发布地址".into());
     }
     let response = reqwest::Client::builder()
         .user_agent(format!("Grox/{CLIENT_VERSION}"))
         .timeout(std::time::Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.url().scheme() == "https"
+                && is_trusted_github_download_host(attempt.url().host_str())
+            {
+                attempt.follow()
+            } else {
+                attempt.error(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "更新下载重定向到了不受信任的主机",
+                ))
+            }
+        }))
         .build()
         .map_err(|error| format!("无法创建更新下载客户端：{error}"))?
         .get(url)
@@ -3681,6 +4199,8 @@ fn main() {
         .manage(Arc::new(AcpState::default()))
         .manage(Arc::new(PreviewState::default()))
         .manage(Arc::new(FilePreviewState::default()))
+        .manage(Arc::new(McpLeaseStore::default()))
+        .manage(Arc::new(GitConfirmStore::default()))
         .setup(|app| {
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
             if let Some(window) = app.get_webview_window("main") {
@@ -3698,7 +4218,13 @@ fn main() {
             pick_workspace,
             list_workspace_files,
             git_summary,
+            git_worktrees,
+            git_worktree_add,
+            git_worktree_remove,
             git_checkout,
+            prepare_git_commit,
+            prepare_git_push,
+            prepare_git_worktree_remove,
             git_commit,
             git_push,
             read_preview_file,
@@ -3706,6 +4232,8 @@ fn main() {
             acp_read_text_file,
             acp_write_text_file,
             open_in_explorer,
+            open_in_app,
+            notify_desktop,
             read_config_documents,
             write_config_document,
             read_provider_status,
@@ -3724,8 +4252,11 @@ fn main() {
             open_external,
             start_project_preview,
             computer_session_extensions,
+            computer_shutdown_lease,
             computer_emergency_stop,
             computer_clear_emergency_stop,
+            browser_session_extensions,
+            browser_shutdown_lease,
             save_media_reference,
             generate_media,
             acp_spawn,
@@ -3841,10 +4372,12 @@ mod tests {
             let relative = request(address, "/preview-token/assets/app.css").await;
             assert!(relative.starts_with("HTTP/1.1 200 OK"));
             assert!(relative.contains("Content-Type: text/css; charset=utf-8"));
+            assert!(relative.contains("Content-Security-Policy:"));
             assert!(relative.ends_with("body{color:green}"));
 
+            // Tokenless absolute paths must not expose the workspace.
             let root_relative = request(address, "/assets/app.css").await;
-            assert!(root_relative.starts_with("HTTP/1.1 200 OK"));
+            assert!(root_relative.starts_with("HTTP/1.1 404 Not Found"));
 
             let traversal = request(address, "/preview-token/%2e%2e/secret.txt").await;
             assert!(traversal.starts_with("HTTP/1.1 400 Bad Request"));
@@ -4075,7 +4608,19 @@ UNRELATED=value
     }
 
     #[test]
+    fn media_generation_tools_allowlist_stays_closed() {
+        assert_eq!(
+            MEDIA_GENERATION_TOOLS,
+            "image_gen,video_gen,image_to_video,reference_to_video"
+        );
+        assert!(!MEDIA_GENERATION_TOOLS.contains("bash"));
+        assert!(!MEDIA_GENERATION_TOOLS.contains("shell"));
+        assert!(!MEDIA_GENERATION_TOOLS.contains("computer"));
+    }
+
+    #[test]
     fn media_prompt_selects_native_grok_tools() {
+        let cwd = env!("CARGO_MANIFEST_DIR");
         let image = MediaGenerationRequest {
             kind: "image".into(),
             prompt: "黑洞边缘的空间站".into(),
@@ -4084,24 +4629,30 @@ UNRELATED=value
             duration: 5,
             resolution: "1080p".into(),
             reference_path: None,
-            cwd: env!("CARGO_MANIFEST_DIR").into(),
+            cwd: cwd.into(),
         };
         let prompt = checked_media_prompt(&image).unwrap();
         assert!(prompt.contains("image_gen"));
         assert!(prompt.contains("2 张"));
 
+        let reference = PathBuf::from(cwd).join("icons").join("icon.png");
         let video = MediaGenerationRequest {
             kind: "video".into(),
-            reference_path: Some("D:/input.png".into()),
+            reference_path: Some(path_for_webview(&reference)),
             ..image
         };
         let prompt = checked_media_prompt(&video).unwrap();
         assert!(prompt.contains("image_to_video"));
         assert!(prompt.contains("1080p"));
+        assert!(checked_media_prompt(&MediaGenerationRequest {
+            reference_path: Some("/tmp/outside-reference.png".into()),
+            ..video
+        })
+        .is_err());
     }
 
     #[test]
-    fn media_artifacts_are_limited_to_existing_files_or_safe_urls() {
+    fn media_artifacts_are_limited_to_workspace_files_or_safe_urls() {
         let root = std::env::temp_dir().join(format!(
             "grox-media-test-{}",
             CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
@@ -4109,14 +4660,31 @@ UNRELATED=value
         fs::create_dir_all(&root).unwrap();
         let image = root.join("result.png");
         fs::write(&image, b"png").unwrap();
+        let outside = std::env::temp_dir().join(format!(
+            "grox-media-outside-{}.png",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(&outside, b"png").unwrap();
         let output = format!(
-            "{{\"path\":{}}}\n{{\"url\":\"https://example.com/result.mp4\"}}",
-            serde_json::to_string(&path_for_webview(&image)).unwrap()
+            "{{\"path\":{}}}\n{{\"path\":{}}}\n{{\"url\":\"https://example.com/result.mp4\"}}",
+            serde_json::to_string(&path_for_webview(&image)).unwrap(),
+            serde_json::to_string(&path_for_webview(&outside)).unwrap()
         );
         let artifacts = extract_media_artifacts(&output, &root).unwrap();
         assert_eq!(artifacts.len(), 2);
         assert_eq!(artifacts[0].mime, "image/png");
+        assert!(artifacts[0].path.is_some());
         assert_eq!(artifacts[1].mime, "video/mp4");
+        assert!(artifacts[1].url.is_some());
+        let _ = fs::remove_file(&outside);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn trusted_cli_install_hosts_reject_cross_origin() {
+        assert!(is_trusted_cli_install_host(Some("x.ai")));
+        assert!(is_trusted_cli_install_host(Some("cdn.x.ai")));
+        assert!(!is_trusted_cli_install_host(Some("evil.example")));
+        assert!(!is_trusted_cli_install_host(Some("github.com")));
     }
 }

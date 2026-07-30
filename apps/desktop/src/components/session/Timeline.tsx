@@ -444,7 +444,7 @@ export function Timeline({ session }: { session: Session }) {
         }}
         className="h-full min-w-0 flex-1 overflow-y-auto"
       >
-        <div className="mx-auto max-w-[860px] px-8 py-8">
+        <div className="mx-auto max-w-[980px] px-10 py-9">
           {turns.map((turn, index) => {
             const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
             return (

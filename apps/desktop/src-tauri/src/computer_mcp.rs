@@ -1,11 +1,17 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::{json, Value};
 use std::{
+    collections::HashMap,
     io::{self, BufRead, Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, SyncSender},
+        Mutex, OnceLock,
+    },
     thread,
+    time::Duration,
 };
 
 pub struct HttpEndpoint {
@@ -13,27 +19,176 @@ pub struct HttpEndpoint {
     pub token: String,
 }
 
+const MAX_TYPE_TEXT_BYTES: usize = 20_000;
+const MAX_SET_VALUE_BYTES: usize = 20_000;
+const MAX_KEYS: usize = 8;
+const MAX_SCROLL_DELTA: i32 = 2400;
+const MAX_DRAG_DURATION_MS: u64 = 5000;
+const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
+
+enum HttpWork {
+    Rpc {
+        request: Value,
+        reply: SyncSender<(u16, Option<Value>)>,
+    },
+    Shutdown,
+}
+
+fn http_stops() -> &'static Mutex<HashMap<String, AtomicBool>> {
+    static STOPS: OnceLock<Mutex<HashMap<String, AtomicBool>>> = OnceLock::new();
+    STOPS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn http_workers() -> &'static Mutex<HashMap<String, SyncSender<HttpWork>>> {
+    static WORKERS: OnceLock<Mutex<HashMap<String, SyncSender<HttpWork>>>> = OnceLock::new();
+    WORKERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Stop accepting connections and drain the worker for a Computer Use lease.
+pub fn shutdown_http(lease_id: &str) {
+    if let Ok(mut stops) = http_stops().lock() {
+        if let Some(flag) = stops.remove(lease_id) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+    if let Ok(mut workers) = http_workers().lock() {
+        if let Some(tx) = workers.remove(lease_id) {
+            let _ = tx.send(HttpWork::Shutdown);
+        }
+    }
+}
+
+fn tokens_equal(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .fold(0_u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
 pub fn serve_http(lease_id: String) -> Result<HttpEndpoint, String> {
-    let token = uuid_token();
+    #[cfg(windows)]
+    {
+        if platform::is_self_elevated() && std::env::var("GROX_COMPUTER_USE_ALLOW_ELEVATED").as_deref() != Ok("1") {
+            return Err(
+                "Grox 以管理员权限运行时默认禁用 Computer Use。请用普通权限重启，或设置 GROX_COMPUTER_USE_ALLOW_ELEVATED=1 显式允许"
+                    .into(),
+            );
+        }
+    }
+    shutdown_http(&lease_id);
+    let token = uuid_token()?;
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| format!("无法启动 Computer Use MCP：{error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("无法配置 Computer Use MCP 监听：{error}"))?;
     let address = listener.local_addr().map_err(|error| error.to_string())?;
-    let state = Arc::new(Mutex::new(ComputerState {
-        lease_id: Some(lease_id.clone()),
-        ..ComputerState::default()
-    }));
+    {
+        let mut stops = http_stops()
+            .lock()
+            .map_err(|_| "Computer Use 关闭表锁定失败".to_string())?;
+        stops.insert(lease_id.clone(), AtomicBool::new(false));
+    }
+    let (work_tx, work_rx) = mpsc::sync_channel::<HttpWork>(32);
+    {
+        let mut workers = http_workers()
+            .lock()
+            .map_err(|_| "Computer Use 工作队列锁定失败".to_string())?;
+        workers.insert(lease_id.clone(), work_tx.clone());
+    }
+
+    let worker_lease = lease_id.clone();
+    thread::Builder::new()
+        .name("grox-computer-mcp-worker".into())
+        .spawn(move || {
+            let mut state = ComputerState {
+                lease_id: Some(worker_lease),
+                ..ComputerState::default()
+            };
+            while let Ok(work) = work_rx.recv() {
+                match work {
+                    HttpWork::Shutdown => break,
+                    HttpWork::Rpc { request, reply } => {
+                        let id = request.get("id").cloned();
+                        let method = request
+                            .get("method")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        let response = if id.is_none() {
+                            None
+                        } else {
+                            let result = match method {
+                                "initialize" => Ok(json!({
+                                    "protocolVersion": "2025-06-18",
+                                    "capabilities": { "tools": { "listChanged": false } },
+                                    "serverInfo": { "name": "grok_desktop_computer", "version": env!("CARGO_PKG_VERSION") }
+                                })),
+                                "ping" => Ok(json!({})),
+                                "tools/list" => Ok(json!({ "tools": tools() })),
+                                "tools/call" => {
+                                    let params = request.get("params").cloned().unwrap_or_default();
+                                    call_tool(params, &mut state)
+                                }
+                                _ => Err(format!("不支持的 MCP 方法：{method}")),
+                            };
+                            Some(match result {
+                                Ok(result) => (200_u16, Some(json!({"jsonrpc":"2.0","id":id,"result":result}))),
+                                Err(message) => (
+                                    200,
+                                    Some(json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":classified_error(&message)}],"isError":true}})),
+                                ),
+                            })
+                        };
+                        if let Some(payload) = response {
+                            let _ = reply.send(payload);
+                        } else {
+                            let _ = reply.send((202, None));
+                        }
+                    }
+                }
+            }
+        })
+        .map_err(|error| format!("无法启动 Computer Use MCP 工作线程：{error}"))?;
+
     let expected = token.clone();
     let session_id = lease_id.clone();
+    let accept_lease = lease_id.clone();
     thread::Builder::new()
         .name("grox-computer-mcp-http".into())
         .spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let state = Arc::clone(&state);
-                let token = expected.clone();
-                let session_id = session_id.clone();
-                let _ = thread::Builder::new()
-                    .name("grox-computer-mcp-request".into())
-                    .spawn(move || handle_http(stream, &token, &session_id, state));
+            loop {
+                let stopped = http_stops()
+                    .lock()
+                    .ok()
+                    .and_then(|stops| stops.get(&accept_lease).map(|flag| flag.load(Ordering::SeqCst)))
+                    .unwrap_or(true);
+                if stopped {
+                    break;
+                }
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let token = expected.clone();
+                        let session_id = session_id.clone();
+                        let work_tx = work_tx.clone();
+                        // Keep HTTP framing off the tool worker, but serialize
+                        // every tools/call onto that single worker so UI Automation
+                        // element maps stay coherent.
+                        let _ = thread::Builder::new()
+                            .name("grox-computer-mcp-request".into())
+                            .spawn(move || handle_http(stream, &token, &session_id, work_tx));
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(_) => break,
+                }
             }
+            let _ = work_tx.send(HttpWork::Shutdown);
+            let _ = http_workers().lock().map(|mut workers| workers.remove(&accept_lease));
+            let _ = http_stops().lock().map(|mut stops| stops.remove(&accept_lease));
         })
         .map_err(|error| format!("无法启动 Computer Use MCP 线程：{error}"))?;
     Ok(HttpEndpoint {
@@ -42,27 +197,33 @@ pub fn serve_http(lease_id: String) -> Result<HttpEndpoint, String> {
     })
 }
 
-fn uuid_token() -> String {
+fn uuid_token() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes).unwrap_or(());
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    getrandom::fill(&mut bytes).map_err(|error| format!("无法创建 Computer Use 令牌：{error}"))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn handle_http(
     mut stream: TcpStream,
     token: &str,
     session_id: &str,
-    state: Arc<Mutex<ComputerState>>,
+    work_tx: SyncSender<HttpWork>,
 ) {
-    let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut buffer = vec![0_u8; MAX_HTTP_BODY_BYTES];
     let Ok(size) = stream.read(&mut buffer) else { return };
     let request = String::from_utf8_lossy(&buffer[..size]);
     let mut parts = request.split("\r\n\r\n");
     let headers = parts.next().unwrap_or_default();
     let body = parts.next().unwrap_or_default();
+    if body.len() > MAX_HTTP_BODY_BYTES {
+        let reply = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let _ = stream.write_all(reply.as_bytes());
+        return;
+    }
     let authorized = headers.lines().any(|line| {
-        line.to_ascii_lowercase().starts_with("authorization: bearer ")
-            && line.trim()["authorization: bearer ".len()..].trim() == token
+        let lower = line.to_ascii_lowercase();
+        lower.starts_with("authorization: bearer ")
+            && tokens_equal(line.trim()["authorization: bearer ".len()..].trim(), token)
     });
     let (status, response) = if !authorized {
         (401, Some(json!({"error":"Unauthorized"})))
@@ -71,44 +232,44 @@ fn handle_http(
     } else {
         match serde_json::from_str::<Value>(body.trim()) {
             Ok(request) => {
-                let id = request.get("id").cloned();
-                let method = request.get("method").and_then(Value::as_str).unwrap_or_default();
-                if id.is_none() {
-                    let reply = format!(
-                        "HTTP/1.1 202 Accepted\r\nMcp-Session-Id: {session_id}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                    );
-                    let _ = stream.write_all(reply.as_bytes());
-                    return;
-                }
-                let result = match method {
-                    "initialize" => Ok(json!({
-                        "protocolVersion": "2025-06-18",
-                        "capabilities": { "tools": { "listChanged": false } },
-                        "serverInfo": { "name": "grok_desktop_computer", "version": env!("CARGO_PKG_VERSION") }
-                    })),
-                    "ping" => Ok(json!({})),
-                    "tools/list" => Ok(json!({ "tools": tools() })),
-                    "tools/call" => {
-                        let params = request.get("params").cloned().unwrap_or_default();
-                        let mut guard = state.lock().ok();
-                        guard.as_deref_mut().map_or_else(
-                            || Err("Computer Use 状态锁定失败".to_string()),
-                            |state| call_tool(params, state),
-                        )
+                let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+                if work_tx
+                    .send(HttpWork::Rpc {
+                        request,
+                        reply: reply_tx,
+                    })
+                    .is_err()
+                {
+                    (503, Some(json!({"error":"Computer Use worker unavailable"})))
+                } else {
+                    match reply_rx.recv_timeout(Duration::from_secs(60)) {
+                        Ok((202, None)) => {
+                            let reply = format!(
+                                "HTTP/1.1 202 Accepted\r\nMcp-Session-Id: {session_id}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                            );
+                            let _ = stream.write_all(reply.as_bytes());
+                            return;
+                        }
+                        Ok(pair) => pair,
+                        Err(_) => (504, Some(json!({"error":"Computer Use worker timeout"}))),
                     }
-                    _ => Err(format!("不支持的 MCP 方法：{method}")),
-                };
-                match result {
-                    Ok(result) => (200, Some(json!({"jsonrpc":"2.0","id":id,"result":result}))),
-                    Err(message) => (200, Some(json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":classified_error(&message)}],"isError":true}}))),
                 }
             }
             Err(error) => (400, Some(json!({"error": error.to_string()}))),
         }
     };
     let payload = response.map(|value| value.to_string()).unwrap_or_default();
+    let reason = match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        405 => "Method Not Allowed",
+        400 => "Bad Request",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => "Error",
+    };
     let reply = format!(
-        "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nMcp-Session-Id: {session_id}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nMcp-Session-Id: {session_id}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         payload.len()
     );
     let _ = stream.write_all(reply.as_bytes());
@@ -312,7 +473,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "computer_key",
-            "按下组合键，例如 CTRL+L、ALT+TAB、ENTER、ESC。",
+            "按下安全组合键（例如 CTRL+L、ENTER、ESC）。禁止 Win/Meta 与 Alt+Tab、Alt+F4、Ctrl+Esc 等系统切换组合键。",
             json!({"type":"object","properties":{"keys":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8},"stateId":{"type":"integer"}},"required":["keys","stateId"],"additionalProperties":false}),
         ),
         tool(
@@ -465,44 +626,57 @@ fn call_tool_inner(name: &str, args: &Value, state: &mut ComputerState) -> Resul
                 .iter()
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>();
+            if keys.is_empty() || keys.len() > MAX_KEYS {
+                return Err(format!("keys 数量必须在 1–{MAX_KEYS} 之间"));
+            }
             platform::key(hwnd, &keys)?;
             observe(state)
         }
         "type_text" => {
             check_state(args, state)?;
             let hwnd = state.active_window.ok_or("尚未选择窗口")?;
+            let text = args
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or("缺少 text")?;
+            if text.len() > MAX_TYPE_TEXT_BYTES {
+                return Err(format!("text 不能超过 {MAX_TYPE_TEXT_BYTES} 字节"));
+            }
+            if text.chars().any(char::is_control) {
+                return Err("text 不能包含控制字符".into());
+            }
             if let Some(element_id) = args.get("elementId").and_then(Value::as_str) {
                 let (x, y) = platform::target_point(hwnd, Some(element_id), None, None)?;
                 platform::click(hwnd, x, y, "left", 1)?;
             }
-            platform::type_text(
-                hwnd,
-                args.get("text")
-                    .and_then(Value::as_str)
-                    .ok_or("缺少 text")?,
-            )?;
+            platform::type_text(hwnd, text)?;
             observe(state)
         }
         "set_value" => {
             check_state(args, state)?;
             let hwnd = state.active_window.ok_or("尚未选择窗口")?;
+            let value = args
+                .get("value")
+                .and_then(Value::as_str)
+                .ok_or("缺少 value")?;
+            if value.len() > MAX_SET_VALUE_BYTES {
+                return Err(format!("value 不能超过 {MAX_SET_VALUE_BYTES} 字节"));
+            }
             platform::set_value(
                 hwnd,
                 args.get("elementId")
                     .and_then(Value::as_str)
                     .ok_or("缺少 elementId")?,
-                args.get("value")
-                    .and_then(Value::as_str)
-                    .ok_or("缺少 value")?,
+                value,
             )?;
             observe(state)
         }
         "scroll" => {
             check_state(args, state)?;
             let hwnd = state.active_window.ok_or("尚未选择窗口")?;
-            let delta_x = optional_int(args, "deltaX").unwrap_or(0);
-            let delta_y = optional_int(args, "deltaY")
-                .or_else(|| optional_int(args, "delta"))
+            let delta_x = bounded_delta(args, "deltaX")?.unwrap_or(0);
+            let delta_y = bounded_delta(args, "deltaY")?
+                .or(bounded_delta(args, "delta")?)
                 .unwrap_or(if delta_x == 0 { -480 } else { 0 });
             platform::scroll(
                 hwnd,
@@ -529,9 +703,7 @@ fn call_tool_inner(name: &str, args: &Value, state: &mut ComputerState) -> Resul
                 from_y,
                 int(args, "endX")?,
                 int(args, "endY")?,
-                args.get("durationMs")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(500),
+                bounded_duration_ms(args)?,
             )?;
             observe(state)
         }
@@ -576,18 +748,16 @@ fn call_tool_inner(name: &str, args: &Value, state: &mut ComputerState) -> Resul
                 int(args, "fromY")?,
                 int(args, "toX")?,
                 int(args, "toY")?,
-                args.get("durationMs")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(500),
+                bounded_duration_ms(args)?,
             )?;
             observe(state)
         }
         "computer_scroll" => {
             check_state(args, state)?;
             let hwnd = state.active_window.ok_or("尚未选择窗口")?;
-            let delta_x = optional_int(args, "deltaX").unwrap_or(0);
-            let delta_y = optional_int(args, "deltaY")
-                .or_else(|| optional_int(args, "delta"))
+            let delta_x = bounded_delta(args, "deltaX")?.unwrap_or(0);
+            let delta_y = bounded_delta(args, "deltaY")?
+                .or(bounded_delta(args, "delta")?)
                 .unwrap_or(if delta_x == 0 { -480 } else { 0 });
             platform::scroll(
                 hwnd,
@@ -609,18 +779,23 @@ fn call_tool_inner(name: &str, args: &Value, state: &mut ComputerState) -> Resul
                 .iter()
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>();
+            if keys.is_empty() || keys.len() > MAX_KEYS {
+                return Err(format!("keys 数量必须在 1–{MAX_KEYS} 之间"));
+            }
             platform::key(hwnd, &keys)?;
             observe(state)
         }
         "computer_type" => {
             check_state(args, state)?;
             let hwnd = state.active_window.ok_or("尚未选择窗口")?;
-            platform::type_text(
-                hwnd,
-                args.get("text")
-                    .and_then(Value::as_str)
-                    .ok_or("缺少 text")?,
-            )?;
+            let text = args
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or("缺少 text")?;
+            if text.len() > MAX_TYPE_TEXT_BYTES {
+                return Err(format!("text 不能超过 {MAX_TYPE_TEXT_BYTES} 字节"));
+            }
+            platform::type_text(hwnd, text)?;
             observe(state)
         }
         "computer_wait" => {
@@ -680,6 +855,7 @@ fn emergency_stop_marker(lease_id: &str) -> Result<PathBuf, String> {
 }
 
 pub fn mark_emergency_stop(lease_id: &str) -> Result<(), String> {
+    shutdown_http(lease_id);
     let path = emergency_stop_marker(lease_id)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -795,6 +971,30 @@ fn optional_int(value: &Value, key: &str) -> Option<i32> {
         .and_then(|number| i32::try_from(number).ok())
 }
 
+fn bounded_delta(value: &Value, key: &str) -> Result<Option<i32>, String> {
+    let Some(raw) = value.get(key) else {
+        return Ok(None);
+    };
+    let Some(number) = raw.as_i64().and_then(|n| i32::try_from(n).ok()) else {
+        return Err(format!("无效的 {key}"));
+    };
+    if !(-MAX_SCROLL_DELTA..=MAX_SCROLL_DELTA).contains(&number) {
+        return Err(format!("{key} 必须在 ±{MAX_SCROLL_DELTA} 之间"));
+    }
+    Ok(Some(number))
+}
+
+fn bounded_duration_ms(value: &Value) -> Result<u64, String> {
+    let duration = value
+        .get("durationMs")
+        .and_then(Value::as_u64)
+        .unwrap_or(500);
+    if duration > MAX_DRAG_DURATION_MS {
+        return Err(format!("durationMs 不能超过 {MAX_DRAG_DURATION_MS}"));
+    }
+    Ok(duration)
+}
+
 fn clamp_window_point(width: i32, height: i32, x: i32, y: i32) -> (i32, i32) {
     (
         x.clamp(0, (width - 1).max(0)),
@@ -892,9 +1092,8 @@ mod platform {
                 .and_then(|value| value.to_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let elevated =
-                is_process_elevated(process_id) && !is_process_elevated(std::process::id());
-            let blocklisted = is_blocked_target(&process_name, &title);
+            let elevated = is_process_elevated(process_id);
+            let blocklisted = is_blocked_target(&process_name, &title, executable_path.as_deref());
             let blocked_code = if elevated {
                 Some("elevated")
             } else if blocklisted {
@@ -903,7 +1102,7 @@ mod platform {
                 None
             };
             let blocked_reason = match blocked_code {
-                Some("elevated") => Some("目标窗口运行于更高权限级别"),
+                Some("elevated") => Some("目标窗口运行于更高或管理员权限级别"),
                 Some("blocklist") => Some("该应用位于 Computer Use 不可控制清单"),
                 _ => None,
             };
@@ -930,10 +1129,11 @@ mod platform {
         }
     }
 
-    fn is_blocked_target(process_name: &str, title: &str) -> bool {
+    fn is_blocked_target(process_name: &str, title: &str, executable_path: Option<&str>) -> bool {
         let process = process_name.trim().to_ascii_lowercase();
         let title = title.to_ascii_lowercase();
-        [
+        let executable = executable_path.unwrap_or("").to_ascii_lowercase();
+        let blocked_process = [
             "grox",
             "grox-desktop",
             "grok build desktop",
@@ -945,19 +1145,71 @@ mod platform {
             "windowsterminal",
             "wt",
             "conhost",
+            "explorer",
+            "regedit",
+            "mmc",
+            "taskmgr",
+            "compmgmtlauncher",
+            "services",
+            "msconfig",
+            "gpedit",
+            "secpol",
+            "lusrmgr",
+            "devmgmt",
+            "diskmgmt",
+            "eventvwr",
+            "perfmon",
+            "control",
+            "systemsettings",
+            "applicationframehost",
+            "installer",
+            "msiexec",
+            "trustedinstaller",
+            "consent",
+            "userac",
+            "useracpc",
+            "ssh",
+            "sftp",
+            "scp",
+            "putty",
+            "winscp",
+            "filezilla",
         ]
         .iter()
-        .any(|value| process == *value)
-            || [
-                "grox",
-                "grok build desktop",
-                "windows security",
-                "user account control",
-                "用户账户控制",
-                "windows 安全",
-            ]
-            .iter()
-            .any(|value| title.contains(value))
+        .any(|value| process == *value);
+        let blocked_title = [
+            "grox",
+            "grok build desktop",
+            "windows security",
+            "user account control",
+            "用户账户控制",
+            "windows 安全",
+            "registry editor",
+            "注册表编辑器",
+            "task manager",
+            "任务管理器",
+            "services",
+            "computer management",
+            "local group policy",
+        ]
+        .iter()
+        .any(|value| title.contains(value));
+        let blocked_path = [
+            r"\explorer.exe",
+            r"\regedit.exe",
+            r"\mmc.exe",
+            r"\taskmgr.exe",
+            r"\msiexec.exe",
+            r"\consent.exe",
+            r"\useraccountcontrolsettings.exe",
+        ]
+        .iter()
+        .any(|suffix| executable.ends_with(suffix));
+        blocked_process || blocked_title || blocked_path
+    }
+
+    pub fn is_self_elevated() -> bool {
+        unsafe { is_process_elevated(std::process::id()) }
     }
 
     unsafe fn process_path(process_id: u32) -> Option<String> {
@@ -1021,7 +1273,7 @@ mod platform {
                     .and_then(Value::as_str)
                     .unwrap_or("blocklist");
                 return Err(if code == "elevated" {
-                    "elevation-blocked: 目标以管理员权限运行，无法控制。请用普通权限重新启动目标程序，或以管理员身份启动 Grox 后重试；Grox 不会自行提权".into()
+                    "elevation-blocked: 目标以管理员权限运行，无法控制。请用普通权限重新启动目标程序；Grox 不会控制更高完整性进程，也不会自行提权".into()
                 } else {
                     "blocklist: 该应用位于 Computer Use 不可控制清单".into()
                 });
@@ -1384,34 +1636,6 @@ mod platform {
         send(&[input])
     }
 
-    pub fn key(hwnd: i64, keys: &[&str]) -> Result<(), String> {
-        ensure_target_foreground(hwnd)?;
-        let mut virtual_keys = Vec::new();
-        for name in keys {
-            let (key, modifiers) = vk(name)?;
-            if modifiers & 2 != 0 && !virtual_keys.contains(&VK_CONTROL) {
-                virtual_keys.push(VK_CONTROL);
-            }
-            if modifiers & 4 != 0 && !virtual_keys.contains(&VK_MENU) {
-                virtual_keys.push(VK_MENU);
-            }
-            if modifiers & 1 != 0 && !virtual_keys.contains(&VK_SHIFT) {
-                virtual_keys.push(VK_SHIFT);
-            }
-            if !virtual_keys.contains(&key) {
-                virtual_keys.push(key);
-            }
-        }
-        let mut inputs = Vec::with_capacity(virtual_keys.len() * 2);
-        for key in &virtual_keys {
-            inputs.push(key_input(*key, false));
-        }
-        for key in virtual_keys.iter().rev() {
-            inputs.push(key_input(*key, true));
-        }
-        send(&inputs)
-    }
-
     pub fn type_text(hwnd: i64, text: &str) -> Result<(), String> {
         ensure_target_foreground(hwnd)?;
         let mut inputs = Vec::new();
@@ -1497,6 +1721,26 @@ mod platform {
     fn ensure_target_foreground(hwnd: i64) -> Result<(), String> {
         let handle = HWND(hwnd as *mut _);
         let _ = window_rect(hwnd)?;
+        if !unsafe { IsWindow(handle).as_bool() } {
+            return Err("目标窗口不存在".into());
+        }
+        let mut buffer = [0u16; 512];
+        let len = unsafe { GetWindowTextW(handle, &mut buffer) };
+        let title = String::from_utf16_lossy(&buffer[..len as usize])
+            .trim()
+            .to_string();
+        let info = window_info(handle, title);
+        if info.get("controllable").and_then(Value::as_bool) != Some(true) {
+            let code = info
+                .get("blockedCode")
+                .and_then(Value::as_str)
+                .unwrap_or("blocklist");
+            return Err(if code == "elevated" {
+                "elevation-blocked: 目标以管理员权限运行，无法控制".into()
+            } else {
+                "blocklist: 该应用位于 Computer Use 不可控制清单".into()
+            });
+        }
         let foreground = unsafe { GetForegroundWindow() };
         if foreground != handle {
             return Err(
@@ -1507,13 +1751,73 @@ mod platform {
         Ok(())
     }
 
+    fn deny_dangerous_keys(keys: &[&str]) -> Result<(), String> {
+        if keys.is_empty() || keys.len() > super::MAX_KEYS {
+            return Err(format!("keys 数量必须在 1–{} 之间", super::MAX_KEYS));
+        }
+        let upper = keys
+            .iter()
+            .map(|key| key.trim().to_ascii_uppercase())
+            .collect::<Vec<_>>();
+        let has = |name: &str| upper.iter().any(|key| key == name);
+        if has("WIN") || has("META") || has("LWIN") || has("RWIN") {
+            return Err("不允许发送 Windows 徽标键".into());
+        }
+        if has("ALT") && (has("TAB") || has("F4") || has("ESC") || has("ESCAPE")) {
+            return Err("不允许发送 Alt+Tab / Alt+F4 / Alt+Esc 等系统切换组合键".into());
+        }
+        if (has("CTRL") || has("CONTROL")) && (has("ESC") || has("ESCAPE")) {
+            return Err("不允许发送 Ctrl+Esc 系统组合键".into());
+        }
+        if (has("CTRL") || has("CONTROL")) && has("SHIFT") && (has("ESC") || has("ESCAPE")) {
+            return Err("不允许发送 Ctrl+Shift+Esc".into());
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn deny_dangerous_keys_for_test(keys: &[&str]) -> Result<(), String> {
+        deny_dangerous_keys(keys)
+    }
+
+    pub fn key(hwnd: i64, keys: &[&str]) -> Result<(), String> {
+        deny_dangerous_keys(keys)?;
+        ensure_target_foreground(hwnd)?;
+        let mut virtual_keys = Vec::new();
+        for name in keys {
+            let (key, modifiers) = vk(name)?;
+            if modifiers & 2 != 0 && !virtual_keys.contains(&VK_CONTROL) {
+                virtual_keys.push(VK_CONTROL);
+            }
+            if modifiers & 4 != 0 && !virtual_keys.contains(&VK_MENU) {
+                virtual_keys.push(VK_MENU);
+            }
+            if modifiers & 1 != 0 && !virtual_keys.contains(&VK_SHIFT) {
+                virtual_keys.push(VK_SHIFT);
+            }
+            if !virtual_keys.contains(&key) {
+                virtual_keys.push(key);
+            }
+        }
+        let mut inputs = Vec::with_capacity(virtual_keys.len() * 2);
+        for key in &virtual_keys {
+            inputs.push(key_input(*key, false));
+        }
+        for key in virtual_keys.iter().rev() {
+            inputs.push(key_input(*key, true));
+        }
+        send(&inputs)
+    }
+
     fn vk(name: &str) -> Result<(VIRTUAL_KEY, u8), String> {
         let upper = name.trim().to_ascii_uppercase();
         let key = match upper.as_str() {
             "CTRL" | "CONTROL" => VK_CONTROL,
             "SHIFT" => VK_SHIFT,
             "ALT" => VK_MENU,
-            "WIN" | "META" => VK_LWIN,
+            "WIN" | "META" | "LWIN" | "RWIN" => {
+                return Err("不允许发送 Windows 徽标键".into());
+            }
             "ENTER" | "RETURN" => VK_RETURN,
             "ESC" | "ESCAPE" => VK_ESCAPE,
             "TAB" => VK_TAB,
@@ -1565,38 +1869,265 @@ mod platform {
 #[cfg(not(windows))]
 mod platform {
     use super::WindowState;
-    fn unsupported<T>() -> Result<T, String> {
-        Err("当前 computer use 执行器仅支持 Windows".into())
+    use serde_json::json;
+    use std::{
+        fs,
+        path::PathBuf,
+        process::Command,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn temp_png() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("grox-cu-{nanos}.png"))
     }
+
+    fn read_png(path: &PathBuf) -> Result<Vec<u8>, String> {
+        let bytes = fs::read(path).map_err(|error| format!("无法读取截图：{error}"))?;
+        let _ = fs::remove_file(path);
+        if bytes.is_empty() {
+            return Err("截图为空".into());
+        }
+        Ok(bytes)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn capture_screen_png() -> Result<Vec<u8>, String> {
+        let path = temp_png();
+        let status = Command::new("screencapture")
+            .args(["-x", "-t", "png"])
+            .arg(&path)
+            .status()
+            .map_err(|error| format!("无法调用 screencapture：{error}"))?;
+        if !status.success() {
+            return Err("screencapture 失败；请确认已授予屏幕录制权限".into());
+        }
+        read_png(&path)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn capture_screen_png() -> Result<Vec<u8>, String> {
+        let path = temp_png();
+        let attempts = [
+            ("gnome-screenshot", vec!["-f".into(), path.to_string_lossy().to_string()]),
+            ("import", vec!["-window".into(), "root".into(), path.to_string_lossy().to_string()]),
+            ("scrot", vec![path.to_string_lossy().to_string()]),
+        ];
+        for (bin, args) in attempts {
+            if let Ok(status) = Command::new(bin).args(&args).status() {
+                if status.success() && path.exists() {
+                    return read_png(&path);
+                }
+            }
+        }
+        Err("无法截图：请安装 gnome-screenshot、ImageMagick(import) 或 scrot".into())
+    }
+
+    pub fn is_self_elevated() -> bool {
+        false
+    }
+
     pub fn list_windows() -> Result<Vec<serde_json::Value>, String> {
-        unsupported()
+        #[cfg(target_os = "macos")]
+        {
+            let output = Command::new("osascript")
+                .args([
+                    "-e",
+                    r#"set out to ""
+tell application "System Events"
+  set procs to application processes whose background only is false and visible is true
+  repeat with p in procs
+    set pname to name of p
+    try
+      set wins to windows of p
+      repeat with w in wins
+        set wname to name of w
+        set out to out & pname & character id 9 & wname & linefeed
+      end repeat
+    end try
+  end repeat
+end tell
+return out"#,
+                ])
+                .output()
+                .map_err(|error| format!("无法枚举窗口：{error}"))?;
+            if !output.status.success() {
+                return Err("无法枚举窗口；请在「系统设置 → 隐私与安全性 → 辅助功能」中允许 Grox".into());
+            }
+            let text = String::from_utf8_lossy(&output.stdout);
+            let mut items = Vec::new();
+            for (index, line) in text.lines().enumerate() {
+                let mut parts = line.splitn(2, '\t');
+                let Some(app) = parts.next() else { continue };
+                let title = parts.next().unwrap_or("").trim();
+                if app.trim().is_empty() {
+                    continue;
+                }
+                items.push(json!({
+                    "windowId": (index as i64) + 1,
+                    "title": title,
+                    "app": app.trim(),
+                    "pid": 0,
+                }));
+            }
+            if items.is_empty() {
+                items.push(json!({
+                    "windowId": 1,
+                    "title": "Desktop",
+                    "app": "Screen",
+                    "pid": 0,
+                }));
+            }
+            return Ok(items);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(vec![json!({
+                "windowId": 1,
+                "title": "Desktop",
+                "app": "Screen",
+                "pid": 0,
+            })])
+        }
     }
-    pub fn activate(_: i64) -> Result<(), String> {
-        unsupported()
+
+    pub fn activate(window_id: i64) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let windows = list_windows()?;
+            let Some(target) = windows
+                .iter()
+                .find(|item| item.get("windowId").and_then(|v| v.as_i64()) == Some(window_id))
+            else {
+                return Err("窗口不存在".into());
+            };
+            let app = target
+                .get("app")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            let script = format!(
+                r#"tell application "{app}" to activate"#
+            );
+            let status = Command::new("osascript")
+                .args(["-e", &script])
+                .status()
+                .map_err(|error| format!("无法激活窗口：{error}"))?;
+            if !status.success() {
+                return Err("激活窗口失败；请授予辅助功能权限".into());
+            }
+            return Ok(());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = window_id;
+            Ok(())
+        }
     }
-    pub fn window_state(_: i64) -> Result<WindowState, String> {
-        unsupported()
+
+    pub fn window_state(window_id: i64) -> Result<WindowState, String> {
+        let _ = window_id;
+        let png = capture_screen_png()?;
+        let (width, height) = image::load_from_memory(&png)
+            .map(|image| (image.width() as i32, image.height() as i32))
+            .unwrap_or((1280, 720));
+        let windows = list_windows().unwrap_or_default();
+        let window = windows
+            .into_iter()
+            .find(|item| item.get("windowId").and_then(|v| v.as_i64()) == Some(window_id))
+            .unwrap_or_else(|| {
+                json!({
+                    "windowId": window_id,
+                    "title": "Desktop",
+                    "app": "Screen",
+                    "pid": 0,
+                })
+            });
+        Ok(WindowState {
+            elements: Vec::new(),
+            png,
+            width,
+            height,
+            window,
+            tree_truncated: true,
+        })
     }
+
     pub fn set_value(_: i64, _: &str, _: &str) -> Result<(), String> {
-        unsupported()
+        Err("当前平台不支持 UI Automation set_value；请改用 type / click".into())
     }
+
     pub fn target_point(
         _: i64,
         _: Option<&str>,
-        _: Option<i32>,
-        _: Option<i32>,
+        x: Option<i32>,
+        y: Option<i32>,
     ) -> Result<(i32, i32), String> {
-        unsupported()
+        Ok((x.unwrap_or(0), y.unwrap_or(0)))
     }
-    pub fn move_mouse(_: i64, _: i32, _: i32) -> Result<(), String> {
-        unsupported()
+
+    pub fn move_mouse(_: i64, x: i32, y: i32) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let script = format!(
+                r#"tell application "System Events" to set position of mouse to {{{x}, {y}}}"#
+            );
+            // System Events does not expose mouse position set on all macOS versions.
+            // Prefer cliclick when present.
+            if Command::new("cliclick")
+                .arg(format!("m:{x},{y}"))
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+            let _ = script;
+            return Err("macOS 鼠标移动需要安装 cliclick（brew install cliclick）或改用 click".into());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (x, y);
+            Err("Linux Computer Use 鼠标控制需要 xdotool；当前版本仅支持截图观察".into())
+        }
     }
-    pub fn click(_: i64, _: i32, _: i32, _: &str, _: u32) -> Result<(), String> {
-        unsupported()
+
+    pub fn click(_: i64, x: i32, y: i32, button: &str, clicks: u32) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let button_flag = match button {
+                "right" => "rc",
+                "middle" => "mc",
+                _ => "c",
+            };
+            let repeats = clicks.max(1).min(3);
+            for _ in 0..repeats {
+                let ok = Command::new("cliclick")
+                    .arg(format!("{button_flag}:{x},{y}"))
+                    .status()
+                    .map(|status| status.success())
+                    .unwrap_or(false);
+                if !ok {
+                    return Err("macOS 点击需要 cliclick（brew install cliclick），并授予辅助功能权限".into());
+                }
+            }
+            return Ok(());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (x, y, button, clicks);
+            Err("Linux Computer Use 点击需要 xdotool；当前版本仅支持截图观察".into())
+        }
     }
+
     pub fn drag(_: i64, _: i32, _: i32, _: i32, _: i32, _: u64) -> Result<(), String> {
-        unsupported()
+        Err("当前平台暂不支持 drag".into())
     }
+
     pub fn scroll(
         _: i64,
         _: Option<&str>,
@@ -1605,13 +2136,63 @@ mod platform {
         _: i32,
         _: i32,
     ) -> Result<(), String> {
-        unsupported()
+        Err("当前平台暂不支持 scroll".into())
     }
-    pub fn key(_: i64, _: &[&str]) -> Result<(), String> {
-        unsupported()
+
+    pub fn key(_: i64, keys: &[&str]) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let chord = keys.join("+").to_lowercase();
+            let script = format!(
+                r#"tell application "System Events" to keystroke "{}" using {{}}"#,
+                chord.replace('"', "")
+            );
+            // Best-effort single character; complex chords need cliclick/kd
+            if keys.len() == 1 && keys[0].len() == 1 {
+                let status = Command::new("osascript")
+                    .args(["-e", &script])
+                    .status()
+                    .map_err(|error| format!("无法发送按键：{error}"))?;
+                if status.success() {
+                    return Ok(());
+                }
+            }
+            return Err(format!(
+                "macOS 复杂按键组合请安装 cliclick；收到：{}",
+                keys.join("+")
+            ));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = keys;
+            Err("Linux Computer Use 按键需要 xdotool；当前版本仅支持截图观察".into())
+        }
     }
-    pub fn type_text(_: i64, _: &str) -> Result<(), String> {
-        unsupported()
+
+    pub fn type_text(_: i64, text: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            if text.chars().any(char::is_control) {
+                return Err("输入文本不能包含控制字符".into());
+            }
+            let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+            let script = format!(
+                r#"tell application "System Events" to keystroke "{escaped}""#
+            );
+            let status = Command::new("osascript")
+                .args(["-e", &script])
+                .status()
+                .map_err(|error| format!("无法输入文本：{error}"))?;
+            if !status.success() {
+                return Err("输入失败；请授予辅助功能权限".into());
+            }
+            return Ok(());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = text;
+            Err("Linux Computer Use 输入需要 xdotool；当前版本仅支持截图观察".into())
+        }
     }
 }
 
@@ -1675,6 +2256,15 @@ mod tests {
         let uac: Value = serde_json::from_str(&classified_error("uac-handoff: 等待用户确认"))
             .expect("structured UAC error");
         assert_eq!(uac["errorCode"], "uac-handoff");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_dangerous_system_chords() {
+        assert!(platform::deny_dangerous_keys_for_test(&["WIN", "R"]).is_err());
+        assert!(platform::deny_dangerous_keys_for_test(&["ALT", "TAB"]).is_err());
+        assert!(platform::deny_dangerous_keys_for_test(&["ALT", "F4"]).is_err());
+        assert!(platform::deny_dangerous_keys_for_test(&["CTRL", "C"]).is_ok());
     }
 
     #[test]

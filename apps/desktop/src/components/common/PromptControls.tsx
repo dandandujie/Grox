@@ -81,13 +81,13 @@ export function PromptOptionsMenu({
 
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen((value) => !value)} className="chip max-w-[190px]" title={language === "zh-CN" ? "模式、权限与思考强度" : "Mode, access and reasoning effort"}>
+      <button onClick={() => setOpen((value) => !value)} className="chip max-w-[220px]" title={language === "zh-CN" ? "模式、权限与思考强度" : "Mode, access and reasoning effort"}>
         <Icon name="gear" size={10} />
         <span className="truncate">{mode.toUpperCase()} · {effort.toUpperCase()}</span>
         <Icon name="chevronDown" size={8} className="text-faint" />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-40 mb-1.5 w-[min(360px,calc(100vw-32px))] rounded-[7px] border border-line2 bg-raise p-3 shadow-[0_8px_28px_rgba(0,0,0,0.55)] animate-fade-up">
+        <div className="absolute bottom-full left-0 z-40 mb-1.5 w-[min(360px,calc(100vw-32px))] rounded-[18px] border border-line2 bg-raise p-3.5 shadow-[0_8px_28px_rgba(0,0,0,0.55)] animate-fade-up">
           <OptionRow label={language === "zh-CN" ? "工作模式" : "MODE"} values={[
             ["agent", language === "zh-CN" ? "执行" : "AGENT"],
             ["plan", language === "zh-CN" ? "计划" : "PLAN"],
@@ -111,7 +111,7 @@ function OptionRow({ label, values, active, onSelect, last = false }: { label: s
       <p className="lbl mb-1.5 !text-[9px]">{label}</p>
       <div className="grid grid-cols-4 gap-1">
         {values.map(([value, text]) => (
-          <button key={value} onClick={() => onSelect(value)} className={`min-w-0 truncate rounded-[4px] border px-2 py-1.5 font-mono text-[9.5px] ${active === value ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim hover:text-fg2"}`} title={text}>
+          <button key={value} onClick={() => onSelect(value)} className={`min-w-0 truncate rounded-full border px-2.5 py-1.5 font-mono text-[9.5px] ${active === value ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim hover:text-fg2"}`} title={text}>
             {text}
           </button>
         ))}

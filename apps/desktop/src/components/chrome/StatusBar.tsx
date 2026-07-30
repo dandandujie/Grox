@@ -3,6 +3,8 @@
    active mission: link state, context burn, token flow, cost, model.
    ───────────────────────────────────────────────────────────────────────── */
 
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useDesktop } from "../../state/store";
 import { fmtCost, fmtTokens } from "../../lib/format";
 import { BlackHole } from "../fx/BlackHole";
@@ -14,6 +16,8 @@ export function StatusBar() {
   const session = useDesktop((s) => (s.activeId ? s.sessions[s.activeId] : null));
   const model = useDesktop((s) => s.model);
   const effort = useDesktop((s) => s.effort);
+  const workspace = useDesktop((s) => s.workspace);
+  const [branch, setBranch] = useState<string | null>(null);
 
   const status = session?.status ?? "idle";
   const usage = session?.usage;
@@ -22,9 +26,26 @@ export function StatusBar() {
       ? Math.min(100, Math.round((usage.contextUsed / usage.contextMax) * 100))
       : 0;
 
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window) || !workspace) {
+      setBranch(null);
+      return;
+    }
+    let cancelled = false;
+    void invoke<{ branch?: string; isRepository: boolean }>("git_summary", { cwd: workspace })
+      .then((summary) => {
+        if (!cancelled) setBranch(summary.isRepository ? (summary.branch ?? "DETACHED") : null);
+      })
+      .catch(() => {
+        if (!cancelled) setBranch(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace, activeId, status]);
+
   return (
     <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-panel px-3 font-mono text-[10.5px] tracking-[0.06em] text-dim select-none">
-      {/* left — link state */}
       <div className="flex items-center gap-2">
         <BlackHole size={13} spin={status === "running"} />
         <span
@@ -42,6 +63,12 @@ export function StatusBar() {
             ? status === "running" ? "处理中" : status === "failed" ? "失败" : status === "awaiting_permission" ? "等待批准" : status === "awaiting_input" ? "等待输入" : "已完成"
             : status === "running" ? "WORKING" : status === "failed" ? "FAILED" : status === "awaiting_permission" ? "AWAITING APPROVAL" : status === "awaiting_input" ? "AWAITING INPUT" : "COMPLETED"}
         </span>
+        {branch && (
+          <>
+            <Sep />
+            <span className="tnum text-fg2">{branch}</span>
+          </>
+        )}
         {activeId && (
           <>
             <Sep />
@@ -50,7 +77,6 @@ export function StatusBar() {
         )}
       </div>
 
-      {/* right — instruments */}
       <div className="flex items-center gap-3">
         {usage && usage.contextUsed > 0 && (
           <>

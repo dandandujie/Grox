@@ -51,7 +51,7 @@ export function PreviewPane() {
             <iframe
               key={file.url}
               title={file.name}
-              sandbox="allow-scripts allow-same-origin allow-modals"
+              sandbox=""
               src={file.url}
               className="h-full min-h-[320px] w-full border-0 bg-white"
             />

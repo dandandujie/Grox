@@ -12,14 +12,15 @@ import { Inspector } from "./components/inspector/Inspector";
 import { CommandPalette } from "./components/palette/CommandPalette";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { BlackHole } from "./components/fx/BlackHole";
+import { StageTransition } from "./components/fx/StageTransition";
 import { PreviewPane } from "./components/preview/PreviewPane";
 import { PlanPreviewPane } from "./components/preview/PlanPreviewPane";
 import { ResizeHandle } from "./components/common/ResizeHandle";
 import { usePreferences } from "./state/preferences";
 import { useI18n } from "./lib/i18n";
+import { WorkbenchPanel } from "./components/chrome/WorkbenchPanel";
 import { AccountSetup } from "./components/settings/AccountSetup";
 import { UpdateNotice } from "./components/update/UpdateNotice";
-import { TerminalPanel } from "./components/terminal/TerminalPanel";
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};
@@ -107,22 +108,27 @@ export default function App() {
         <Sidebar />
         <ResizeHandle side="right" value={sidebarWidth} onChange={setSidebarWidth} />
         <div className="flex min-w-0 flex-1 flex-col bg-base">
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {inSession && session ? (
-              <>
-                <Timeline session={session} />
-                <Composer />
-              </>
-            ) : inSession && !session ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3">
-                <BlackHole size={28} spin />
-                <span className="lbl !text-[10px]">{language === "zh-CN" ? "正在恢复任务" : "RESTORING MISSION"}</span>
-              </div>
-            ) : (
-              <Home />
-            )}
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <StageTransition
+              stageKey={inSession ? (session ? `session-${activeId}` : `restore-${activeId}`) : "home"}
+              variant={inSession ? "deck" : "home"}
+            >
+              {inSession && session ? (
+                <>
+                  <Timeline session={session} />
+                  <Composer />
+                </>
+              ) : inSession && !session ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3">
+                  <BlackHole size={28} spin />
+                  <span className="lbl !text-[10px]">{language === "zh-CN" ? "正在恢复任务" : "RESTORING MISSION"}</span>
+                </div>
+              ) : (
+                <Home />
+              )}
+            </StageTransition>
           </main>
-          {terminalOpen && <TerminalPanel />}
+          {terminalOpen && <WorkbenchPanel />}
         </div>
         {inspectorOpen && !planPreviewOpen && inSession && session && <Inspector />}
         {previewOpen && <PreviewPane />}

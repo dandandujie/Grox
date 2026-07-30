@@ -9,6 +9,7 @@ import { useI18n } from "../../lib/i18n";
 import { fmtBillingDate, fmtBillingValue } from "../../lib/format";
 import { Icon } from "../fx/Icon";
 import { Wordmark } from "../fx/Wordmark";
+import { ChipSelect } from "../common/ChipSelect";
 
 type Section = "general" | "account" | "archives" | "appearance" | "mcp" | "skills" | "plugins" | "hooks";
 type Json = Record<string, unknown>;
@@ -129,6 +130,11 @@ function General() {
   const setEffort = useDesktop((state) => state.setEffort);
   const permission = useDesktop((state) => state.permissionMode);
   const setPermission = useDesktop((state) => state.setPermissionMode);
+  const computerUse = useDesktop((state) => state.computerUseEnabled);
+  const setComputerUse = useDesktop((state) => state.setComputerUseEnabled);
+  const browserUse = useDesktop((state) => state.browserUseEnabled);
+  const setBrowserUse = useDesktop((state) => state.setBrowserUseEnabled);
+  const [desktopNotify, setDesktopNotify] = useState(() => localStorage.getItem("grox.desktopNotify") !== "0");
   const runtime = useDesktop((state) => state.runtime);
   const runtimeBusy = useDesktop((state) => state.runtimeBusy);
   const refreshRuntime = useDesktop((state) => state.refreshRuntime);
@@ -146,7 +152,26 @@ function General() {
     {runtime && <Row label={zh ? "版本来源" : "Version provenance"} hint={zh ? "CLI 由 x.ai 官方安装与更新；Grox 根据官方版本持续适配。" : "The CLI is installed and updated by x.ai; Grox tracks official releases for compatibility."}><div className="max-w-[440px] space-y-1 text-right font-mono text-[9px] text-dim"><p className="truncate" title={runtime.version}>{runtime.version ?? (zh ? "无法读取 CLI 版本" : "CLI version unavailable")}</p><p>{zh ? "官方 CLI · 由本机安装管理" : "OFFICIAL CLI · managed by the local installation"}</p><p className="truncate" title={runtime.groxCommit}>GROX APP · {runtime.groxCommit}</p></div></Row>}
     {runtimeError && <p className="mb-4 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{runtimeError}</p>}
     <Row label={zh ? "推理强度" : "Reasoning effort"}><div className="flex gap-1">{EFFORTS.map((item) => <button key={item} onClick={() => setEffort(item)} className={`h-7 rounded-[3px] border px-2 font-mono text-[9.5px] ${effort === item ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim"}`}>{item.toUpperCase()}</button>)}</div></Row>
-    <Row label={zh ? "权限模式" : "Permission mode"} hint={zh ? "Default 保留审批；Auto 交给 Agent 策略；Bypass 仅用于可信环境。" : "Default keeps approvals; Auto follows the Agent policy; use Bypass only in trusted environments."}><select value={permission} onChange={(event) => setPermission(event.target.value as typeof permission)} className="h-8 rounded-[4px] border border-line2 bg-void px-2 font-mono text-[9.5px] text-fg2"><option value="default">DEFAULT</option><option value="auto">AUTO</option><option value="bypass">BYPASS / YOLO</option></select></Row>
+    <Row label={zh ? "权限模式" : "Permission mode"} hint={zh ? "Default 保留审批；Auto 交给 Agent 策略；Bypass 仅用于可信环境，启用前会再次确认，并与 Computer Use 互斥。" : "Default keeps approvals; Auto follows the Agent policy; Bypass requires confirmation and cannot run with Computer Use."}>
+      <ChipSelect
+        variant="field"
+        menuPlacement="down"
+        align="end"
+        width={200}
+        activeId={permission}
+        label={permission === "bypass" ? "BYPASS / YOLO" : permission === "auto" ? "AUTO" : "DEFAULT"}
+        items={[
+          { id: "default", label: "DEFAULT", hint: zh ? "按需确认" : "Ask when needed" },
+          { id: "auto", label: "AUTO", hint: zh ? "自动策略" : "Agent policy" },
+          { id: "bypass", label: "BYPASS", hint: "YOLO" },
+        ]}
+        onSelect={(id) => setPermission(id as typeof permission)}
+        aria-label={zh ? "权限模式" : "Permission mode"}
+      />
+    </Row>
+    <Row label="Computer Use" hint={zh ? "默认开启。Windows 提供完整键鼠控制；macOS/Linux 以截图观察为主，点击/输入可能需要辅助功能或 cliclick。与 Bypass 互斥；变更后需新建或重新加载会话。" : "On by default. Windows has full input control; macOS/Linux are observation-first and may need Accessibility / cliclick. Mutually exclusive with Bypass; reload or create a session after changing."}><Toggle on={computerUse} onChange={setComputerUse} /></Row>
+    <Row label="Browser Use" hint={zh ? "默认开启。提供打开 URL 与本机 Chrome/Edge 无头截图 MCP；变更后需新建或重新加载会话。" : "On by default. Mounts URL open + headless Chrome/Edge screenshot MCP. Reload or create a session after changing."}><Toggle on={browserUse} onChange={setBrowserUse} /></Row>
+    <Row label={zh ? "桌面通知" : "Desktop notifications"} hint={zh ? "窗口在后台时，权限批准与问答会弹出系统通知。" : "When Grox is in the background, permission and question prompts raise OS notifications."}><Toggle on={desktopNotify} onChange={(on) => { localStorage.setItem("grox.desktopNotify", on ? "1" : "0"); setDesktopNotify(on); if (on) void import("../../lib/notify").then((module) => module.ensureNotifyPermission()); }} /></Row>
   </div>;
 }
 
@@ -242,6 +267,7 @@ function ProviderAndModels() {
   const providerSwitching = useDesktop((state) => state.providerSwitching);
   const saveProfile = useDesktop((state) => state.saveProviderProfile);
   const fetchProfileModels = useDesktop((state) => state.fetchProviderModels);
+  const refreshStoredModels = useDesktop((state) => state.refreshProviderModels);
   const activateProfile = useDesktop((state) => state.activateProviderProfile);
   const deleteProfile = useDesktop((state) => state.deleteProviderProfile);
   const [kind, setKind] = useState<ProviderKind>(provider.kind);
@@ -271,8 +297,8 @@ function ProviderAndModels() {
     setBaseUrl(profile.baseUrl);
     setAvailableModels(profile.availableModels);
     setResidentModels(profile.residentModels);
-    setApiKey(profile.apiKey);
-    setApiKeyHidden(false);
+    setApiKey("");
+    setApiKeyHidden(true);
     setCustomModel("");
     setModelQuery("");
   };
@@ -319,7 +345,7 @@ function ProviderAndModels() {
         const saved = await saveProfile({
           id: editingProfileId,
           name: profileName,
-          apiKey,
+          apiKey: apiKey.trim() || undefined,
           baseUrl,
           apiBackend: "chat_completions",
           residentModels,
@@ -327,9 +353,12 @@ function ProviderAndModels() {
         setEditingProfileId(saved.id);
         setAvailableModels(saved.availableModels);
         setResidentModels(saved.residentModels);
-        setApiKey(saved.apiKey);
+        setApiKey("");
+        setApiKeyHidden(true);
       } else {
         await configure({ kind, apiKey, baseUrl });
+        setApiKey("");
+        setApiKeyHidden(true);
       }
       setBusy(false);
     } catch (cause) {
@@ -342,8 +371,13 @@ function ProviderAndModels() {
     setBusy(true);
     setError("");
     try {
-      const discovered = await fetchProfileModels({ apiKey, baseUrl });
-      setAvailableModels(discovered);
+      if (editingProfileId && !apiKey.trim()) {
+        const refreshed = await refreshStoredModels(editingProfileId);
+        setAvailableModels(refreshed.availableModels);
+      } else {
+        const discovered = await fetchProfileModels({ apiKey, baseUrl });
+        setAvailableModels(discovered);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -367,7 +401,7 @@ function ProviderAndModels() {
   };
 
   return <div className="mt-7" data-testid="provider-manager">
-    <div className="mb-4 flex items-end justify-between"><div><h3 className="text-[15px] font-medium text-fg">{zh ? "模型服务" : "Model provider"}</h3><p className="mt-1 text-[11.5px] leading-relaxed text-dim">{zh ? "供应商或模型切换会等待当前请求完成，再重连后台 Grok Build ACP；运行中的请求始终保持原供应商与原模型。密钥仅保存在本机配置与当前 WebView 内存中。" : "Provider and model changes wait for the current request to finish before reconnecting Grok Build ACP; an active request always keeps its original provider and model. Keys remain in local configuration and the current WebView memory."}</p></div><span className="chip">{provider.kind.toUpperCase()}</span></div>
+    <div className="mb-4 flex items-end justify-between"><div><h3 className="text-[15px] font-medium text-fg">{zh ? "模型服务" : "Model provider"}</h3><p className="mt-1 text-[11.5px] leading-relaxed text-dim">{zh ? "供应商或模型切换会等待当前请求完成，再重连后台 Grok Build ACP；运行中的请求始终保持原供应商与原模型。密钥仅保存在本机原生层，不会回传到 WebView。" : "Provider and model changes wait for the current request to finish before reconnecting Grok Build ACP; an active request always keeps its original provider and model. Keys stay in the native layer and are never returned to the WebView."}</p></div><span className="chip">{provider.kind.toUpperCase()}</span></div>
     <div className="grid grid-cols-3 gap-2">
       {(["oauth", "official", "compatible"] as ProviderKind[]).map((item) => <button key={item} onClick={() => selectProviderKind(item)} className={`min-w-0 rounded-[5px] border px-3 py-2.5 text-left transition-colors ${kind === item ? "border-acc-dim bg-acc-wash" : "border-line2 bg-raise hover:border-line3"}`}><Icon name={item === "oauth" ? "user" : item === "official" ? "bolt" : "globe"} size={12} className={kind === item ? "text-acc" : "text-dim"} /><p className="mt-2 truncate font-mono text-[9.5px] text-fg2">{item === "oauth" ? t("oauth") : item === "official" ? t("officialApi") : t("compatibleApi")}</p></button>)}
     </div>
@@ -383,13 +417,13 @@ function ProviderAndModels() {
       <div className={kind === "compatible" ? "min-w-0 p-4" : "rounded-[6px] border border-line2 bg-raise p-3"}>
       <div className="grid grid-cols-2 gap-3">
         {kind === "compatible" && <label className="block"><span className="lbl !text-[9px]">{zh ? "供应商名称" : "PROVIDER NAME"}</span><Input value={profileName} onChange={setProfileName} placeholder={zh ? "例如：公司中转 / OpenRouter" : "e.g. Company gateway / OpenRouter"} /></label>}
-        <label className="block"><span className="lbl !text-[9px]">API KEY</span><SecretInput value={apiKey} onChange={(value) => { setApiKey(value); if (kind === "compatible") setAvailableModels([]); }} hidden={apiKeyHidden} onToggle={() => setApiKeyHidden((value) => !value)} placeholder="xai-…" /></label>
+        <label className="block"><span className="lbl !text-[9px]">API KEY</span><SecretInput value={apiKey} onChange={(value) => { setApiKey(value); if (kind === "compatible") setAvailableModels([]); }} hidden={apiKeyHidden} onToggle={() => setApiKeyHidden((value) => !value)} placeholder={editingProfileId && profiles.find((item) => item.id === editingProfileId)?.hasApiKey ? (zh ? "已保存 · 留空则保持原密钥" : "Saved · leave blank to keep") : "xai-…"} /></label>
         {kind === "official" ? <div><span className="lbl !text-[9px]">BASE URL</span><div className="h-8 rounded-[4px] border border-line bg-void px-2.5 font-mono text-[10px] leading-8 text-dim">https://api.x.ai/v1</div></div> : <label className="block"><span className="lbl !text-[9px]">BASE URL</span><Input value={baseUrl} onChange={(value) => { setBaseUrl(value); setAvailableModels([]); setResidentModels([]); }} placeholder="https://example.com/v1" /></label>}
         {kind === "compatible" && <p className="col-span-2 rounded-[4px] border border-line bg-void/60 px-2.5 py-2 text-[9.5px] leading-relaxed text-dim">{zh ? "Grox 将真实 Key 仅注入当前 ACP 子进程；对于当前模型及 CLI 标题别名，写入可追踪的官方 env_key、base_url 与 api_backend=chat_completions 声明来兼容标准 OpenAI 服务。切走供应商时会原样恢复，不会写入真实 Key 或批量模型覆盖。" : "Grox injects the literal key only into the current ACP child. For the active model and CLI title alias it adds tracked, documented env_key, base_url, and api_backend=chat_completions declarations for standard OpenAI services, restoring them on switch. It never writes the literal key or bulk model overrides."}</p>}
       </div>
       {kind === "compatible" && <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4">
         <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-[10.5px] text-fg2">{zh ? "当前草稿的可用模型" : "Models for this draft"}</p><p className="truncate font-mono text-[8.5px] text-faint">{baseUrl ? `${baseUrl.replace(/\/$/, "")}/models` : (zh ? "输入 URL 与 Key 后直接获取" : "Enter URL and key to fetch")}</p></div><ActionButton disabled={busy || !baseUrl.trim() || !apiKey.trim()} onClick={() => void refreshCompatibleModels()}>{zh ? "获取模型" : "FETCH"}</ActionButton></div>
+          <div className="mb-2 flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-[10.5px] text-fg2">{zh ? "当前草稿的可用模型" : "Models for this draft"}</p><p className="truncate font-mono text-[8.5px] text-faint">{baseUrl ? `${baseUrl.replace(/\/$/, "")}/models` : (zh ? "输入 URL 与 Key 后直接获取" : "Enter URL and key to fetch")}</p></div><ActionButton disabled={busy || !baseUrl.trim() || (!apiKey.trim() && !(editingProfileId && profiles.find((item) => item.id === editingProfileId)?.hasApiKey))} onClick={() => void refreshCompatibleModels()}>{zh ? "获取模型" : "FETCH"}</ActionButton></div>
           <Input value={modelQuery} onChange={setModelQuery} placeholder={zh ? "筛选模型…" : "Filter models…"} />
           <div className="mt-2 max-h-48 overflow-y-auto rounded-[5px] border border-line bg-void/60 p-1">
             {filteredModels.length === 0 ? <p className="px-2 py-5 text-center text-[9.5px] text-faint">{zh ? "尚未获取当前草稿的模型" : "No models fetched for this draft"}</p> : filteredModels.map((id) => <div key={id} className="flex h-7 min-w-0 items-center gap-2 rounded-[3px] px-2 hover:bg-high"><span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2" title={id}>{id}</span><button disabled={residentModels.includes(id)} onClick={() => addResident(id)} className="shrink-0 font-mono text-[8.5px] text-acc disabled:text-faint">{residentModels.includes(id) ? (zh ? "已常驻" : "ADDED") : (zh ? "加入" : "ADD")}</button></div>)}
@@ -410,7 +444,17 @@ function ProviderAndModels() {
 
     <div className="mt-5 rounded-[6px] border border-line2 bg-raise p-3">
       <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 rounded-full ${provider.kind === "oauth" ? "animate-pulse-dot bg-acc" : "bg-gold"}`} /><div className="min-w-0 flex-1"><p className="text-[11px] text-fg2">{zh ? "常驻模型" : "Resident model"}</p><p className="mt-0.5 text-[9.5px] text-dim">{provider.kind === "oauth" ? (zh ? "实时目录" : "Live catalog") : (zh ? "API 模型目录" : "API catalog")} · {models.length} {zh ? "个模型" : "models"}{modelsUpdatedAt ? ` · ${new Date(modelsUpdatedAt).toLocaleTimeString()}` : ""}</p></div><ActionButton onClick={() => void refreshModels()}>{t("refresh")}</ActionButton></div>
-      <select value={model} onChange={(event) => setModel(event.target.value)} className="mt-3 h-9 w-full rounded-[4px] border border-line2 bg-void px-3 font-mono text-[10px] text-fg2 outline-none focus:border-acc-dim">{models.map((item) => <option key={item.id} value={item.id}>{item.label} — {item.id}</option>)}</select>
+      <ChipSelect
+        variant="field"
+        menuPlacement="down"
+        fullWidth
+        width={420}
+        activeId={model}
+        label={models.find((item) => item.id === model)?.label ?? model}
+        items={models.map((item) => ({ id: item.id, label: item.label, hint: item.id }))}
+        onSelect={setModel}
+        aria-label={zh ? "常驻模型" : "Resident model"}
+      />
       <p className="mt-2 text-[9.5px] leading-relaxed text-dim">{zh ? "该选择会持久保存，并作为新任务及后续请求的默认模型；若目录移除该模型，会自动回退到 Grok 当前可用模型。" : "This choice persists for new missions and later turns. If the catalog removes it, Grox falls back to an available Grok model."}</p>
     </div>
   </div>;
@@ -465,7 +509,25 @@ function McpPanel() {
   const action = async (method: string, params: Json) => { if (!sessionId) throw new Error(zh ? "请先打开一个项目任务，以便 Grok Build 创建运行时上下文。" : "Open a project mission first so Grok Build can create its runtime context."); await bridge.callExtension(method, { session_id: sessionId, ...params }); state.reload(); };
   const add = async () => { if (!name.trim() || !endpoint.trim()) return; await action("x.ai/mcp/upsert", { server_name: name.trim(), ...(kind === "http" ? { type: "http", url: endpoint.trim(), enabled: true } : { command: endpoint.trim(), args: [], enabled: true }) }); setName(""); setEndpoint(""); };
   return <div><Heading title={t("mcp")} description={zh ? "直接读写 Grok Build 的 MCP 配置；启停和删除会同步到 config.toml。" : "Manage Grok Build MCP configuration directly; toggles and deletions sync to config.toml."} />
-    <div className="mb-4 grid grid-cols-[120px_1fr_90px_auto] gap-2"><Input value={name} onChange={setName} placeholder="server-name" /><Input value={endpoint} onChange={setEndpoint} placeholder={kind === "http" ? "https://server/mcp" : "command"} /><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="rounded-[4px] border border-line2 bg-void px-2 font-mono text-[9.5px] text-fg2"><option value="http">HTTP</option><option value="stdio">STDIO</option></select><ActionButton tone="accent" disabled={!sessionId} onClick={() => void add()}>{t("add")}</ActionButton></div>
+    <div className="mb-4 grid grid-cols-[120px_1fr_110px_auto] items-center gap-2">
+      <Input value={name} onChange={setName} placeholder="server-name" />
+      <Input value={endpoint} onChange={setEndpoint} placeholder={kind === "http" ? "https://server/mcp" : "command"} />
+      <ChipSelect
+        variant="field"
+        menuPlacement="down"
+        fullWidth
+        width={120}
+        activeId={kind}
+        label={kind.toUpperCase()}
+        items={[
+          { id: "http", label: "HTTP" },
+          { id: "stdio", label: "STDIO" },
+        ]}
+        onSelect={(id) => setKind(id as typeof kind)}
+        aria-label={zh ? "MCP 类型" : "MCP kind"}
+      />
+      <ActionButton tone="accent" disabled={!sessionId} onClick={() => void add()}>{t("add")}</ActionButton>
+    </div>
     {servers.length === 0 ? <ExtensionState error={state.error} empty={zh ? "尚未配置 MCP Server" : "No MCP servers configured"} /> : <div className="space-y-2">{servers.map((server) => { const session = object(server.session); const enabled = bool(session.enabled); const serverName = text(server.name); return <div key={serverName} className="flex items-center gap-3 rounded-[5px] border border-line2 bg-raise p-3"><Icon name="globe" size={13} className="text-mute" /><div className="min-w-0 flex-1"><p className="truncate text-[11px] text-fg2">{text(server.displayName, serverName)}</p><p className="truncate font-mono text-[9.5px] text-dim">{text(server.url) || text(server.command) || text(server.sourceLabel)}</p></div><span className="font-mono text-[9.5px] text-faint">{text(session.status).toUpperCase()}</span><Toggle on={enabled} disabled={!sessionId} onChange={(value) => void action("x.ai/mcp/toggle", { server_name: serverName, enabled: value })} />{text(server.source) === "local" && <ActionButton tone="danger" disabled={!sessionId} onClick={() => void action("x.ai/mcp/delete", { server_name: serverName })}>{t("delete")}</ActionButton>}</div>; })}</div>}
     <MarketLinks kind="mcp" />
   </div>;

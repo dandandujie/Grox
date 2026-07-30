@@ -45,10 +45,10 @@ const clampFontWeight = (value: number) => Math.min(700, Math.max(400, Math.roun
 const initialFontSize = (() => {
   const value = localStorage.getItem("grox.fontSize");
   if (value === "compact") return 0;
-  if (value === "large") return 3;
-  if (value === "comfortable") return 1.5;
+  if (value === "large") return 4.5;
+  if (value === "comfortable") return 2.5;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? clampFontSize(parsed) : 2;
+  return Number.isFinite(parsed) ? clampFontSize(parsed) : 3.5;
 })();
 const initialFontWeight = (() => {
   const value = localStorage.getItem("grox.fontWeight");
@@ -69,9 +69,9 @@ export const usePreferences = create<PreferencesState>((set) => ({
   theme: initialTheme,
   fontSize: initialFontSize,
   fontWeight: initialFontWeight,
-  sidebarWidth: Math.min(360, Math.max(196, numberPreference("grox.sidebarWidth", 232))),
-  inspectorWidth: Math.min(520, Math.max(248, numberPreference("grox.inspectorWidth", 292))),
-  previewWidth: Math.min(720, Math.max(320, numberPreference("grox.previewWidth", 440))),
+  sidebarWidth: Math.min(380, Math.max(210, numberPreference("grox.sidebarWidth", 252))),
+  inspectorWidth: Math.min(540, Math.max(260, numberPreference("grox.inspectorWidth", 312))),
+  previewWidth: Math.min(760, Math.max(340, numberPreference("grox.previewWidth", 460))),
   setLanguage(language) {
     localStorage.setItem("grox.language", language);
     document.documentElement.lang = language;
@@ -95,17 +95,17 @@ export const usePreferences = create<PreferencesState>((set) => ({
     set({ fontWeight: value });
   },
   setSidebarWidth(sidebarWidth) {
-    const width = Math.min(360, Math.max(196, sidebarWidth));
+    const width = Math.min(380, Math.max(210, sidebarWidth));
     persistDimension("grox.sidebarWidth", width);
     set({ sidebarWidth: width });
   },
   setInspectorWidth(inspectorWidth) {
-    const width = Math.min(520, Math.max(248, inspectorWidth));
+    const width = Math.min(540, Math.max(260, inspectorWidth));
     persistDimension("grox.inspectorWidth", width);
     set({ inspectorWidth: width });
   },
   setPreviewWidth(previewWidth) {
-    const width = Math.min(720, Math.max(320, previewWidth));
+    const width = Math.min(760, Math.max(340, previewWidth));
     persistDimension("grox.previewWidth", width);
     set({ previewWidth: width });
   },

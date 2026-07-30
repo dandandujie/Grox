@@ -14,16 +14,22 @@ Grox 是以 [xai-org/grok-build](https://github.com/xai-org/grok-build) 为核�
 - 项目与任务目录：项目可置顶、在资源管理器打开、重命名、归档和移除；任务可置顶与归档
 - Agent 时间线：回答、思考、计划、工具调用、终端输出与文件 Diff；任务完成后自动收纳处理过程，工具详情默认折叠
 - Deep Research：原生启动 `/deep-research` 后台工作流，在任务检查器实时展示研究阶段、并行代理、代理预算、耗时、暂停原因和结果摘要，并可暂停、恢复或停止
-- Computer Use（Windows）：窗口级截图、UI Automation、元素与坐标操作、水平/垂直滚动、键盘布局映射、暂停/继续，以及界面按钮和 `Ctrl+Alt+Esc` 粘性紧急停止
+- Computer Use（Windows）：默认开启，可在设置中关闭；窗口级截图、UI Automation、元素与坐标操作、水平/垂直滚动、键盘布局映射、暂停/继续，以及界面按钮和 `Ctrl+Alt+Esc` 粘性紧急停止
 - 安全预览侧栏：支持 Markdown、静态 HTML、图片与文本文件，可拖动调整侧栏、检查器和预览区宽度
 - 交互闭环：对话框可直接切换模型、权限和思考强度，支持文件上传、剪贴板图片粘贴、计划批准及结构化问答
-- 多账户接入：Grok OAuth、xAI 官方 API 与 OpenAI 兼容服务；API 密钥、Base URL 和模型列表地址统一在账户模块管理，密钥不回传 WebView
+- 并行侧任务工作台：终端输出与侧任务启动器同屏；多会话可在同一 ACP 进程上并行推进，切走不打断后台 turn
+- Worktree / Git：环境摘要支持分支切换、提交推送、worktree 新建/打开/移除；状态栏显示当前分支
+- 一键打开：Cursor、VS Code、系统终端与资源管理器/Finder
+- 桌面通知：窗口在后台时，权限批准与问答可弹出系统通知（设置中可关）
+- Browser Use：打开 URL 与本机 Chrome/Edge 无头截图 MCP（默认开启，可关）
+- Computer Use：Windows 完整键鼠控制；macOS/Linux 以截图观察为主，并提供有限输入能力
+- 多账户接入：Grok OAuth、xAI 官方 API 与 OpenAI 兼容服务；API 密钥、Base URL 和模型列表地址统一在账户模块管理，密钥仅保存在本机原生层，不回传 WebView
 - 账户中心：头像菜单、登录/退出、订阅方案、周额度、用量与官方升级入口
 - 扩展管理：可视化添加、启用和移除 MCP、Skills、Plugins，并提供主流市场入口
 - 配置同步：账户模块内的 `config.toml`、`system-prompt.md` 与项目 `AGENTS.md` 支持双向编辑和外部变更热同步，不暴露原始环境变量编辑栏
 - 动态模型：OAuth 实时跟随 Grok 模型目录；官方及兼容 API 可拉取模型列表并持久选择常驻模型
-- 桌面安全：Markdown 清洗、CSP、HTTP(S) 外链校验、无控制台子进程
-- 发布链：仅构建 Windows/macOS 桌面安装包，并提供应用内更新提醒
+- 桌面安全：Markdown 清洗、CSP、HTTP(S) 外链校验、无控制台子进程；Computer Use 默认开启且可在设置关闭；HTML 文件预览禁用同源沙箱并强制预览令牌
+- 发布链：构建 Windows / macOS / Linux（AppImage、deb、rpm）桌面安装包，并提供应用内更新提醒
 - 离线 Mock：浏览器开发时可完整演示主要界面状态
 
 ## 架构

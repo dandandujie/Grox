@@ -28,7 +28,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https: data: blob:; media-src 'self' asset: http://asset.localhost https: data: blob:; connect-src ipc: http://ipc.localhost https: ws://localhost:1420 http://localhost:1420; frame-src http://localhost:* http://127.0.0.1:*",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https: data: blob:; media-src 'self' asset: http://asset.localhost https: data: blob:; connect-src ipc: http://ipc.localhost https: ws://localhost:1420 http://localhost:1420; frame-src http://127.0.0.1:*",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -37,6 +37,7 @@
   },
   "bundle": {
     "active": true,
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -52,6 +53,15 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "rpm": {}
     }
   }
 }
