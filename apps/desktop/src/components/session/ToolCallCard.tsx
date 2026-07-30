@@ -350,16 +350,23 @@ function Locations({ paths }: { paths: string[] }) {
 }
 
 function ToolImages({ images }: { images: NonNullable<ToolCall["images"]> }) {
+  const { language } = useI18n();
+  const [active, setActive] = useState<number | null>(null);
+  const selected = active === null ? undefined : images[active];
   return (
-    <div className="mt-2 grid grid-cols-2 gap-2">
-      {images.map((image, index) => (
-        <img
-          key={`${image.mime}-${index}`}
-          src={`data:${image.mime};base64,${image.data}`}
-          alt="Tool output"
-          className="max-h-44 w-full rounded-[4px] border border-line2 bg-void object-contain"
-        />
-      ))}
-    </div>
+    <>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {images.map((image, index) => (
+          <button key={`${image.mime}-${index}`} onClick={() => setActive(index)} className="group/image relative overflow-hidden rounded-[4px] border border-line2 bg-void text-left" title={language === "zh-CN" ? "点击预览图片" : "Preview image"}>
+            <img src={`data:${image.mime};base64,${image.data}`} alt="Tool output" className="max-h-44 w-full object-contain transition-transform duration-200 group-hover/image:scale-[1.015]" />
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-void/80 px-2 py-1 font-mono text-[8.5px] text-faint opacity-0 backdrop-blur-sm transition-opacity group-hover/image:opacity-100">{language === "zh-CN" ? "点击预览" : "PREVIEW"}</span>
+          </button>
+        ))}
+      </div>
+      {selected && <div role="dialog" aria-modal="true" aria-label={language === "zh-CN" ? "图片预览" : "Image preview"} onClick={() => setActive(null)} className="fixed inset-0 z-[90] flex items-center justify-center bg-void/90 p-8 backdrop-blur-sm animate-fade-up">
+        <button onClick={() => setActive(null)} className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-[4px] border border-line2 bg-panel text-dim hover:text-fg" title={language === "zh-CN" ? "关闭预览" : "Close preview"}><Icon name="x" size={13} /></button>
+        <img onClick={(event) => event.stopPropagation()} src={`data:${selected.mime};base64,${selected.data}`} alt="Tool output enlarged" className="max-h-full max-w-full rounded-[5px] border border-line2 bg-void object-contain shadow-2xl" />
+      </div>}
+    </>
   );
 }

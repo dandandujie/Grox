@@ -21,6 +21,7 @@ import {
   prepareAttachment,
   validateAttachmentSet,
 } from "../../lib/attachments";
+import { attachExplicitPromptImages } from "../../lib/pathAttachments";
 import { RewindMenu } from "./RewindMenu";
 
 interface SlashCmd {
@@ -48,6 +49,8 @@ export function Composer() {
   const composingRef = useRef(false);
 
   const sendPrompt = useDesktop((s) => s.sendPrompt);
+  const activeId = useDesktop((s) => s.activeId);
+  const workspace = useDesktop((s) => s.workspace);
   const composer = useDesktop((s) => s.activeId ? s.sessionComposers[s.activeId] : undefined);
   const text = composer?.text ?? "";
   const attachments = composer?.attachments ?? [];
@@ -198,9 +201,14 @@ export function Composer() {
     }
   };
 
-  const send = () => {
+  const send = async () => {
     const t = text.trim();
     if ((!t && attachments.length === 0) || creating || running || restoring || readingFiles) return;
+    // Path attachments are resolved asynchronously. Pin this turn to the
+    // session that owned the composer when Enter was pressed; otherwise a
+    // quick session switch can redirect it to a different task.
+    const targetSessionId = activeId;
+    if (!targetSessionId) return;
     if (t === "/workflow" || t === "/workflows") {
       setInspectorTab("tasks");
       setText("");
@@ -209,17 +217,27 @@ export function Composer() {
     if (/^\/deep-research(?:\s|$)/i.test(t)) {
       setInspectorTab("tasks");
     }
-    const modeCommand = t.match(/^\/(plan|agent|ask)(?:\s+([\s\S]+))?$/i);
-    if (modeCommand?.[2]) {
-      const nextMode = modeCommand[1].toLowerCase() as "plan" | "agent" | "ask";
-      setMode(nextMode);
-      sendPrompt(modeCommand[2].trim(), attachments);
-    } else {
-      sendPrompt(t, attachments);
-    }
-    setText("");
-    setAttachments([]);
+    setReadingFiles(true);
     setAttachmentError("");
+    try {
+      const turnAttachments = await attachExplicitPromptImages(workspace, t, attachments);
+      const modeCommand = t.match(/^\/(plan|agent|ask)(?:\s+([\s\S]+))?$/i);
+      let accepted: boolean;
+      if (modeCommand?.[2]) {
+        const nextMode = modeCommand[1].toLowerCase() as "plan" | "agent" | "ask";
+        accepted = sendPrompt(modeCommand[2].trim(), turnAttachments, targetSessionId, nextMode);
+      } else {
+        accepted = sendPrompt(t, turnAttachments, targetSessionId);
+      }
+      // sendPrompt clears the targeted session's persisted draft itself. If
+      // the provider started switching while we were reading, leave this
+      // draft untouched so the user can send it after the switch completes.
+      if (!accepted) return;
+    } catch (cause) {
+      setAttachmentError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReadingFiles(false);
+    }
   };
 
   const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -260,7 +278,7 @@ export function Composer() {
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send();
+      void send();
     }
   };
 

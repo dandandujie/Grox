@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useDesktop, type InspectorTab } from "../../state/store";
-import type { DiffHunk, PlanStep, Session, WorkflowRun, WorkspaceEntry } from "../../bridge/types";
+import type { DiffHunk, PlanStep, PreviewFile, Session, WorkflowRun, WorkspaceEntry } from "../../bridge/types";
 import { fmtCost, fmtDuration, fmtTokens } from "../../lib/format";
 import { DiffView } from "../session/DiffView";
 import { ResizeHandle } from "../common/ResizeHandle";
@@ -82,6 +82,7 @@ function FilesTab({ session }: { session?: Session }) {
   const { t, language } = useI18n();
   const zh = language === "zh-CN";
   const workspaceFiles = useDesktop((state) => state.workspaceFiles);
+  const workspace = useDesktop((state) => state.workspace);
   const workspaceDiffs = useDesktop((state) => state.workspaceDiffs);
   const workspaceDiffReady = useDesktop((state) => state.workspaceDiffReady);
   const openPreview = useDesktop((state) => state.openPreview);
@@ -107,7 +108,7 @@ function FilesTab({ session }: { session?: Session }) {
       </div>}
       <div className="mb-2 mt-4 px-1"><span className="lbl !text-[9.5px]">{t("projectResources")}</span></div>
       <div className="space-y-px">
-        {tree.map((node) => <FileTreeNode key={node.path} node={node} onOpen={(path) => void openPreview(path)} />)}
+        {tree.map((node) => <FileTreeNode key={node.path} node={node} workspace={workspace} onOpen={(path) => void openPreview(path)} />)}
       </div>
     </div>
   );
@@ -149,7 +150,8 @@ function buildFileTree(entries: WorkspaceEntry[]): FileNode[] {
 
 const canPreview = (path: string) => /\.(md|mdx|markdown|html?|png|jpe?g|gif|webp|svg|bmp|txt|json|toml|ya?ml|css|[jt]sx?|rs|py)$/i.test(path);
 
-function FileTreeNode({ node, onOpen }: { node: FileNode; onOpen(path: string): void }) {
+function FileTreeNode({ node, onOpen, workspace }: { node: FileNode; onOpen(path: string): void; workspace: string }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   if (node.isDir) {
     return (
       <details className="group/tree">
@@ -159,22 +161,86 @@ function FileTreeNode({ node, onOpen }: { node: FileNode; onOpen(path: string): 
           <span className="truncate">{node.name}</span>
         </summary>
         <div className="ml-2.5 border-l border-line pl-1">
-          {node.children.map((child) => <FileTreeNode key={child.path} node={child} onOpen={onOpen} />)}
+          {node.children.map((child) => <FileTreeNode key={child.path} node={child} workspace={workspace} onOpen={onOpen} />)}
         </div>
       </details>
     );
   }
   const previewable = canPreview(node.path);
-  return (
+  return <div onContextMenu={(event) => { event.preventDefault(); setMenuOpen(true); }} className="group/file relative flex h-7 items-center rounded-[3px] pr-1 hover:bg-high">
     <button
-      disabled={!previewable}
-      onClick={() => onOpen(node.path)}
-      className="flex h-7 w-full items-center gap-1.5 rounded-[3px] px-1 pl-[15px] text-left font-mono text-[10px] text-mute enabled:hover:bg-high enabled:hover:text-fg2 disabled:text-faint"
+      onClick={() => previewable && onOpen(node.path)}
+      className={`flex h-7 min-w-0 flex-1 items-center gap-1.5 px-1 pl-[15px] text-left font-mono text-[10px] ${previewable ? "text-mute hover:bg-high hover:text-fg2" : "cursor-default text-faint"}`}
+      title={node.path}
     >
       <Icon name="file" size={9} className="shrink-0 text-faint" />
       <span className="truncate">{node.name}</span>
     </button>
+    <FileActionMenu open={menuOpen} setOpen={setMenuOpen} path={node.path} workspace={workspace} previewable={previewable} onOpen={onOpen} />
+  </div>;
+}
+
+function FileActionMenu({
+  open,
+  setOpen,
+  path,
+  workspace,
+  previewable,
+  onOpen,
+}: {
+  open: boolean;
+  setOpen(open: boolean | ((current: boolean) => boolean)): void;
+  path: string;
+  workspace: string;
+  previewable: boolean;
+  onOpen(path: string): void;
+}) {
+  const { language } = useI18n();
+  const zh = language === "zh-CN";
+  const [notice, setNotice] = useState("");
+  const run = async (action: () => Promise<void>, closeOnSuccess = true) => {
+    setNotice("");
+    try {
+      await action();
+      if (closeOnSuccess) setOpen(false);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const copyPath = () => run(async () => {
+    const fullPath = await invoke<string>("workspace_file_path", { cwd: workspace, path });
+    await navigator.clipboard.writeText(fullPath);
+    setNotice(zh ? "已复制路径" : "Path copied");
+  }, false);
+  const copyContent = () => run(async () => {
+    const file = await invoke<PreviewFile>("read_preview_file", { cwd: workspace, path });
+    if (file.kind === "image") throw new Error(zh ? "图片没有可复制的文本内容" : "Images do not have text content to copy");
+    await navigator.clipboard.writeText(file.content);
+    setNotice(zh ? "已复制文件内容" : "Contents copied");
+  }, false);
+  return (
+    <div className="relative shrink-0">
+      <button
+        onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
+        className="flex h-5 w-5 items-center justify-center text-faint opacity-0 transition-opacity hover:text-fg group-hover/file:opacity-100 focus:opacity-100"
+        title={zh ? "文件操作" : "File actions"}
+      >
+        <Icon name="more" size={11} />
+      </button>
+      {open && <div className="absolute right-0 top-6 z-50 w-40 rounded-[5px] border border-line2 bg-panel p-1 shadow-[0_10px_28px_rgba(0,0,0,0.38)]">
+        {previewable && <FileAction label={zh ? "在右侧预览" : "Preview"} icon="panelRight" onClick={() => { onOpen(path); setOpen(false); }} />}
+        <FileAction label={zh ? "用默认应用打开" : "Open with default"} icon="external" onClick={() => void run(() => invoke("open_file_with_default", { cwd: workspace, path }))} />
+        <FileAction label={zh ? "在 Finder 中显示" : "Reveal in Finder"} icon="folder" onClick={() => void run(() => invoke("reveal_in_explorer", { cwd: workspace, path }))} />
+        <FileAction label={zh ? "复制路径" : "Copy path"} icon="copy" onClick={() => void copyPath()} />
+        {previewable && !/\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(path) && <FileAction label={zh ? "复制文件内容" : "Copy contents"} icon="copy" onClick={() => void copyContent()} />}
+        {notice && <p className="border-t border-line px-2 py-1.5 font-mono text-[8.5px] leading-relaxed text-red">{notice}</p>}
+      </div>}
+    </div>
   );
+}
+
+function FileAction({ label, icon, onClick }: { label: string; icon: "panelRight" | "external" | "folder" | "copy"; onClick(): void }) {
+  return <button onClick={onClick} className="flex h-7 w-full items-center gap-2 rounded-[3px] px-2 text-left font-mono text-[9.5px] text-mute hover:bg-high hover:text-fg2"><Icon name={icon} size={10} className="text-faint" /><span className="truncate">{label}</span></button>;
 }
 
 /* ── TASKS ─────────────────────────────────────────────────────────────── */

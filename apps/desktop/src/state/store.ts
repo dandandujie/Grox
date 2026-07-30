@@ -211,7 +211,12 @@ interface DesktopState {
   openPreview(path: string): Promise<void>;
   closePreview(): void;
 
-  sendPrompt(text: string, attachments?: PromptAttachment[]): void;
+  /**
+   * Queue a turn for one session. A target is used by the composer while it
+   * asynchronously prepares path-based image attachments, so switching tasks
+   * during that read cannot redirect or erase the original draft.
+   */
+  sendPrompt(text: string, attachments?: PromptAttachment[], targetSessionId?: string, modeOverride?: AgentMode): boolean;
   stop(): void;
   emergencyStopComputer(): void;
   compact(): void;
@@ -1556,12 +1561,13 @@ export const useDesktop = create<DesktopState>((set, get) => {
       });
     },
 
-    sendPrompt(text, attachments = []) {
+    sendPrompt(text, attachments = [], targetSessionId, modeOverride) {
       const { activeId, sessions, model, effort, mode, permissionMode, sessionComposers, providerSwitching, restoringSessionId } = get();
-      if (providerSwitching || restoringSessionId === activeId) return;
-      const session = activeId ? sessions[activeId] : null;
-      if (!session || !isSessionTerminal(session.status)) return;
-      const composer = sessionComposers[session.id] ?? {
+      const sessionId = targetSessionId ?? activeId;
+      if (providerSwitching || restoringSessionId === sessionId) return false;
+      const session = sessionId ? sessions[sessionId] : null;
+      if (!session || !isSessionTerminal(session.status)) return false;
+      const storedComposer = sessionComposers[session.id] ?? {
         text: "",
         attachments: [],
         model,
@@ -1569,9 +1575,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
         mode,
         permissionMode,
       };
+      const composer = modeOverride ? { ...storedComposer, mode: modeOverride } : storedComposer;
 
       const trimmed = text.trim();
-      if (!trimmed && attachments.length === 0) return;
+      if (!trimmed && attachments.length === 0) return false;
       const internalWorkflowControl = /^\/workflow\s+(?:pause|resume|stop)\s+\S+(?:\s|$)/i.test(trimmed);
       const titleText = trimmed || attachments.map((attachment) => attachment.name).join(", ");
       const nextIndex = get().sessionIndex.map((m) =>
@@ -1616,6 +1623,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         },
         sessionIndex: nextIndex,
         sessionComposers: nextComposers,
+        ...(activeId === session.id && modeOverride ? { mode: modeOverride } : {}),
       });
 
       bridge.setPermissionMode(composer.permissionMode);
@@ -1625,6 +1633,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         mode: composer.mode,
         attachments,
       });
+      return true;
     },
 
     stop() {

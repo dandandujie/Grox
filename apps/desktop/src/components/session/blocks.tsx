@@ -7,6 +7,7 @@ import type { SessionBlock } from "../../bridge/types";
 import { fmtClock } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import { Markdown } from "../../lib/markdown";
+import { useDesktop } from "../../state/store";
 import { BlackHole } from "../fx/BlackHole";
 import { Icon } from "../fx/Icon";
 import { RewindMenu } from "./RewindMenu";
@@ -51,7 +52,7 @@ export function UserMsg({ block, rewindPromptIndex }: { block: UserBlock; rewind
             ))}
           </div>
         )}
-        {(overflowing || expanded || rewindPromptIndex !== undefined) && <div className="mt-2 flex items-center gap-2 pl-5 font-mono text-[9px]"><span className="flex-1" />{rewindPromptIndex !== undefined && <RewindMenu targetPromptIndex={rewindPromptIndex} variant="request" />}{(overflowing || expanded) && <button onClick={() => setExpanded((value) => !value)} className="h-7 px-1.5 text-acc hover:text-fg">{expanded ? (zh ? "收起" : "COLLAPSE") : (zh ? "显示更多" : "SHOW MORE")}</button>}</div>}
+        <div className="mt-2 flex items-center gap-2 pl-5 font-mono text-[9px]"><span className="flex-1" />{rewindPromptIndex !== undefined && <RewindMenu targetPromptIndex={rewindPromptIndex} variant="request" />}{(overflowing || expanded) && <button onClick={() => setExpanded((value) => !value)} className="h-7 px-1.5 text-acc hover:text-fg">{expanded ? (zh ? "收起" : "COLLAPSE") : (zh ? "显示更多" : "SHOW MORE")}</button>}<MessageActions text={block.text} /></div>
       </div>
     </div>
   );
@@ -85,9 +86,32 @@ export function AssistantMsg({ block, process = false }: { block: AssistantBlock
         </div>
         <Markdown text={block.text} streaming={block.streaming ?? false} className="assistant-prose text-[15px] leading-[1.76] text-fg2" />
         {block.streaming && <span className="stream-caret" />}
+        {!block.streaming && <div className="mt-2 flex justify-end"><MessageActions text={block.text} /></div>}
       </div>
     </article>
   );
+}
+
+function MessageActions({ text }: { text: string }) {
+  const { language } = useI18n();
+  const newSession = useDesktop((state) => state.newSession);
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    });
+  };
+  const continueInNewTask = () => {
+    const prefix = language === "zh-CN"
+      ? "请在新任务中继续处理以下上文：\n\n"
+      : "Continue this work in a new task using the following context:\n\n";
+    void newSession({ text: `${prefix}${text}` });
+  };
+  return <div className="flex items-center gap-1 opacity-65 transition-opacity hover:opacity-100">
+    <button onClick={copy} className="flex h-6 items-center gap-1 rounded-[3px] px-1.5 font-mono text-[8.5px] text-dim hover:bg-high hover:text-fg2" title={language === "zh-CN" ? "复制这条消息" : "Copy message"}><Icon name="copy" size={9} />{copied ? (language === "zh-CN" ? "已复制" : "COPIED") : (language === "zh-CN" ? "复制" : "COPY")}</button>
+    <button onClick={continueInNewTask} className="flex h-6 items-center gap-1 rounded-[3px] px-1.5 font-mono text-[8.5px] text-dim hover:bg-high hover:text-fg2" title={language === "zh-CN" ? "在一个新任务中继续" : "Continue in a new task"}><Icon name="branch" size={9} />{language === "zh-CN" ? "新任务继续" : "CONTINUE"}</button>
+  </div>;
 }
 
 /** System event — a centered mono whisper (compact, rewind, errors). */

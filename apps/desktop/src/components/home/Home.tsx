@@ -8,6 +8,7 @@ import { useDesktop } from "../../state/store";
 import type { PromptAttachment } from "../../bridge/types";
 import { fmtRelTime, fmtTokens } from "../../lib/format";
 import { MAX_ATTACHMENTS, prepareAttachment, validateAttachmentSet } from "../../lib/attachments";
+import { attachExplicitPromptImages } from "../../lib/pathAttachments";
 import { BlackHole } from "../fx/BlackHole";
 import { Starfield } from "../fx/Starfield";
 import { StageTransition } from "../fx/StageTransition";
@@ -88,11 +89,19 @@ export function Home() {
     }
     const prompt = modeCommand?.[2]?.trim() ?? rawPrompt;
     if ((!prompt && attachments.length === 0) || readingFiles) return;
-    if (modeCommand) setMode(modeCommand[1].toLowerCase() as "plan" | "agent" | "ask");
-    await newSession({ text: prompt, attachments });
-    setQ("");
-    setAttachments([]);
+    setReadingFiles(true);
     setAttachmentError("");
+    try {
+      const turnAttachments = await attachExplicitPromptImages(workspace, prompt, attachments);
+      if (modeCommand) setMode(modeCommand[1].toLowerCase() as "plan" | "agent" | "ask");
+      await newSession({ text: prompt, attachments: turnAttachments });
+      setQ("");
+      setAttachments([]);
+    } catch (cause) {
+      setAttachmentError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReadingFiles(false);
+    }
   };
 
   const appendFiles = async (files: File[]) => {

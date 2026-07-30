@@ -1364,7 +1364,11 @@ export class AcpBridge implements GrokBridge {
   }
 
   private onServerRequest(message: JsonRpcMessage) {
-    if (message.method === "fs/read_text_file" || message.method === "fs/write_text_file") {
+    if (
+      message.method === "fs/read_text_file"
+      || message.method === ACP_METHODS.fsRead
+      || message.method === "fs/write_text_file"
+    ) {
       void this.handleFileSystemRequest(message);
       return;
     }
@@ -1401,7 +1405,7 @@ export class AcpBridge implements GrokBridge {
       return;
     }
     try {
-      if (message.method === "fs/read_text_file") {
+      if (message.method === "fs/read_text_file" || message.method === ACP_METHODS.fsRead) {
         const content = await invoke<string>("acp_read_text_file", {
           cwd,
           path,

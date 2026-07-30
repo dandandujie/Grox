@@ -71,6 +71,8 @@ const PROVIDER_ENV_KEYS: [&str; 3] = [
     "GROK_MODELS_BASE_URL",
     "GROK_MODELS_LIST_URL",
 ];
+const MAX_PROMPT_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_PROMPT_IMAGE_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
 
 struct AgentProcess {
     child: Child,
@@ -133,6 +135,21 @@ struct PreviewFile {
     kind: &'static str,
     mime: String,
     content: String,
+}
+
+/// An image that the operator explicitly referenced in the outgoing prompt.
+///
+/// This is deliberately separate from ACP's `fs/read_text_file`: ACP only
+/// defines a text response there, while this payload becomes a normal prompt
+/// image block (the same shape as a pasted image).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PromptPathImage {
+    path: String,
+    name: String,
+    mime: String,
+    size: u64,
+    data: String,
 }
 
 #[derive(Serialize)]
@@ -476,10 +493,17 @@ fn grok_home() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("GROK_HOME").filter(|value| !value.is_empty()) {
         return Ok(PathBuf::from(path));
     }
+    Ok(user_home()?.join(".grok"))
+}
+
+/// Resolve the actual user home independently of `GROK_HOME`. The latter may
+/// point to a portable or test-specific Grok configuration directory, but
+/// `~/…` in a prompt must always mean the operator's home directory.
+fn user_home() -> Result<PathBuf, String> {
     let home = std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .ok_or_else(|| "无法定位用户目录，请设置 GROK_HOME".to_string())?;
-    Ok(PathBuf::from(home).join(".grok"))
+    Ok(PathBuf::from(home))
 }
 
 fn provision_grox_deep_research_workflow() -> Result<(), String> {
@@ -717,6 +741,133 @@ fn apply_grox_provider_environment(command: &mut Command) {
             command.env(key, value);
         }
     }
+}
+
+/// ACP has a text-only filesystem contract. Keep writes in the workspace, but
+/// let the CLI read its own built-in and user-installed Skill definitions.
+/// Canonical paths are compared after resolution so a workspace symlink cannot
+/// be used to escape the intended boundary.
+fn checked_acp_readable_file(workspace: &Path, requested: &str) -> Result<PathBuf, String> {
+    let grok = grok_home()?;
+    let roots = [
+        grok.join("skills"),
+        grok.join("bundled").join("skills"),
+        // The official CLI persists session checkpoints here. These remain
+        // read-only; only ACP text writes inside the active workspace are
+        // permitted.
+        grok.join("sessions"),
+    ]
+    .into_iter()
+    .filter_map(|root| root.canonicalize().ok())
+    .collect::<Vec<_>>();
+    checked_read_file_with_roots(workspace, requested, &roots)
+}
+
+fn checked_read_file_with_roots(
+    workspace: &Path,
+    requested: &str,
+    readonly_roots: &[PathBuf],
+) -> Result<PathBuf, String> {
+    let candidate = PathBuf::from(requested);
+    let candidate = if candidate.is_absolute() {
+        candidate
+    } else {
+        workspace.join(candidate)
+    };
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| format!("无法解析文件 {}：{error}", candidate.display()))?;
+    if canonical.starts_with(workspace)
+        || readonly_roots
+            .iter()
+            .any(|root| canonical.starts_with(root))
+    {
+        return Ok(canonical);
+    }
+    Err("只能读取当前项目或 Grok 的 Skills、Sessions 目录下的文本文件".into())
+}
+
+/// Identify accepted image formats from their contents rather than a mutable
+/// filename extension. This rejects a text file renamed to `.png` before it
+/// can be sent to the provider as a broken multimodal attachment.
+fn image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"BM") {
+        return Some("image/bmp");
+    }
+    let svg_prefix = std::str::from_utf8(&bytes[..bytes.len().min(4 * 1024)]).ok()?;
+    let svg_start = svg_prefix.trim_start_matches(['\u{feff}', ' ', '\t', '\r', '\n']);
+    let svg_start = svg_start.to_ascii_lowercase();
+    if svg_start.starts_with("<svg")
+        || (svg_start.starts_with("<?xml") && svg_start.contains("<svg"))
+    {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+/// Resolve a path the user themselves supplied in the composer. This does not
+/// change the agent's filesystem authority: only image files explicitly named
+/// in a message become that message's multimodal attachments.
+fn checked_explicit_prompt_image(workspace: &Path, requested: &str) -> Result<PathBuf, String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Err("图片路径不能为空".into());
+    }
+    let candidate =
+        if requested == "~" || requested.starts_with("~/") || requested.starts_with("~\\") {
+            let home = user_home()?;
+            if requested == "~" {
+                home
+            } else {
+                home.join(&requested[2..])
+            }
+        } else {
+            let path = if requested.starts_with("file:") {
+                url::Url::parse(requested)
+                    .map_err(|error| format!("无效 file:// 图片路径：{error}"))?
+                    .to_file_path()
+                    .map_err(|_| "file:// 图片路径必须指向本地文件".to_string())?
+            } else {
+                PathBuf::from(requested)
+            };
+            if path.is_absolute() {
+                path
+            } else {
+                workspace.join(path)
+            }
+        };
+    if !candidate.exists() {
+        return Err(format!("图片路径不存在：{}", candidate.display()));
+    }
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| format!("无法解析图片路径 {}：{error}", candidate.display()))?;
+    let metadata = fs::metadata(&canonical)
+        .map_err(|error| format!("无法读取图片 {}：{error}", canonical.display()))?;
+    if !metadata.is_file() {
+        return Err("图片路径必须指向文件".into());
+    }
+    if metadata.len() > MAX_PROMPT_IMAGE_BYTES {
+        return Err("单张图片不能超过 16 MB".into());
+    }
+    let bytes = fs::read(&canonical)
+        .map_err(|error| format!("无法读取图片 {}：{error}", canonical.display()))?;
+    if image_mime(&bytes).is_none() {
+        return Err("图片内容不是受支持的 PNG、JPG、GIF、WebP、SVG 或 BMP 格式".into());
+    }
+    Ok(canonical)
 }
 
 fn is_loopback_host(host: Option<&str>) -> bool {
@@ -964,7 +1115,7 @@ fn acp_read_text_file(
     limit: Option<u32>,
 ) -> Result<String, String> {
     let workspace = checked_workspace(&cwd)?;
-    let file = checked_workspace_file(&workspace, &path)?;
+    let file = checked_acp_readable_file(&workspace, &path)?;
     let content = read_bounded_text(&file, MAX_ACP_TEXT_BYTES)?;
     if line.is_none() && limit.is_none() {
         return Ok(content);
@@ -976,6 +1127,55 @@ fn acp_read_text_file(
         .skip(start)
         .take(take)
         .collect())
+}
+
+#[tauri::command]
+fn read_prompt_image_paths(cwd: String, paths: Vec<String>) -> Result<Vec<PromptPathImage>, String> {
+    if paths.len() > 8 {
+        return Err("每次最多附加 8 张路径图片".into());
+    }
+    let workspace = checked_workspace(&cwd)?;
+    let mut images = Vec::with_capacity(paths.len());
+    let mut seen = std::collections::BTreeSet::new();
+    let mut total_size = 0_u64;
+    for requested in paths {
+        let file = match checked_explicit_prompt_image(&workspace, &requested) {
+            // Paths occurring in normal prose often name an output the model
+            // should create. Do not turn a missing file into a send-blocking
+            // error; existing, explicit image paths are still attached.
+            Err(error) if error.starts_with("图片路径不存在：") => continue,
+            result => result?,
+        };
+        let path = path_for_webview(&file);
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let metadata = fs::metadata(&file)
+            .map_err(|error| format!("无法读取图片 {}：{error}", file.display()))?;
+        total_size = total_size.saturating_add(metadata.len());
+        if total_size > MAX_PROMPT_IMAGE_TOTAL_BYTES {
+            return Err("路径图片总大小不能超过 32 MB".into());
+        }
+        let bytes = fs::read(&file)
+            .map_err(|error| format!("无法读取图片 {}：{error}", file.display()))?;
+        if bytes.len() as u64 > MAX_PROMPT_IMAGE_BYTES {
+            return Err("单张图片不能超过 16 MB".into());
+        }
+        let mime = image_mime(&bytes)
+            .ok_or_else(|| "图片内容不是受支持的图片格式".to_string())?;
+        images.push(PromptPathImage {
+            path,
+            name: file
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("image")
+                .to_string(),
+            mime: mime.to_string(),
+            size: metadata.len(),
+            data: BASE64.encode(bytes),
+        });
+    }
+    Ok(images)
 }
 
 #[tauri::command]
@@ -2321,6 +2521,68 @@ fn open_in_explorer(cwd: String, path: Option<String>) -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("无法打开文件管理器：{error}"))?;
     Ok(())
+}
+
+/// Reveal one workspace file in the platform file manager. This is distinct
+/// from `open_in_explorer`, which intentionally opens the project root.
+#[tauri::command]
+fn reveal_in_explorer(cwd: String, path: String) -> Result<(), String> {
+    let root = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&root, &path)?;
+    #[cfg(windows)]
+    std::process::Command::new("explorer.exe")
+        .arg("/select,")
+        .arg(&file)
+        .spawn()
+        .map_err(|error| format!("无法打开资源管理器：{error}"))?;
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(&file)
+        .spawn()
+        .map_err(|error| format!("无法在 Finder 中显示文件：{error}"))?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    std::process::Command::new("xdg-open")
+        .arg(file.parent().unwrap_or(&file))
+        .spawn()
+        .map_err(|error| format!("无法打开文件管理器：{error}"))?;
+    Ok(())
+}
+
+/// Ask the platform to open a workspace file with its default application.
+#[tauri::command]
+fn open_file_with_default(cwd: String, path: String) -> Result<(), String> {
+    let root = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&root, &path)?;
+    if !file.is_file() {
+        return Err("只能使用默认应用打开文件".into());
+    }
+    #[cfg(windows)]
+    std::process::Command::new("explorer.exe")
+        .arg(&file)
+        .spawn()
+        .map_err(|error| format!("无法打开默认应用：{error}"))?;
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&file)
+        .spawn()
+        .map_err(|error| format!("无法打开默认应用：{error}"))?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    std::process::Command::new("xdg-open")
+        .arg(&file)
+        .spawn()
+        .map_err(|error| format!("无法打开默认应用：{error}"))?;
+    Ok(())
+}
+
+/// Resolve a workspace-relative entry to the actual path that the user can
+/// paste into a shell, editor, or another task. It intentionally shares the
+/// workspace boundary used by the file-tree actions.
+#[tauri::command]
+fn workspace_file_path(cwd: String, path: String) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&root, &path)?;
+    Ok(path_for_webview(&file))
 }
 
 #[tauri::command]
@@ -4230,10 +4492,14 @@ fn main() {
             read_preview_file,
             start_file_preview,
             acp_read_text_file,
+            read_prompt_image_paths,
             acp_write_text_file,
             open_in_explorer,
             open_in_app,
             notify_desktop,
+            reveal_in_explorer,
+            open_file_with_default,
+            workspace_file_path,
             read_config_documents,
             write_config_document,
             read_provider_status,
@@ -4330,6 +4596,106 @@ mod tests {
         )
         .is_err());
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn acp_read_scope_allows_only_workspace_and_grok_readonly_roots() {
+        let base = std::env::temp_dir().join(format!(
+            "grox-acp-read-scope-{}-{}",
+            std::process::id(),
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let workspace = base.join("workspace");
+        let skills = base.join("grok").join("skills");
+        let sessions = base.join("grok").join("sessions");
+        let outside = base.join("outside");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&skills).unwrap();
+        fs::create_dir_all(&sessions).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let project_file = workspace.join("README.md");
+        let skill_file = skills.join("imagine").join("SKILL.md");
+        let outside_file = outside.join("private.md");
+        let session_file = sessions.join("session.jsonl");
+        fs::create_dir_all(skill_file.parent().unwrap()).unwrap();
+        fs::write(&project_file, "project").unwrap();
+        fs::write(&skill_file, "skill").unwrap();
+        fs::write(&session_file, "session").unwrap();
+        fs::write(&outside_file, "outside").unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let skills = skills.canonicalize().unwrap();
+        let sessions = sessions.canonicalize().unwrap();
+        assert!(checked_read_file_with_roots(
+            &workspace,
+            &path_for_webview(&project_file),
+            &[skills.clone()],
+        )
+        .is_ok());
+        assert!(checked_read_file_with_roots(
+            &workspace,
+            &path_for_webview(&skill_file),
+            &[skills, sessions.clone()],
+        )
+        .is_ok());
+        assert!(checked_read_file_with_roots(
+            &workspace,
+            &path_for_webview(&session_file),
+            &[sessions],
+        )
+        .is_ok());
+        assert!(checked_read_file_with_roots(
+            &workspace,
+            &path_for_webview(&outside_file),
+            &[],
+        )
+        .is_err());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn explicit_prompt_image_can_be_outside_workspace_without_granting_acp_access() {
+        let base = std::env::temp_dir().join(format!(
+            "grox-prompt-image-{}-{}",
+            std::process::id(),
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let workspace = base.join("workspace");
+        let external = base.join("external image.png");
+        fs::create_dir_all(&workspace).unwrap();
+        // A complete, valid 1 × 1 PNG. Content validation must not rely on
+        // the `.png` suffix alone.
+        fs::write(
+            &external,
+            BASE64
+                .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLqXQAAAABJRU5ErkJggg==")
+                .unwrap(),
+        )
+        .unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let resolved = checked_explicit_prompt_image(&workspace, &path_for_webview(&external)).unwrap();
+        assert_eq!(resolved, external.canonicalize().unwrap());
+        let file_url = url::Url::from_file_path(&external).unwrap().to_string();
+        assert_eq!(
+            checked_explicit_prompt_image(&workspace, &file_url).unwrap(),
+            external.canonicalize().unwrap()
+        );
+        assert!(checked_read_file_with_roots(&workspace, &path_for_webview(&external), &[]).is_err());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn explicit_prompt_image_rejects_a_renamed_text_file() {
+        let base = std::env::temp_dir().join(format!(
+            "grox-invalid-image-{}-{}",
+            std::process::id(),
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&base).unwrap();
+        let bad_image = base.join("not-an-image.png");
+        fs::write(&bad_image, b"this is ordinary text").unwrap();
+        let workspace = base.canonicalize().unwrap();
+        assert!(checked_explicit_prompt_image(&workspace, &path_for_webview(&bad_image)).is_err());
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
