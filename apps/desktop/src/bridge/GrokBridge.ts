@@ -94,6 +94,9 @@ export interface GrokBridge {
   /** ACP: session/prompt — streams events until the turn settles. */
   prompt(sessionId: string, text: string, opts: PromptOptions): Promise<void>;
 
+  /** 在当前运行回合中插话；返回 false 表示当前 CLI 不支持即时插话。 */
+  interject(sessionId: string, text: string, opts: PromptOptions): Promise<boolean>;
+
   /** ACP: session/cancel — abort the in-flight turn. */
   cancel(sessionId: string): void;
 

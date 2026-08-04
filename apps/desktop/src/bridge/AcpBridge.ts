@@ -46,6 +46,7 @@ import type {
   WorkflowTraceEntry,
   WorkflowRun,
 } from "./types";
+import { readStoredPermissionMode } from "../lib/permissionMode";
 
 export const ACP_METHODS = {
   initialize: "initialize",
@@ -149,6 +150,10 @@ class AcpRpcError extends Error {
 function isInvalidParamsError(error: unknown): boolean {
   if (error instanceof AcpRpcError && error.code === -32602) return true;
   return error instanceof Error && /\binvalid params\b/i.test(error.message);
+}
+
+function isMethodUnavailable(error: unknown): boolean {
+  return error instanceof AcpRpcError && (error.code === -32601 || error.code === -32602);
 }
 
 /**
@@ -1028,18 +1033,16 @@ export class AcpBridge implements GrokBridge {
   private toolFlushTimer: number | undefined;
   private diagnostics: string[] = [];
   private requestId = 0;
+  /** 与原生 ACP 子进程绑定，防止旧异步请求写入新子进程。 */
+  private acpGeneration = 0;
+  private reconnecting: Promise<void> | null = null;
   private authMethodId: string | undefined;
   private authState: AuthState = { required: false, inProgress: false };
   private modelState: ModelState = { models: MODELS, currentId: MODELS[0].id };
   private runtimeCommandBase: SlashCommand[] = [];
   private runtimeCommands: SlashCommand[] = [];
   private runtimeCommandTags = new Map<string, string>();
-  private permissionMode: PermissionMode =
-    localStorage.getItem("grok.permissionMode") === "auto"
-      ? "auto"
-      : localStorage.getItem("grok.permissionMode") === "bypass"
-        ? "bypass"
-        : "default";
+  private permissionMode: PermissionMode = readStoredPermissionMode(localStorage.getItem("grok.permissionMode"));
   private computerUseEnabled = localStorage.getItem("grox.computerUseEnabled") !== "0";
   private browserUseEnabled = localStorage.getItem("grox.browserUseEnabled") !== "0";
   private workspace = "";
@@ -1184,7 +1187,7 @@ export class AcpBridge implements GrokBridge {
     // Diagnostics belong to one concrete child process. Keeping stderr from a
     // process replaced during a Tauri hot reload produces misleading errors.
     this.diagnostics = [];
-    await invoke("acp_spawn", {
+    this.acpGeneration = await invoke<number>("acp_spawn", {
       cwd: this.workspace,
       computerUseEnabled: this.computerUseEnabled,
     });
@@ -1338,9 +1341,44 @@ export class AcpBridge implements GrokBridge {
       request.reject(new Error(message));
     }
     this.pending.clear();
-    for (const sessionId of this.knownSessions) {
-      this.emit({ type: "error", sessionId, message });
-    }
+    const affected = [...this.knownSessions];
+    this.knownSessions.clear();
+    this.loadPromises.clear();
+    this.cursors.clear();
+    this.sessionOptions.clear();
+    this.beginReconnect(affected, message);
+  }
+
+  private beginReconnect(sessionIds: string[], reason: string) {
+    if (this.reconnecting) return;
+    const reconnect = (async () => {
+      let lastError = reason;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        this.setAuthState({ inProgress: true, error: `Agent 异常退出，正在自动重连（${attempt}/2）…` });
+        await new Promise((resolve) => window.setTimeout(resolve, attempt * 800));
+        try {
+          await this.initializeAgent();
+          this.setAuthState({ inProgress: false, error: undefined });
+          for (const sessionId of sessionIds) {
+            this.emit({
+              type: "block_add",
+              sessionId,
+              block: { type: "system", id: uid(), text: "Agent 已自动重连；下次发送会重新绑定会话", ts: Date.now(), kind: "info" },
+            });
+            this.emit({ type: "status", sessionId, status: "idle" });
+          }
+          return;
+        } catch (error) {
+          lastError = errorText(error);
+        }
+      }
+      this.setAuthState({ inProgress: false, error: `Agent 自动重连失败：${lastError}` });
+      for (const sessionId of sessionIds) this.emit({ type: "error", sessionId, message: lastError });
+      throw new Error(lastError);
+    })();
+    this.reconnecting = reconnect.finally(() => { this.reconnecting = null; });
+    this.ready = this.reconnecting;
+    void this.reconnecting.catch(() => {});
   }
 
   private onLine(line: string) {
@@ -2167,7 +2205,7 @@ export class AcpBridge implements GrokBridge {
   }
 
   private async sendRaw(message: JsonRpcMessage): Promise<void> {
-    await invoke("acp_send", { line: JSON.stringify(message) });
+    await invoke("acp_send", { line: JSON.stringify(message), generation: this.acpGeneration });
   }
 
   private requestRaw(method: string, params: unknown, timeoutMs = 30_000, onPending?: (id: RpcId) => void): Promise<unknown> {
@@ -3139,6 +3177,37 @@ export class AcpBridge implements GrokBridge {
       this.finishTurn(sessionId, undefined, terminalStatus);
       this.markPromptFinished(sessionId);
     }
+  }
+
+  async interject(sessionId: string, text: string, options: PromptOptions): Promise<boolean> {
+    await this.ready;
+    const trimmed = text.trim();
+    if (!trimmed && (options.attachments?.length ?? 0) === 0) return false;
+    const id = uid();
+    try {
+      await this.request("x.ai/interject", {
+        sessionId,
+        text: trimmed,
+        interjectionId: id,
+        content: promptContent(trimmed, options.attachments ?? []),
+      }, 30_000);
+    } catch (error) {
+      if (isMethodUnavailable(error)) return false;
+      throw error;
+    }
+    this.emit({
+      type: "block_add",
+      sessionId,
+      block: {
+        type: "user",
+        id,
+        text: trimmed,
+        interjected: true,
+        attachments: options.attachments?.map(({ id, kind, name, mime, size }) => ({ id, kind, name, mime, size })),
+        ts: Date.now(),
+      },
+    });
+    return true;
   }
 
   cancel(sessionId: string): void {

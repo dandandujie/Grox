@@ -5,7 +5,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useRef, useState } from "react";
-import { useDesktop } from "../../state/store";
+import { useDesktop, type QueuedPrompt } from "../../state/store";
 import {
   EFFORTS,
   isSessionTerminal,
@@ -23,6 +23,7 @@ import {
 } from "../../lib/attachments";
 import { attachExplicitPromptImages } from "../../lib/pathAttachments";
 import { RewindMenu } from "./RewindMenu";
+import { useImeGuard } from "../../lib/ime";
 
 interface SlashCmd {
   id: string;
@@ -33,6 +34,7 @@ interface SlashCmd {
 }
 
 const NO_RUNTIME_COMMANDS: SlashCommand[] = [];
+const NO_QUEUED_PROMPTS: QueuedPrompt[] = [];
 
 export function Composer() {
   const { language } = useI18n();
@@ -43,12 +45,12 @@ export function Composer() {
   const fileRef = useRef<HTMLInputElement>(null);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  // IMEs use Enter to commit the candidate currently being composed. React's
-  // `isComposing` is not consistent across all macOS/Windows IMEs, so keep a
-  // local composition flag and also retain the native fallback below.
-  const composingRef = useRef(false);
+  const { onCompositionStart, onCompositionEnd, isImeBlocking } = useImeGuard();
 
   const sendPrompt = useDesktop((s) => s.sendPrompt);
+  const interjectPrompt = useDesktop((s) => s.interjectPrompt);
+  const removeQueuedPrompt = useDesktop((s) => s.removeQueuedPrompt);
+  const clearPromptQueue = useDesktop((s) => s.clearPromptQueue);
   const activeId = useDesktop((s) => s.activeId);
   const workspace = useDesktop((s) => s.workspace);
   const composer = useDesktop((s) => s.activeId ? s.sessionComposers[s.activeId] : undefined);
@@ -86,6 +88,8 @@ export function Composer() {
   const setInspectorTab = useDesktop((s) => s.setInspectorTab);
   const setPlanPreviewOpen = useDesktop((s) => s.setPlanPreviewOpen);
   const runtimeCommands = useDesktop((s) => s.activeId ? s.slashCommands[s.activeId] ?? NO_RUNTIME_COMMANDS : NO_RUNTIME_COMMANDS);
+  const promptQueues = useDesktop((s) => s.promptQueues);
+  const queue = activeId ? promptQueues[activeId] ?? NO_QUEUED_PROMPTS : NO_QUEUED_PROMPTS;
 
   const openExtensionSettings = (section: "mcp" | "skills" | "plugins") => {
     setSettingsOpen(true);
@@ -203,7 +207,7 @@ export function Composer() {
 
   const send = async () => {
     const t = text.trim();
-    if ((!t && attachments.length === 0) || creating || running || restoring || readingFiles) return;
+    if ((!t && attachments.length === 0) || creating || restoring || readingFiles) return;
     // Path attachments are resolved asynchronously. Pin this turn to the
     // session that owned the composer when Enter was pressed; otherwise a
     // quick session switch can redirect it to a different task.
@@ -240,6 +244,21 @@ export function Composer() {
     }
   };
 
+  const interject = async () => {
+    const t = text.trim();
+    if ((!t && attachments.length === 0) || creating || restoring || readingFiles || !activeId) return;
+    setReadingFiles(true);
+    setAttachmentError("");
+    try {
+      const turnAttachments = await attachExplicitPromptImages(workspace, t, attachments);
+      await interjectPrompt(t, turnAttachments, activeId);
+    } catch (cause) {
+      setAttachmentError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReadingFiles(false);
+    }
+  };
+
   const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const images = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
@@ -252,9 +271,7 @@ export function Composer() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
-      return;
-    }
+    if (isImeBlocking(e)) return;
     if (slashOpen && matches.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -275,6 +292,11 @@ export function Composer() {
         setText("");
         return;
       }
+    }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void interject();
+      return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -352,8 +374,8 @@ export function Composer() {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            onCompositionStart={() => { composingRef.current = true; }}
-            onCompositionEnd={() => { composingRef.current = false; }}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
             disabled={creating}
             rows={1}
             placeholder={
@@ -367,6 +389,29 @@ export function Composer() {
             }
             className="block w-full resize-none bg-transparent px-5 pb-1.5 pt-3.5 text-[16px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
           />
+
+          {queue.length > 0 && (
+            <div className="border-t border-line px-3 py-2">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="font-mono text-[9.5px] text-dim">
+                  {language === "zh-CN" ? `等待发送 ${queue.length}` : `${queue.length} queued`}
+                </span>
+                <button onClick={() => clearPromptQueue(activeId ?? undefined)} className="font-mono text-[9px] text-faint hover:text-red">
+                  {language === "zh-CN" ? "清空" : "Clear"}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {queue.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 rounded-lg bg-high/60 px-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[10.5px] text-fg2">{item.text || item.attachments.map((a) => a.name).join(", ")}</span>
+                    <button onClick={() => activeId && removeQueuedPrompt(activeId, item.id)} className="text-faint hover:text-red" title={language === "zh-CN" ? "移出队列" : "Remove from queue"}>
+                      <Icon name="x" size={9} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* control strip */}
           <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-1.5">
@@ -407,7 +452,7 @@ export function Composer() {
 
             <button
               onClick={() => fileRef.current?.click()}
-              disabled={creating || running || readingFiles || attachments.length >= MAX_ATTACHMENTS}
+              disabled={creating || readingFiles || attachments.length >= MAX_ATTACHMENTS}
               title={language === "zh-CN" ? "上传文件；也可直接粘贴剪贴板图片" : "Upload files; clipboard images can also be pasted"}
               className="flex h-8 items-center gap-1.5 rounded-full border border-line2 px-3 font-mono text-[10.5px] text-dim transition-colors hover:border-line3 hover:text-fg2 disabled:opacity-40"
             >
@@ -424,6 +469,22 @@ export function Composer() {
 
             {running ? (
               <>
+                <button
+                  onClick={() => void send()}
+                  disabled={!text.trim() && attachments.length === 0}
+                  title={language === "zh-CN" ? "当前回合结束后发送" : "Send after current turn"}
+                  className="flex h-8 items-center gap-1.5 rounded-full border border-line2 px-3 font-mono text-[10px] text-fg2 disabled:opacity-40"
+                >
+                  {language === "zh-CN" ? "加入队列" : "QUEUE"}
+                </button>
+                {status === "running" && <button
+                    onClick={() => void interject()}
+                    disabled={!text.trim() && attachments.length === 0}
+                    title={language === "zh-CN" ? "插入当前回合（⌘/Ctrl+Enter）" : "Interject (Cmd/Ctrl+Enter)"}
+                    className="flex h-8 items-center gap-1.5 rounded-full border border-acc/40 px-3 font-mono text-[10px] text-acc disabled:opacity-40"
+                  >
+                    {language === "zh-CN" ? "插话" : "INTERJECT"}
+                  </button>}
                 {computerRunning && <button
                   onClick={emergencyStopComputer}
                   title={language === "zh-CN" ? "紧急停止 Computer Use，并锁定当前控制租约" : "Emergency stop Computer Use and lock this control lease"}
@@ -465,7 +526,7 @@ export function Composer() {
               ? (language === "zh-CN" ? "正在创建会话…" : "CREATING CONVERSATION…")
               : restoring
               ? (language === "zh-CN" ? "正在同步当前会话…" : "SYNCHRONIZING CURRENT SESSION…")
-              : (language === "zh-CN" ? "⏎ 发送（输入法确认后） · ⇧⏎ 换行 · 粘贴图片 · / 命令" : "⏎ SEND AFTER IME COMMIT · ⇧⏎ NEWLINE · PASTE IMAGE · / COMMANDS")}
+              : (language === "zh-CN" ? "⏎ 发送/排队 · ⌘/Ctrl+⏎ 插话 · ⇧⏎ 换行 · 输入法确认不发送" : "⏎ SEND/QUEUE · CMD/CTRL+⏎ INTERJECT · ⇧⏎ NEWLINE · IME SAFE")}
           </span>
           <span className="lbl !text-[9.5px]">
             {language === "zh-CN"

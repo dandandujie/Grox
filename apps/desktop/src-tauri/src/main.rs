@@ -735,6 +735,58 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
     fs::rename(&temp, path).map_err(|error| format!("无法保存配置 {}：{error}", path.display()))
 }
 
+const SESSION_CACHE_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+fn session_cache_path(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
+    let safe = id
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        .take(80)
+        .collect::<String>();
+    if safe.is_empty() {
+        return Err("无效的会话 ID".into());
+    }
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join("session-cache").join(format!("{safe}.json")))
+        .map_err(|error| format!("无法定位会话缓存目录：{error}"))
+}
+
+#[tauri::command]
+fn read_session_cache(app: tauri::AppHandle, id: String) -> Result<Option<String>, String> {
+    let path = session_cache_path(&app, &id)?;
+    if !path.is_file() {
+        return Ok(None);
+    }
+    read_bounded_text(&path, SESSION_CACHE_MAX_BYTES)
+        .map(|content| if content.trim().is_empty() { None } else { Some(content) })
+        .or(Ok(None))
+}
+
+#[tauri::command]
+fn write_session_cache(app: tauri::AppHandle, id: String, content: String) -> Result<(), String> {
+    if content.len() as u64 > SESSION_CACHE_MAX_BYTES {
+        return Err("会话缓存不能超过 4 MB".into());
+    }
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|error| format!("会话缓存必须是 JSON：{error}"))?;
+    if !value.is_object() {
+        return Err("会话缓存必须是 JSON 对象".into());
+    }
+    let path = session_cache_path(&app, &id)?;
+    atomic_write(&path, &content)?;
+    restrict_private_file(&path)
+}
+
+#[tauri::command]
+fn delete_session_cache(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let path = session_cache_path(&app, &id)?;
+    if path.is_file() {
+        fs::remove_file(&path).map_err(|error| format!("无法删除会话缓存：{error}"))?;
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 fn restrict_private_file(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt as _;
@@ -4922,7 +4974,7 @@ async fn acp_spawn(
     state: tauri::State<'_, Arc<AcpState>>,
     cwd: String,
     computer_use_enabled: Option<bool>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let cwd = checked_workspace(&cwd)?;
 
     // Invalidate the previous readers before terminating their process. On a
@@ -5072,7 +5124,7 @@ async fn acp_spawn(
         }
     });
 
-    Ok(())
+    Ok(generation)
 }
 
 #[tauri::command]
@@ -5080,6 +5132,7 @@ async fn acp_send(
     state: tauri::State<'_, Arc<AcpState>>,
     leases: tauri::State<'_, Arc<McpLeaseStore>>,
     line: String,
+    generation: u64,
 ) -> Result<(), String> {
     if line.contains('\n') || line.contains('\r') {
         return Err("ACP 消息必须是单行 JSON".into());
@@ -5092,6 +5145,9 @@ async fn acp_send(
     let process = guard
         .as_mut()
         .ok_or_else(|| "Grok Agent 尚未启动".to_string())?;
+    if process.generation != generation {
+        return Err("ACP 通道已切换，请在新通道上重试".into());
+    }
     process
         .stdin
         .write_all(line.as_bytes())
@@ -5581,6 +5637,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             desktop_environment,
             preview_session_from_disk,
+            read_session_cache,
+            write_session_cache,
+            delete_session_cache,
             validate_workspace,
             pick_workspace,
             list_workspace_files,

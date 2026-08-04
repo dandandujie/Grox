@@ -102,11 +102,11 @@ function DeepResearchToolCard({ run, query }: { run?: WorkflowRun; query?: strin
   );
 }
 
-function groupTurns(blocks: SessionBlock[]): Turn[] {
+export function groupTurns(blocks: SessionBlock[]): Turn[] {
   const turns: Turn[] = [];
   let promptIndex = -1;
   for (const block of blocks) {
-    if (block.type === "user") {
+    if (block.type === "user" && !block.interjected) {
       promptIndex += 1;
       turns.push({ id: block.id, blocks: [block], promptIndex });
     } else if (turns.length === 0) turns.push({ id: block.id, blocks: [block], promptIndex: -1 });

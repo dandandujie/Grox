@@ -17,6 +17,7 @@ import { ChipSelect } from "../common/ChipSelect";
 import { PromptOptionsMenu, ProviderSwitcher } from "../common/PromptControls";
 import { useI18n } from "../../lib/i18n";
 import { MediaStudio } from "./MediaStudio";
+import { useImeGuard } from "../../lib/ime";
 
 export function Home() {
   const { language, t } = useI18n();
@@ -28,9 +29,7 @@ export function Home() {
   const [slashIndex, setSlashIndex] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  // Enter confirms an in-progress IME candidate. Keep a local flag because
-  // WebKit can report composition state after the keyboard event has fired.
-  const composingRef = useRef(false);
+  const { onCompositionStart, onCompositionEnd, isImeBlocking } = useImeGuard();
   const sessionIndex = useDesktop((s) => s.sessionIndex);
   const sessions = useDesktop((s) => s.sessions);
   const newSession = useDesktop((s) => s.newSession);
@@ -222,15 +221,15 @@ export function Home() {
               if (images.length > 0) { event.preventDefault(); void appendFiles(images); }
             }}
             onKeyDown={(event) => {
-              if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+              if (isImeBlocking(event)) return;
               if (slashMatches.length > 0 && event.key === "ArrowDown") { event.preventDefault(); setSlashIndex((index) => (index + 1) % slashMatches.length); return; }
               if (slashMatches.length > 0 && event.key === "ArrowUp") { event.preventDefault(); setSlashIndex((index) => (index - 1 + slashMatches.length) % slashMatches.length); return; }
               if (slashMatches.length > 0 && event.key === "Enter" && !event.shiftKey) { event.preventDefault(); chooseSlash(slashMatches[slashIndex]?.id ?? slashMatches[0]?.id ?? ""); return; }
               if (event.key === "Escape" && slashMatches.length > 0) { event.preventDefault(); setQ(""); return; }
               if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void launch(); }
             }}
-            onCompositionStart={() => { composingRef.current = true; }}
-            onCompositionEnd={() => { composingRef.current = false; }}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
             rows={3}
             placeholder={language === "zh-CN" ? "描述任务；可直接粘贴截图或上传文件…" : "Describe the mission; paste screenshots or attach files…"}
             disabled={auth.required}

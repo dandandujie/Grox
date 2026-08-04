@@ -322,7 +322,7 @@ export class MockBridge implements GrokBridge {
     const changedFiles: Set<string>[] = [];
     let promptIndex = -1;
     for (const block of session?.blocks ?? []) {
-      if (block.type === "user") {
+      if (block.type === "user" && !block.interjected) {
         promptIndex += 1;
         changedFiles[promptIndex] = new Set();
         points.push({
@@ -354,7 +354,7 @@ export class MockBridge implements GrokBridge {
     const changedFiles = new Set<string>();
     let activePrompt = -1;
     for (const block of session.blocks) {
-      if (block.type === "user") activePrompt += 1;
+      if (block.type === "user" && !block.interjected) activePrompt += 1;
       if (activePrompt === targetPromptIndex && block.type === "tool") {
         for (const hunk of block.call.diff ?? []) changedFiles.add(hunk.path);
       }
@@ -373,7 +373,7 @@ export class MockBridge implements GrokBridge {
     if (mode !== "files_only") {
       let prompts = -1;
       session.blocks = session.blocks.filter((block) => {
-        if (block.type === "user") prompts += 1;
+        if (block.type === "user" && !block.interjected) prompts += 1;
         return prompts < targetPromptIndex;
       });
       this.emit({ type: "session_ready", session: structuredClone(session) });
@@ -429,6 +429,21 @@ export class MockBridge implements GrokBridge {
         this.turns.delete(sessionId);
         this.emit({ type: "status", sessionId, status: "idle" });
       });
+  }
+
+  async interject(sessionId: string, text: string, opts: PromptOptions): Promise<boolean> {
+    if (!this.turns.has(sessionId)) return false;
+    const block: SessionBlock = {
+      type: "user",
+      id: uid(),
+      text: text.trim(),
+      interjected: true,
+      attachments: opts.attachments?.map(({ id, kind, name, mime, size }) => ({ id, kind, name, mime, size })),
+      ts: Date.now(),
+    };
+    this.sessions.get(sessionId)?.blocks.push(block);
+    this.emit({ type: "block_add", sessionId, block });
+    return true;
   }
 
   /* ── turn engine ─────────────────────────────────────────────────────── */

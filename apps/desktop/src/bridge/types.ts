@@ -226,7 +226,7 @@ export type QuestionResponse =
   | { outcome: "cancelled" };
 
 export type SessionBlock =
-  | { type: "user"; id: string; text: string; attachments?: PromptAttachmentSummary[]; ts: number }
+  | { type: "user"; id: string; text: string; attachments?: PromptAttachmentSummary[]; ts: number; interjected?: boolean }
   | { type: "assistant"; id: string; text: string; ts: number; streaming?: boolean }
   | { type: "thinking"; id: string; text: string; ts: number; live?: boolean; elapsedMs?: number }
   | { type: "tool"; id: string; call: ToolCall; ts: number }
