@@ -1184,7 +1184,10 @@ export class AcpBridge implements GrokBridge {
     // Diagnostics belong to one concrete child process. Keeping stderr from a
     // process replaced during a Tauri hot reload produces misleading errors.
     this.diagnostics = [];
-    await invoke("acp_spawn", { cwd: this.workspace });
+    await invoke("acp_spawn", {
+      cwd: this.workspace,
+      computerUseEnabled: this.computerUseEnabled,
+    });
     // The inference proxy gates on the client version, so never assert a
     // hardcoded one: report the actual CLI version whenever it is detectable.
     const clientVersion = await this.detectCliVersion();

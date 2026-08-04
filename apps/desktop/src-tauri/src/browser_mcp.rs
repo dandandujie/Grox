@@ -6,19 +6,21 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
-    fs,
+    fs::{self, OpenOptions},
     io::{BufRead, Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
-    process::Command,
+    process::{Child, Command},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, SyncSender},
         Mutex, OnceLock,
     },
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
+
+const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub struct HttpEndpoint {
     pub url: String,
@@ -160,6 +162,10 @@ fn handle_connection(mut stream: TcpStream, token: &str, lease_id: &str) {
     let mut reader = std::io::BufReader::new(clone);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).is_err() {
+        return;
+    }
+    if !request_line.starts_with("POST ") {
+        let _ = write_response(&mut stream, 405, Some(json!({"error":"Method Not Allowed"})));
         return;
     }
     let mut headers = HashMap::<String, String>::new();
@@ -610,12 +616,55 @@ fn chromium_candidates() -> Vec<PathBuf> {
     paths
 }
 
+fn random_hex(bytes: usize) -> Result<String, String> {
+    let mut buffer = vec![0_u8; bytes];
+    getrandom::fill(&mut buffer).map_err(|error| format!("无法生成随机名：{error}"))?;
+    Ok(buffer.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// Private random subdirectory + O_EXCL create so a peer process cannot pre-plant
+/// a symlink at a predictable `grox-browser-<nanos>.png` path.
+fn secure_temp_png(prefix: &str) -> Result<(PathBuf, PathBuf), String> {
+    let dir = std::env::temp_dir().join(format!("grox-shots-{}", random_hex(16)?));
+    fs::create_dir(&dir).map_err(|error| format!("无法创建截图临时目录：{error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+    }
+    let path = dir.join(format!("{prefix}-{}.png", random_hex(16)?));
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| format!("无法创建截图临时文件：{error}"))?;
+    Ok((dir, path))
+}
+
+fn wait_child_with_timeout(child: &mut Child, timeout: Duration) -> Result<std::process::ExitStatus, String> {
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if started.elapsed() < timeout => {
+                thread::sleep(Duration::from_millis(40));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("截图超时，已终止浏览器进程".into());
+            }
+            Err(error) => return Err(format!("无法等待截图进程：{error}")),
+        }
+    }
+}
+
 fn headless_screenshot(url: &str, width: u32, height: u32) -> Result<Vec<u8>, String> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let out = std::env::temp_dir().join(format!("grox-browser-{nanos}.png"));
+    let (dir, out) = secure_temp_png("browser")?;
+    let cleanup = || {
+        let _ = fs::remove_file(&out);
+        let _ = fs::remove_dir_all(&dir);
+    };
     let mut last_error = "未找到 Chrome / Edge / Chromium".to_string();
     for candidate in chromium_candidates() {
         let mut command = Command::new(&candidate);
@@ -632,10 +681,20 @@ fn headless_screenshot(url: &str, width: u32, height: u32) -> Result<Vec<u8>, St
             use std::os::windows::process::CommandExt as _;
             command.creation_flags(0x0800_0000);
         }
-        match command.status() {
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                last_error = format!("{}：{error}", candidate.display());
+                continue;
+            }
+        };
+        match wait_child_with_timeout(&mut child, SCREENSHOT_TIMEOUT) {
             Ok(status) if status.success() && out.exists() => {
-                let bytes = fs::read(&out).map_err(|error| format!("无法读取截图：{error}"))?;
-                let _ = fs::remove_file(&out);
+                let bytes = fs::read(&out).map_err(|error| {
+                    cleanup();
+                    format!("无法读取截图：{error}")
+                })?;
+                cleanup();
                 if bytes.is_empty() {
                     return Err("截图为空".into());
                 }
@@ -648,7 +707,9 @@ fn headless_screenshot(url: &str, width: u32, height: u32) -> Result<Vec<u8>, St
                 last_error = format!("{}：{error}", candidate.display());
             }
         }
+        let _ = fs::remove_file(&out);
     }
+    cleanup();
     Err(format!("无头截图失败：{last_error}"))
 }
 

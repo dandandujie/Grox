@@ -4562,7 +4562,7 @@ description: Use Grox's Computer Use harness when the user asks for visual deskt
 
 # Grox Computer Use
 
-Use only the grok_desktop_computer MCP tools for an explicit `/computer` or `@Computer` request (or when the user clearly asks for desktop control). Start with `list_apps`/`list_windows`, select an exact controllable window with `start`, then repeat observation → exactly one action → observation. Every state-changing action must use the latest `stateId`; stale state must be rejected. Prefer UI Automation `elementId` and `set_value` when available. Never send Win/Meta keys or system chords such as Alt+Tab, Alt+F4, or Ctrl+Esc. Never control Grox itself, installers, UAC, elevated windows, or the secure desktop. Use `stop` immediately when the user asks. Emergency stop is sticky.
+Use only the grox_desktop_computer MCP tools for an explicit `/computer` or `@Computer` request (or when the user clearly asks for desktop control). Start with `list_apps`/`list_windows`, select an exact controllable window with `start`, then repeat observation → exactly one action → observation. Every state-changing action must use the latest `stateId`; stale state must be rejected. Prefer UI Automation `elementId` and `set_value` when available. Never send Win/Meta keys or system chords such as Alt+Tab, Alt+F4, or Ctrl+Esc. Never control Grox itself, installers, UAC, elevated windows, or the secure desktop. Use `stop` immediately when the user asks. Emergency stop is sticky.
 "#,
     )
     .map_err(|error| format!("无法写入 Computer Use Skill：{error}"))?;
@@ -4921,6 +4921,7 @@ async fn acp_spawn(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AcpState>>,
     cwd: String,
+    computer_use_enabled: Option<bool>,
 ) -> Result<(), String> {
     let cwd = checked_workspace(&cwd)?;
 
@@ -4935,8 +4936,17 @@ async fn acp_spawn(
     }
 
     let runtime = configured_grok_command(&app);
-    let computer_plugin = Some(ensure_computer_plugin()
-        .map_err(|error| format!("Computer Use Plugin 初始化失败：{error}"))?);
+    // Only expose the Computer Use Skill when the desktop toggle is on; the
+    // MCP endpoint is gated separately, but SKILL.md stays visible via
+    // --plugin-dir unless we skip it here.
+    let computer_plugin = if computer_use_enabled.unwrap_or(false) {
+        Some(
+            ensure_computer_plugin()
+                .map_err(|error| format!("Computer Use Plugin 初始化失败：{error}"))?,
+        )
+    } else {
+        None
+    };
     let command_path = PathBuf::from(&runtime.path);
     let mut command = Command::new(&command_path);
     command.arg("agent");

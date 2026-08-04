@@ -124,7 +124,7 @@ pub fn serve_http(lease_id: String) -> Result<HttpEndpoint, String> {
                                 "initialize" => Ok(json!({
                                     "protocolVersion": "2025-06-18",
                                     "capabilities": { "tools": { "listChanged": false } },
-                                    "serverInfo": { "name": "grok_desktop_computer", "version": env!("CARGO_PKG_VERSION") }
+                                    "serverInfo": { "name": "grox_desktop_computer", "version": env!("CARGO_PKG_VERSION") }
                                 })),
                                 "ping" => Ok(json!({})),
                                 "tools/list" => Ok(json!({ "tools": tools() })),
@@ -209,53 +209,76 @@ fn handle_http(
     session_id: &str,
     work_tx: SyncSender<HttpWork>,
 ) {
-    let mut buffer = vec![0_u8; MAX_HTTP_BODY_BYTES];
-    let Ok(size) = stream.read(&mut buffer) else { return };
-    let request = String::from_utf8_lossy(&buffer[..size]);
-    let mut parts = request.split("\r\n\r\n");
-    let headers = parts.next().unwrap_or_default();
-    let body = parts.next().unwrap_or_default();
-    if body.len() > MAX_HTTP_BODY_BYTES {
-        let reply = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-        let _ = stream.write_all(reply.as_bytes());
+    let Ok(clone) = stream.try_clone() else {
+        return;
+    };
+    let mut reader = std::io::BufReader::new(clone);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() {
         return;
     }
-    let authorized = headers.lines().any(|line| {
-        let lower = line.to_ascii_lowercase();
-        lower.starts_with("authorization: bearer ")
-            && tokens_equal(line.trim()["authorization: bearer ".len()..].trim(), token)
-    });
+    let mut headers = HashMap::<String, String>::new();
+    let mut content_length = 0_usize;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty()
+        {
+            break;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            let key = key.trim().to_ascii_lowercase();
+            let value = value.trim().to_string();
+            if key == "content-length" {
+                content_length = value.parse().unwrap_or(0).min(MAX_HTTP_BODY_BYTES);
+            }
+            headers.insert(key, value);
+        }
+    }
+    let authorized = headers
+        .get("authorization")
+        .map(|value| {
+            value
+                .strip_prefix("Bearer ")
+                .map(|candidate| tokens_equal(candidate, token))
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
     let (status, response) = if !authorized {
         (401, Some(json!({"error":"Unauthorized"})))
-    } else if !headers.starts_with("POST ") {
+    } else if !request_line.starts_with("POST ") {
         (405, Some(json!({"error":"Method Not Allowed"})))
     } else {
-        match serde_json::from_str::<Value>(body.trim()) {
-            Ok(request) => {
-                let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-                if work_tx
-                    .send(HttpWork::Rpc {
-                        request,
-                        reply: reply_tx,
-                    })
-                    .is_err()
-                {
-                    (503, Some(json!({"error":"Computer Use worker unavailable"})))
-                } else {
-                    match reply_rx.recv_timeout(Duration::from_secs(60)) {
-                        Ok((202, None)) => {
-                            let reply = format!(
-                                "HTTP/1.1 202 Accepted\r\nMcp-Session-Id: {session_id}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                            );
-                            let _ = stream.write_all(reply.as_bytes());
-                            return;
+        let mut body = vec![0_u8; content_length];
+        if content_length > 0 && reader.read_exact(&mut body).is_err() {
+            (400, Some(json!({"error":"bad body"})))
+        } else {
+            match serde_json::from_slice::<Value>(&body) {
+                Ok(request) => {
+                    let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+                    if work_tx
+                        .send(HttpWork::Rpc {
+                            request,
+                            reply: reply_tx,
+                        })
+                        .is_err()
+                    {
+                        (503, Some(json!({"error":"Computer Use worker unavailable"})))
+                    } else {
+                        match reply_rx.recv_timeout(Duration::from_secs(60)) {
+                            Ok((202, None)) => {
+                                let reply = format!(
+                                    "HTTP/1.1 202 Accepted\r\nMcp-Session-Id: {session_id}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                );
+                                let _ = stream.write_all(reply.as_bytes());
+                                return;
+                            }
+                            Ok(pair) => pair,
+                            Err(_) => (504, Some(json!({"error":"Computer Use worker timeout"}))),
                         }
-                        Ok(pair) => pair,
-                        Err(_) => (504, Some(json!({"error":"Computer Use worker timeout"}))),
                     }
                 }
+                Err(error) => (400, Some(json!({"error": error.to_string()}))),
             }
-            Err(error) => (400, Some(json!({"error": error.to_string()}))),
         }
     };
     let payload = response.map(|value| value.to_string()).unwrap_or_default();
@@ -312,7 +335,7 @@ pub fn run(lease_id: Option<String>) -> Result<(), String> {
             "initialize" => Ok(json!({
                 "protocolVersion": "2025-06-18",
                 "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": "grok_desktop_computer", "version": env!("CARGO_PKG_VERSION") }
+                "serverInfo": { "name": "grox_desktop_computer", "version": env!("CARGO_PKG_VERSION") }
             })),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tools() })),
@@ -1871,23 +1894,63 @@ mod platform {
     use super::WindowState;
     use serde_json::json;
     use std::{
-        fs,
+        fs::{self, OpenOptions},
         path::PathBuf,
-        process::Command,
-        time::{SystemTime, UNIX_EPOCH},
+        process::{Child, Command},
+        thread,
+        time::{Duration, Instant},
     };
 
-    fn temp_png() -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        std::env::temp_dir().join(format!("grox-cu-{nanos}.png"))
+    const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(45);
+
+    fn random_hex(bytes: usize) -> Result<String, String> {
+        let mut buffer = vec![0_u8; bytes];
+        getrandom::fill(&mut buffer).map_err(|error| format!("无法生成随机名：{error}"))?;
+        Ok(buffer.iter().map(|byte| format!("{byte:02x}")).collect())
     }
 
-    fn read_png(path: &PathBuf) -> Result<Vec<u8>, String> {
+    fn secure_temp_png(prefix: &str) -> Result<(PathBuf, PathBuf), String> {
+        let dir = std::env::temp_dir().join(format!("grox-shots-{}", random_hex(16)?));
+        fs::create_dir(&dir).map_err(|error| format!("无法创建截图临时目录：{error}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+        }
+        let path = dir.join(format!("{prefix}-{}.png", random_hex(16)?));
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|error| format!("无法创建截图临时文件：{error}"))?;
+        Ok((dir, path))
+    }
+
+    fn wait_child_with_timeout(
+        child: &mut Child,
+        timeout: Duration,
+    ) -> Result<std::process::ExitStatus, String> {
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Ok(status),
+                Ok(None) if started.elapsed() < timeout => {
+                    thread::sleep(Duration::from_millis(40));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("截图超时，已终止进程".into());
+                }
+                Err(error) => return Err(format!("无法等待截图进程：{error}")),
+            }
+        }
+    }
+
+    fn read_png(dir: &PathBuf, path: &PathBuf) -> Result<Vec<u8>, String> {
         let bytes = fs::read(path).map_err(|error| format!("无法读取截图：{error}"))?;
         let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(dir);
         if bytes.is_empty() {
             return Err("截图为空".into());
         }
@@ -1896,33 +1959,49 @@ mod platform {
 
     #[cfg(target_os = "macos")]
     fn capture_screen_png() -> Result<Vec<u8>, String> {
-        let path = temp_png();
-        let status = Command::new("screencapture")
+        let (dir, path) = secure_temp_png("cu")?;
+        let mut child = Command::new("screencapture")
             .args(["-x", "-t", "png"])
             .arg(&path)
-            .status()
-            .map_err(|error| format!("无法调用 screencapture：{error}"))?;
+            .spawn()
+            .map_err(|error| {
+                let _ = fs::remove_file(&path);
+                let _ = fs::remove_dir_all(&dir);
+                format!("无法调用 screencapture：{error}")
+            })?;
+        let status = wait_child_with_timeout(&mut child, SCREENSHOT_TIMEOUT).map_err(|error| {
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(&dir);
+            error
+        })?;
         if !status.success() {
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(&dir);
             return Err("screencapture 失败；请确认已授予屏幕录制权限".into());
         }
-        read_png(&path)
+        read_png(&dir, &path)
     }
 
     #[cfg(not(target_os = "macos"))]
     fn capture_screen_png() -> Result<Vec<u8>, String> {
-        let path = temp_png();
+        let (dir, path) = secure_temp_png("cu")?;
         let attempts = [
             ("gnome-screenshot", vec!["-f".into(), path.to_string_lossy().to_string()]),
             ("import", vec!["-window".into(), "root".into(), path.to_string_lossy().to_string()]),
             ("scrot", vec![path.to_string_lossy().to_string()]),
         ];
         for (bin, args) in attempts {
-            if let Ok(status) = Command::new(bin).args(&args).status() {
+            let Ok(mut child) = Command::new(bin).args(&args).spawn() else {
+                continue;
+            };
+            if let Ok(status) = wait_child_with_timeout(&mut child, SCREENSHOT_TIMEOUT) {
                 if status.success() && path.exists() {
-                    return read_png(&path);
+                    return read_png(&dir, &path);
                 }
             }
+            let _ = fs::remove_file(&path);
         }
+        let _ = fs::remove_dir_all(&dir);
         Err("无法截图：请安装 gnome-screenshot、ImageMagick(import) 或 scrot".into())
     }
 

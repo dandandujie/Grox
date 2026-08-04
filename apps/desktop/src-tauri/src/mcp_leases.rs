@@ -7,12 +7,22 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::Mutex,
+    time::{Duration, Instant},
 };
+
+const MAX_LEASES_PER_KIND: usize = 32;
+const LEASE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+#[derive(Clone)]
+struct LeaseEntry {
+    server: Value,
+    created: Instant,
+}
 
 #[derive(Default)]
 pub struct McpLeaseStore {
-    computer: Mutex<HashMap<String, Value>>,
-    browser: Mutex<HashMap<String, Value>>,
+    computer: Mutex<HashMap<String, LeaseEntry>>,
+    browser: Mutex<HashMap<String, LeaseEntry>>,
 }
 
 /// Frontend `claimPendingBrowserLease` contract — keep in sync with
@@ -35,29 +45,64 @@ pub fn claim_pending_browser_lease(
     }
 }
 
+fn prune_leases(map: &mut HashMap<String, LeaseEntry>) {
+    let now = Instant::now();
+    map.retain(|_, entry| now.duration_since(entry.created) < LEASE_TTL);
+    while map.len() >= MAX_LEASES_PER_KIND {
+        let Some(oldest) = map
+            .iter()
+            .min_by_key(|(_, entry)| entry.created)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        map.remove(&oldest);
+    }
+}
+
 impl McpLeaseStore {
     pub fn put_computer(&self, lease_id: String, server: Value) -> Result<(), String> {
-        self.computer
+        let mut guard = self
+            .computer
             .lock()
-            .map_err(|_| "Computer Use 租约表锁定失败".to_string())?
-            .insert(lease_id, server);
+            .map_err(|_| "Computer Use 租约表锁定失败".to_string())?;
+        prune_leases(&mut guard);
+        guard.insert(
+            lease_id,
+            LeaseEntry {
+                server,
+                created: Instant::now(),
+            },
+        );
         Ok(())
     }
 
     pub fn put_browser(&self, lease_id: String, server: Value) -> Result<(), String> {
-        self.browser
+        let mut guard = self
+            .browser
             .lock()
-            .map_err(|_| "Browser Use 租约表锁定失败".to_string())?
-            .insert(lease_id, server);
+            .map_err(|_| "Browser Use 租约表锁定失败".to_string())?;
+        prune_leases(&mut guard);
+        guard.insert(
+            lease_id,
+            LeaseEntry {
+                server,
+                created: Instant::now(),
+            },
+        );
         Ok(())
     }
 
     pub fn get_computer(&self, lease_id: &str) -> Option<Value> {
-        self.computer.lock().ok()?.get(lease_id).cloned()
+        let mut guard = self.computer.lock().ok()?;
+        prune_leases(&mut guard);
+        guard.get(lease_id).map(|entry| entry.server.clone())
     }
 
     pub fn get_browser(&self, lease_id: &str) -> Option<Value> {
-        self.browser.lock().ok()?.get(lease_id).cloned()
+        let mut guard = self.browser.lock().ok()?;
+        prune_leases(&mut guard);
+        guard.get(lease_id).map(|entry| entry.server.clone())
     }
 
     pub fn remove_computer(&self, lease_id: &str) {
@@ -76,7 +121,7 @@ impl McpLeaseStore {
 pub fn computer_server_config(url: &str, token: &str) -> Value {
     json!({
         "type": "http",
-        "name": "grok_desktop_computer",
+        "name": "grox_desktop_computer",
         "url": url,
         "headers": [{
             "name": "Authorization",
@@ -160,7 +205,7 @@ mod tests {
         let value: Value = serde_json::from_str(&rewritten).unwrap();
         let servers = value["params"]["mcpServers"].as_array().unwrap();
         assert_eq!(servers.len(), 1);
-        assert_eq!(servers[0]["name"], "grok_desktop_computer");
+        assert_eq!(servers[0]["name"], "grox_desktop_computer");
         assert_eq!(
             servers[0]["headers"][0]["value"],
             "Bearer secret-token"
@@ -202,5 +247,22 @@ mod tests {
         claim_pending_browser_lease(&mut leases, "session-1", "lease-missing");
         assert_eq!(leases.get("pending:lease-a").map(String::as_str), Some("lease-a"));
         assert!(!leases.contains_key("session-1"));
+    }
+
+    #[test]
+    fn lease_store_enforces_capacity_by_evicting_oldest() {
+        let store = McpLeaseStore::default();
+        for index in 0..(MAX_LEASES_PER_KIND + 4) {
+            store
+                .put_computer(
+                    format!("lease-{index}"),
+                    computer_server_config("http://127.0.0.1:9/mcp", "tok"),
+                )
+                .unwrap();
+        }
+        let guard = store.computer.lock().unwrap();
+        assert!(guard.len() <= MAX_LEASES_PER_KIND);
+        assert!(!guard.contains_key("lease-0"));
+        assert!(guard.contains_key(&format!("lease-{}", MAX_LEASES_PER_KIND + 3)));
     }
 }
