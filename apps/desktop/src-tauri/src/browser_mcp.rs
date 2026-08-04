@@ -330,7 +330,7 @@ fn tools() -> Vec<Value> {
         }),
         json!({
             "name":"browser_screenshot",
-            "description":"使用本机 Chrome/Edge/Chromium 无头模式对 URL 截图并返回 PNG。",
+            "description":"使用本机 Chrome/Edge/Chromium 无头模式对本机回环 URL 截图并返回 PNG。远程 URL 会被拒绝，以避免重定向/DNS rebinding 泄露私网内容。",
             "inputSchema":{"type":"object","properties":{"url":{"type":"string"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["url"]}
         }),
     ]
@@ -338,6 +338,67 @@ fn tools() -> Vec<Value> {
 
 fn checked_url(raw: &str) -> Result<String, String> {
     checked_url_with_resolver(raw, resolve_host_ips)
+}
+
+/// Screenshots return page pixels into the agent context. Chrome may follow
+/// redirects / rebinding after our pre-flight check, so remote targets are
+/// refused until request-layer enforcement exists.
+fn checked_screenshot_url(raw: &str) -> Result<String, String> {
+    checked_screenshot_url_with_resolver(raw, resolve_host_ips)
+}
+
+fn checked_screenshot_url_with_resolver(
+    raw: &str,
+    resolve: impl Fn(&str) -> Result<Vec<std::net::IpAddr>, String>,
+) -> Result<String, String> {
+    let url = checked_url_with_resolver(raw, &resolve)?;
+    let parsed = url::Url::parse(&url).map_err(|_| "无效 URL".to_string())?;
+    if !url_is_loopback_only(&parsed, &resolve)? {
+        return Err(
+            "无头截图仅允许本机回环地址，以防重定向或 DNS rebinding 访问私网/云元数据"
+                .into(),
+        );
+    }
+    Ok(url)
+}
+
+fn url_is_loopback_only(
+    url: &url::Url,
+    resolve: impl Fn(&str) -> Result<Vec<std::net::IpAddr>, String>,
+) -> Result<bool, String> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| "URL 缺少主机名".to_string())?
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let host_lower = host.to_ascii_lowercase();
+    if host_lower == "localhost" || host_lower.ends_with(".localhost") {
+        match resolve(host) {
+            Ok(addresses) if !addresses.is_empty() => {
+                Ok(addresses.into_iter().all(address_is_loopback))
+            }
+            Ok(_) | Err(_) => Ok(true),
+        }
+    } else if let Ok(address) = host.parse::<std::net::IpAddr>() {
+        Ok(address_is_loopback(address))
+    } else {
+        Ok(false)
+    }
+}
+
+/// Validate a redirect Location as its own navigation target. Used by tests and
+/// any future request-layer hop checks; Chromium itself cannot be constrained
+/// here, which is why remote screenshots remain disabled.
+fn checked_redirect_location_with_resolver(
+    base: &str,
+    location: &str,
+    resolve: impl Fn(&str) -> Result<Vec<std::net::IpAddr>, String>,
+) -> Result<String, String> {
+    let base_url = url::Url::parse(base).map_err(|_| "无效基准 URL".to_string())?;
+    let next = base_url
+        .join(location.trim())
+        .map_err(|_| "无效重定向 Location".to_string())?;
+    checked_url_with_resolver(next.as_str(), resolve)
 }
 
 fn checked_url_with_resolver(
@@ -471,7 +532,7 @@ fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             }))
         }
         "browser_screenshot" => {
-            let url = checked_url(args.get("url").and_then(Value::as_str).unwrap_or(""))?;
+            let url = checked_screenshot_url(args.get("url").and_then(Value::as_str).unwrap_or(""))?;
             let width = args.get("width").and_then(Value::as_u64).unwrap_or(1280).min(1920);
             let height = args.get("height").and_then(Value::as_u64).unwrap_or(720).min(1200);
             let png = headless_screenshot(&url, width as u32, height as u32)?;
@@ -643,5 +704,47 @@ mod tests {
     fn browser_url_rejects_hostnames_that_resolve_to_blocked_ips() {
         assert!(checked_url_with_resolver("https://evil.example/", public_resolver).is_err());
         assert!(checked_url_with_resolver("https://mixed.example/", public_resolver).is_err());
+    }
+
+    #[test]
+    fn screenshot_allows_loopback_only_and_rejects_remote() {
+        assert!(checked_screenshot_url_with_resolver("http://127.0.0.1:5173/", public_resolver).is_ok());
+        assert!(checked_screenshot_url_with_resolver("http://localhost:3000", public_resolver).is_ok());
+        assert!(checked_screenshot_url_with_resolver("https://example.com/page", public_resolver).is_err());
+        assert!(checked_screenshot_url("https://192.168.1.1/").is_err());
+        assert!(checked_screenshot_url("http://169.254.169.254/latest/meta-data").is_err());
+    }
+
+    #[test]
+    fn redirect_and_rebinding_targets_are_rejected_at_policy_layer() {
+        // Simulated 302 Location to cloud metadata / private LAN.
+        assert!(checked_redirect_location_with_resolver(
+            "https://example.com/start",
+            "http://169.254.169.254/latest/meta-data",
+            public_resolver,
+        )
+        .is_err());
+        assert!(checked_redirect_location_with_resolver(
+            "https://example.com/start",
+            "https://evil.example/secret",
+            public_resolver,
+        )
+        .is_err());
+        assert!(checked_redirect_location_with_resolver(
+            "https://example.com/start",
+            "https://mixed.example/",
+            public_resolver,
+        )
+        .is_err());
+        assert!(checked_redirect_location_with_resolver(
+            "https://example.com/start",
+            "/relative-still-on-public-origin",
+            public_resolver,
+        )
+        .is_ok());
+        // DNS rebinding-style second lookup: public name flips to metadata IP.
+        assert!(checked_url_with_resolver("https://evil.example/", public_resolver).is_err());
+        // Remote screenshots stay disabled so Chromium cannot chase these hops.
+        assert!(checked_screenshot_url_with_resolver("https://example.com/", public_resolver).is_err());
     }
 }

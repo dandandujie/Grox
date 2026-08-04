@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { GrokBridge } from "./GrokBridge";
+import { claimPendingBrowserLease } from "./browserLeaseBind";
 import { MODELS } from "./types";
 import type {
   AccountInfo,
@@ -95,6 +96,14 @@ interface DesktopEnvironment {
 interface ExitPayload {
   code?: number | null;
   reason: "exited" | "killed";
+}
+
+interface AcpReadFilePayload {
+  content: string;
+  contentBase64?: string;
+  size: number;
+  lineCount?: number;
+  type: string;
 }
 
 interface PendingRequest {
@@ -563,9 +572,14 @@ function extractImages(value: unknown): ToolCall["images"] {
   const images: NonNullable<ToolCall["images"]> = [];
   const seen = new Set<string>();
   walkJson(value, (object) => {
-    if (string(object.type) !== "image") return;
-    const data = string(object.data);
-    const mime = string(object.mimeType) ?? string(object.mime_type);
+    const type = string(object.type);
+    const mime = string(object.mimeType)
+      ?? string(object.mime_type)
+      // Grok's binary-safe fs/read_file response uses `type: "image/png"`
+      // together with `contentBase64`, rather than an MCP image block.
+      ?? (type?.startsWith("image/") ? type : undefined);
+    const data = string(object.data) ?? string(object.contentBase64) ?? string(object.content_base64);
+    if (type !== "image" && !mime?.startsWith("image/")) return;
     const signature = data && mime ? `${mime}:${data.slice(0, 96)}:${data.length}` : undefined;
     if (data && mime && signature && !seen.has(signature)) {
       seen.add(signature);
@@ -650,6 +664,25 @@ interface ComputerSessionExtensions {
 interface BrowserSessionExtensions {
   mcpServers: unknown[];
   leaseId: string;
+}
+
+interface SessionDiskPreview {
+  messages: Array<{ role: "user" | "assistant"; text: string }>;
+  truncated: boolean;
+}
+
+function sessionFromDiskPreview(meta: SessionMeta, preview: SessionDiskPreview): Session {
+  return {
+    ...meta,
+    blocks: preview.messages.map((message, index) => ({
+      type: message.role,
+      id: `preview-${meta.id}-${index}`,
+      text: message.text,
+      ts: meta.createdAt + index,
+    })),
+    usage: { ...EMPTY_USAGE },
+    status: "idle",
+  };
 }
 
 function mapAvailableCommands(value: unknown): SlashCommand[] {
@@ -984,6 +1017,8 @@ export class AcpBridge implements GrokBridge {
   private activePromptSessions = new Set<string>();
   private promptDrainWaiters = new Set<() => void>();
   private knownSessions = new Set<string>();
+  private loadPromises = new Map<string, Promise<void>>();
+  private sessionMetaCache = new Map<string, { expiresAt: number; systemPromptOverride?: string }>();
   private lastActivity = new Map<string, number>();
   private unlisten: UnlistenFn[] = [];
   private streamAppends = new Map<string, Extract<BridgeEvent, { type: "assistant_append" | "thinking_append" }>>();
@@ -1393,8 +1428,22 @@ export class AcpBridge implements GrokBridge {
 
   private async handleFileSystemRequest(message: JsonRpcMessage) {
     const params = record(message.params) ?? {};
-    const path = string(params.path);
+    // Grok's ACP adapters have used both `path` and the TUI-facing
+    // `file_path` spelling over time. Accept the aliases here while keeping
+    // the native command's canonical path boundary unchanged.
+    const path = string(params.path)
+      ?? string(params.filePath)
+      ?? string(params.file_path)
+      ?? string(params.target_file);
     const sessionId = string(params.sessionId);
+    const explicitLine = number(params.line) ?? number(params.startLine) ?? number(params.start_line);
+    const offset = number(params.offset);
+    // Grok Build's read_file schema uses a one-based line offset. ACP's
+    // standard text callback also uses one-based line numbers, so keep one
+    // interpretation here instead of silently shifting a requested image or
+    // skill document by one line.
+    const line = explicitLine ?? (offset === undefined ? undefined : Math.max(1, Math.floor(offset)));
+    const limit = number(params.limit) ?? number(params.maxLines);
     const cwd = (sessionId ? this.sessionWorkspaces.get(sessionId) ?? this.catalogue.get(sessionId)?.cwd : undefined) ?? this.workspace;
     if (!path) {
       await this.sendRaw({
@@ -1405,12 +1454,22 @@ export class AcpBridge implements GrokBridge {
       return;
     }
     try {
-      if (message.method === "fs/read_text_file" || message.method === ACP_METHODS.fsRead) {
+      if (message.method === ACP_METHODS.fsRead) {
+        const payload = await invoke<AcpReadFilePayload>("acp_read_file", {
+          cwd,
+          path,
+          line,
+          limit,
+        });
+        await this.sendRaw({ jsonrpc: "2.0", id: message.id, result: payload });
+        return;
+      }
+      if (message.method === "fs/read_text_file") {
         const content = await invoke<string>("acp_read_text_file", {
           cwd,
           path,
-          line: number(params.line),
-          limit: number(params.limit),
+          line,
+          limit,
         });
         await this.sendRaw({ jsonrpc: "2.0", id: message.id, result: { content } });
         return;
@@ -2322,6 +2381,13 @@ export class AcpBridge implements GrokBridge {
   }
 
   private async sessionMeta(cwd: string) {
+    const cached = this.sessionMetaCache.get(cwd);
+    if (cached && cached.expiresAt > Date.now()) {
+      return {
+        ...this.sessionPermissionMeta(),
+        ...(cached.systemPromptOverride ? { systemPromptOverride: cached.systemPromptOverride } : {}),
+      };
+    }
     let systemPromptOverride: string | undefined;
     try {
       const documents = await invoke<ConfigDocument[]>("read_config_documents", { cwd });
@@ -2331,6 +2397,10 @@ export class AcpBridge implements GrokBridge {
     } catch {
       // A missing optional prompt document must never block session creation.
     }
+    this.sessionMetaCache.set(cwd, {
+      expiresAt: Date.now() + 30_000,
+      ...(systemPromptOverride ? { systemPromptOverride } : {}),
+    });
     return {
       ...this.sessionPermissionMeta(),
       ...(systemPromptOverride ? { systemPromptOverride } : {}),
@@ -2493,6 +2563,7 @@ export class AcpBridge implements GrokBridge {
     const saved = await invoke<ConfigDocument>("write_config_document", {
       request: { id: document.id, cwd: this.workspace, content: document.content },
     });
+    if (document.id === "system-prompt") this.sessionMetaCache.delete(this.workspace);
     if (document.id === "config") {
       // Grok reads its global config at agent startup. Restart only after an
       // active prompt settles, then the settings UI reloads the idle session
@@ -2606,12 +2677,7 @@ export class AcpBridge implements GrokBridge {
       throw new Error("session/new 未返回 sessionId");
     }
     if (computer.computerLeaseId) this.computerLeases.set(sessionId, computer.computerLeaseId);
-    for (const [key, leaseId] of [...this.browserLeases.entries()]) {
-      if (key.startsWith("pending:")) {
-        this.browserLeases.delete(key);
-        this.browserLeases.set(sessionId, leaseId);
-      }
-    }
+    claimPendingBrowserLease(this.browserLeases, sessionId, computer.browserLeaseId);
     this.captureModelState(response);
     this.captureRuntimeCommands(response);
     const detail = record(record(response?._meta)?.["x.ai/sessionDetail"]);
@@ -2642,26 +2708,54 @@ export class AcpBridge implements GrokBridge {
     this.emit({ type: "available_commands", sessionId, commands: this.runtimeCommands });
   }
 
-  async loadSession(id: string): Promise<void> {
+  async loadSession(id: string, options?: { background?: boolean }): Promise<void> {
+    const existing = this.loadPromises.get(id);
+    if (existing) return existing;
+    const loading = this.performSessionLoad(id, options?.background === true);
+    this.loadPromises.set(id, loading);
+    try {
+      await loading;
+    } finally {
+      if (this.loadPromises.get(id) === loading) this.loadPromises.delete(id);
+    }
+  }
+
+  private async performSessionLoad(id: string, background: boolean): Promise<void> {
     // A provider restart cannot be allowed to interrupt an in-progress
     // session attachment; it would leave the visible conversation half bound
     // to the old child process.
     const loadingLock = `session/load:${id}:${++this.requestId}`;
     this.activePromptSessions.add(loadingLock);
     try {
-      await this.restoreSession(id);
+      await this.restoreSession(id, background);
     } finally {
       this.markPromptFinished(loadingLock);
     }
   }
 
-  private async restoreSession(id: string): Promise<void> {
+  private async restoreSession(id: string, background: boolean): Promise<void> {
     let meta = this.catalogue.get(id);
     if (!meta) {
       await this.listSessions();
       meta = this.catalogue.get(id);
     }
     if (!meta) throw new Error(`找不到会话：${id}`);
+
+    if (background) {
+      try {
+        const preview = await invoke<SessionDiskPreview | null>("preview_session_from_disk", { id });
+        if (preview?.messages.length) {
+          this.emit({
+            type: "session_ready",
+            session: sessionFromDiskPreview(meta, preview),
+            background: true,
+            preview: true,
+          });
+        }
+      } catch {
+        // A missing or unreadable local preview must not block canonical ACP restore.
+      }
+    }
 
     this.sessionWorkspaces.set(id, meta.cwd);
     this.cursors.set(id, { toolBlocks: new Map() });
@@ -2705,12 +2799,7 @@ export class AcpBridge implements GrokBridge {
       }
       if (computer.computerLeaseId) this.computerLeases.set(id, computer.computerLeaseId);
       else this.computerLeases.delete(id);
-      for (const [key, leaseId] of [...this.browserLeases.entries()]) {
-        if (key.startsWith("pending:") && leaseId === computer.browserLeaseId) {
-          this.browserLeases.delete(key);
-          this.browserLeases.set(id, leaseId);
-        }
-      }
+      claimPendingBrowserLease(this.browserLeases, id, computer.browserLeaseId);
       this.flushStreamAppends(id);
       this.flushToolPatches(id);
       this.captureModelState(response);
@@ -2734,7 +2823,7 @@ export class AcpBridge implements GrokBridge {
       };
       this.replaying.delete(id);
       this.knownSessions.add(id);
-      this.emit({ type: "session_ready", session: finalized });
+      this.emit({ type: "session_ready", session: finalized, background });
       this.emit({ type: "available_commands", sessionId: id, commands: this.runtimeCommands });
       // Restored workflow actors emit a current snapshot, but older CLI
       // versions may have written the detailed updates only to JSONL. Read
@@ -2960,6 +3049,9 @@ export class AcpBridge implements GrokBridge {
     let terminalStatus: SessionStatus = "idle";
     try {
       await this.ready;
+      if (!this.knownSessions.has(sessionId)) {
+        await this.loadSession(sessionId, { background: true });
+      }
       // A new user prompt begins the new branch. It is the only event allowed
       // to lift the rewind isolation gate.
       this.forgetRewoundSession(sessionId);

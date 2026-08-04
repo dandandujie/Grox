@@ -267,9 +267,13 @@ export class MockBridge implements GrokBridge {
     this.emit({ type: "session_ready", session });
   }
 
-  async loadSession(id: string): Promise<void> {
+  async loadSession(id: string, options?: { background?: boolean }): Promise<void> {
     const s = this.sessions.get(id);
-    if (s) this.emit({ type: "session_ready", session: structuredClone(s) });
+    if (s) this.emit({
+      type: "session_ready",
+      session: structuredClone(s),
+      background: options?.background,
+    });
   }
 
   async renameSession(id: string, title: string): Promise<void> {

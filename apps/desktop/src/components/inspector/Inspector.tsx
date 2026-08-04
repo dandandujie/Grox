@@ -4,7 +4,7 @@
    and usage telemetry.
    ───────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useDesktop, type InspectorTab } from "../../state/store";
@@ -15,6 +15,7 @@ import { ResizeHandle } from "../common/ResizeHandle";
 import { usePreferences } from "../../state/preferences";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "../fx/Icon";
+import { openFileWithConfiguredApplication } from "../../lib/defaultOpen";
 
 const EMPTY_WORKFLOWS: WorkflowRun[] = [];
 
@@ -198,6 +199,22 @@ function FileActionMenu({
   const { language } = useI18n();
   const zh = language === "zh-CN";
   const [notice, setNotice] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    // Capture phase is intentional: a click on another tree row must dismiss
+    // this menu before that row handles its own click/context-menu action.
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open, setOpen]);
   const run = async (action: () => Promise<void>, closeOnSuccess = true) => {
     setNotice("");
     try {
@@ -219,7 +236,7 @@ function FileActionMenu({
     setNotice(zh ? "已复制文件内容" : "Contents copied");
   }, false);
   return (
-    <div className="relative shrink-0">
+    <div ref={menuRef} className="relative shrink-0">
       <button
         onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
         className="flex h-5 w-5 items-center justify-center text-faint opacity-0 transition-opacity hover:text-fg group-hover/file:opacity-100 focus:opacity-100"
@@ -229,7 +246,8 @@ function FileActionMenu({
       </button>
       {open && <div className="absolute right-0 top-6 z-50 w-40 rounded-[5px] border border-line2 bg-panel p-1 shadow-[0_10px_28px_rgba(0,0,0,0.38)]">
         {previewable && <FileAction label={zh ? "在右侧预览" : "Preview"} icon="panelRight" onClick={() => { onOpen(path); setOpen(false); }} />}
-        <FileAction label={zh ? "用默认应用打开" : "Open with default"} icon="external" onClick={() => void run(() => invoke("open_file_with_default", { cwd: workspace, path }))} />
+        <FileAction label={zh ? "用默认应用打开" : "Open with default"} icon="external" onClick={() => void run(() => openFileWithConfiguredApplication(workspace, path))} />
+        <FileAction label={zh ? "打开方式…" : "Open with…"} icon="external" onClick={() => void run(() => invoke("open_file_with_dialog", { cwd: workspace, path }))} />
         <FileAction label={zh ? "在 Finder 中显示" : "Reveal in Finder"} icon="folder" onClick={() => void run(() => invoke("reveal_in_explorer", { cwd: workspace, path }))} />
         <FileAction label={zh ? "复制路径" : "Copy path"} icon="copy" onClick={() => void copyPath()} />
         {previewable && !/\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(path) && <FileAction label={zh ? "复制文件内容" : "Copy contents"} icon="copy" onClick={() => void copyContent()} />}

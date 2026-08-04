@@ -13,7 +13,7 @@ mod mcp_leases;
 mod path_sandbox;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
     io::Write as _,
     path::{Component, Path, PathBuf},
@@ -73,6 +73,7 @@ const PROVIDER_ENV_KEYS: [&str; 3] = [
 ];
 const MAX_PROMPT_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_PROMPT_IMAGE_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_SESSION_PREVIEW_MESSAGES: usize = 200;
 
 struct AgentProcess {
     child: Child,
@@ -135,6 +136,23 @@ struct PreviewFile {
     kind: &'static str,
     mime: String,
     content: String,
+}
+
+/// Binary-safe response used by Grok's TUI-style `x.ai/fs/read_file`
+/// extension.  The standard ACP `fs/read_text_file` method is intentionally
+/// text-only; the extension adds the same `contentBase64`/`type` fields that
+/// the upstream CLI uses for images and other binary files.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpReadFile {
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_base64: Option<String>,
+    size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line_count: Option<u64>,
+    #[serde(rename = "type")]
+    content_type: String,
 }
 
 /// An image that the operator explicitly referenced in the outgoing prompt.
@@ -212,6 +230,17 @@ struct MediaArtifact {
 struct MediaGenerationResult {
     artifacts: Vec<MediaArtifact>,
     summary: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenApplicationOption {
+    id: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    launch_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon_data_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -496,6 +525,126 @@ fn grok_home() -> Result<PathBuf, String> {
     Ok(user_home()?.join(".grok"))
 }
 
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionPreviewMessage {
+    role: String,
+    text: String,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionDiskPreview {
+    messages: Vec<SessionPreviewMessage>,
+    truncated: bool,
+}
+
+fn session_history_text(content: &serde_json::Value) -> Option<String> {
+    match content {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Array(parts) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    let part = part.as_object()?;
+                    (part.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+                        .then(|| part.get("text").and_then(serde_json::Value::as_str))
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            (!text.trim().is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn parse_session_disk_preview(
+    reader: impl std::io::BufRead,
+    limit: usize,
+) -> Result<SessionDiskPreview, String> {
+    let mut messages = VecDeque::with_capacity(limit.min(MAX_SESSION_PREVIEW_MESSAGES));
+    let mut truncated = false;
+    for line in reader.lines() {
+        let line = line.map_err(|error| format!("无法读取会话预览：{error}"))?;
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        let Some(role @ ("user" | "assistant")) =
+            value.get("type").and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if role == "user"
+            && value
+                .get("synthetic_reason")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+        {
+            continue;
+        }
+        let Some(text) = value.get("content").and_then(session_history_text) else {
+            continue;
+        };
+        if text.trim().is_empty() || limit == 0 {
+            continue;
+        }
+        if messages.len() == limit {
+            messages.pop_front();
+            truncated = true;
+        }
+        messages.push_back(SessionPreviewMessage {
+            role: role.to_string(),
+            text,
+        });
+    }
+    Ok(SessionDiskPreview {
+        messages: messages.into(),
+        truncated,
+    })
+}
+
+fn session_history_path(grok: &Path, session_id: &str) -> Result<Option<PathBuf>, String> {
+    let mut components = Path::new(session_id).components();
+    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+        return Err("无效会话 ID".into());
+    }
+    let sessions = grok.join("sessions");
+    if !sessions.is_dir() {
+        return Ok(None);
+    }
+    let sessions = sessions
+        .canonicalize()
+        .map_err(|error| format!("无法读取 Grok 会话目录：{error}"))?;
+    let direct = sessions.join(session_id).join("chat_history.jsonl");
+    let candidates = std::iter::once(direct).chain(
+        fs::read_dir(&sessions)
+            .map_err(|error| format!("无法扫描 Grok 会话目录：{error}"))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join(session_id).join("chat_history.jsonl")),
+    );
+    for candidate in candidates {
+        let Ok(candidate) = candidate.canonicalize() else {
+            continue;
+        };
+        if candidate.starts_with(&sessions) && candidate.is_file() {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+fn preview_session_from_disk(id: String) -> Result<Option<SessionDiskPreview>, String> {
+    let Some(path) = session_history_path(&grok_home()?, &id)? else {
+        return Ok(None);
+    };
+    let file = fs::File::open(&path)
+        .map_err(|error| format!("无法打开会话预览 {}：{error}", path.display()))?;
+    parse_session_disk_preview(std::io::BufReader::new(file), MAX_SESSION_PREVIEW_MESSAGES)
+        .map(Some)
+}
+
 /// Resolve the actual user home independently of `GROK_HOME`. The latter may
 /// point to a portable or test-specific Grok configuration directory, but
 /// `~/…` in a prompt must always mean the operator's home directory.
@@ -751,7 +900,10 @@ fn checked_acp_readable_file(workspace: &Path, requested: &str) -> Result<PathBu
     let grok = grok_home()?;
     let roots = [
         grok.join("skills"),
-        grok.join("bundled").join("skills"),
+        // Bundled skills can reference sibling templates/assets under this
+        // read-only tree, so allow the whole bundled root rather than only
+        // its `skills` child.
+        grok.join("bundled"),
         // The official CLI persists session checkpoints here. These remain
         // read-only; only ACP text writes inside the active workspace are
         // permitted.
@@ -768,7 +920,19 @@ fn checked_read_file_with_roots(
     requested: &str,
     readonly_roots: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    let candidate = PathBuf::from(requested);
+    let candidate = if requested == "~"
+        || requested.starts_with("~/")
+        || requested.starts_with("~\\")
+    {
+        let home = user_home()?;
+        if requested == "~" {
+            home
+        } else {
+            home.join(&requested[2..])
+        }
+    } else {
+        PathBuf::from(requested)
+    };
     let candidate = if candidate.is_absolute() {
         candidate
     } else {
@@ -784,7 +948,7 @@ fn checked_read_file_with_roots(
     {
         return Ok(canonical);
     }
-    Err("只能读取当前项目或 Grok 的 Skills、Sessions 目录下的文本文件".into())
+    Err("只能读取当前项目或 Grok 的 Skills、Bundled、Sessions 目录下的文件".into())
 }
 
 /// Identify accepted image formats from their contents rather than a mutable
@@ -825,29 +989,31 @@ fn checked_explicit_prompt_image(workspace: &Path, requested: &str) -> Result<Pa
     if requested.is_empty() {
         return Err("图片路径不能为空".into());
     }
-    let candidate =
-        if requested == "~" || requested.starts_with("~/") || requested.starts_with("~\\") {
-            let home = user_home()?;
-            if requested == "~" {
-                home
-            } else {
-                home.join(&requested[2..])
-            }
+    let candidate = if requested == "~" || requested.starts_with("~/") || requested.starts_with("~\\") {
+        let home = user_home()?;
+        if requested == "~" {
+            home
         } else {
-            let path = if requested.starts_with("file:") {
-                url::Url::parse(requested)
-                    .map_err(|error| format!("无效 file:// 图片路径：{error}"))?
-                    .to_file_path()
-                    .map_err(|_| "file:// 图片路径必须指向本地文件".to_string())?
-            } else {
-                PathBuf::from(requested)
-            };
-            if path.is_absolute() {
-                path
-            } else {
-                workspace.join(path)
-            }
+            home.join(&requested[2..])
+        }
+    } else {
+        let path = if requested
+            .get(..5)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
+        {
+            url::Url::parse(requested)
+                .map_err(|error| format!("无效 file:// 图片路径：{error}"))?
+                .to_file_path()
+                .map_err(|_| "file:// 图片路径必须指向本地文件".to_string())?
+        } else {
+            PathBuf::from(requested)
         };
+        if path.is_absolute() {
+            path
+        } else {
+            workspace.join(path)
+        }
+    };
     if !candidate.exists() {
         return Err(format!("图片路径不存在：{}", candidate.display()));
     }
@@ -1129,6 +1295,75 @@ fn acp_read_text_file(
         .collect())
 }
 
+fn build_acp_read_file(bytes: Vec<u8>, line: Option<u32>, limit: Option<u32>) -> AcpReadFile {
+    let size = bytes.len() as u64;
+    if let Some(mime) = image_mime(&bytes) {
+        return AcpReadFile {
+            content: String::new(),
+            content_base64: Some(BASE64.encode(bytes)),
+            size,
+            line_count: None,
+            content_type: mime.to_string(),
+        };
+    }
+
+    match String::from_utf8(bytes) {
+        Ok(full_text) => {
+            let line_count = Some(full_text.lines().count() as u64);
+            let content = if line.is_none() && limit.is_none() {
+                full_text
+            } else {
+                let start = line.unwrap_or(1).max(1).saturating_sub(1) as usize;
+                let take = limit.map(|value| value as usize).unwrap_or(usize::MAX);
+                full_text
+                    .split_inclusive('\n')
+                    .skip(start)
+                    .take(take)
+                    .collect()
+            };
+            AcpReadFile {
+                content,
+                content_base64: None,
+                size,
+                line_count,
+                content_type: "text/plain".into(),
+            }
+        }
+        Err(error) => AcpReadFile {
+            content: String::new(),
+            content_base64: Some(BASE64.encode(error.into_bytes())),
+            size,
+            line_count: None,
+            content_type: "application/octet-stream".into(),
+        },
+    }
+}
+
+/// Read the TUI-compatible, binary-safe file response.  Unlike
+/// `acp_read_text_file`, this command deliberately never calls
+/// `read_to_string` for an image: PNG/JPEG/etc. are returned as base64 bytes
+/// so the model can receive them as a multimodal tool result.
+#[tauri::command]
+fn acp_read_file(
+    cwd: String,
+    path: String,
+    line: Option<u32>,
+    limit: Option<u32>,
+) -> Result<AcpReadFile, String> {
+    let workspace = checked_workspace(&cwd)?;
+    let file = checked_acp_readable_file(&workspace, &path)?;
+    let metadata = fs::metadata(&file)
+        .map_err(|error| format!("无法读取 {}：{error}", file.display()))?;
+    if !metadata.is_file() {
+        return Err("只能读取文件".into());
+    }
+    if metadata.len() > MAX_ACP_TEXT_BYTES {
+        return Err("文件不能超过 16 MB".into());
+    }
+    let bytes = fs::read(&file).map_err(|error| format!("无法读取 {}：{error}", file.display()))?;
+    Ok(build_acp_read_file(bytes, line, limit))
+}
+
 #[tauri::command]
 fn read_prompt_image_paths(cwd: String, paths: Vec<String>) -> Result<Vec<PromptPathImage>, String> {
     if paths.len() > 8 {
@@ -1150,16 +1385,15 @@ fn read_prompt_image_paths(cwd: String, paths: Vec<String>) -> Result<Vec<Prompt
         if !seen.insert(path.clone()) {
             continue;
         }
-        let metadata = fs::metadata(&file)
-            .map_err(|error| format!("无法读取图片 {}：{error}", file.display()))?;
-        total_size = total_size.saturating_add(metadata.len());
-        if total_size > MAX_PROMPT_IMAGE_TOTAL_BYTES {
-            return Err("路径图片总大小不能超过 32 MB".into());
-        }
         let bytes = fs::read(&file)
             .map_err(|error| format!("无法读取图片 {}：{error}", file.display()))?;
-        if bytes.len() as u64 > MAX_PROMPT_IMAGE_BYTES {
+        let size = bytes.len() as u64;
+        if size > MAX_PROMPT_IMAGE_BYTES {
             return Err("单张图片不能超过 16 MB".into());
+        }
+        total_size = total_size.saturating_add(size);
+        if total_size > MAX_PROMPT_IMAGE_TOTAL_BYTES {
+            return Err("路径图片总大小不能超过 32 MB".into());
         }
         let mime = image_mime(&bytes)
             .ok_or_else(|| "图片内容不是受支持的图片格式".to_string())?;
@@ -1171,7 +1405,7 @@ fn read_prompt_image_paths(cwd: String, paths: Vec<String>) -> Result<Vec<Prompt
                 .unwrap_or("image")
                 .to_string(),
             mime: mime.to_string(),
-            size: metadata.len(),
+            size,
             data: BASE64.encode(bytes),
         });
     }
@@ -1928,9 +2162,10 @@ fn open_in_app(cwd: String, app: String) -> Result<(), String> {
     match command.spawn() {
         Ok(_) => Ok(()),
         Err(error) => {
-            if app == "terminal" && cfg!(windows) {
+            #[cfg(windows)]
+            if app == "terminal" {
                 // Avoid cmd.exe metacharacter injection: pass the path as a
-                // single PowerShell -LiteralPath argument, never interpolate
+                // single PowerShell -WorkingDirectory argument, never interpolate
                 // into a /K command string.
                 use std::os::windows::process::CommandExt as _;
                 std::process::Command::new("powershell.exe")
@@ -2150,21 +2385,8 @@ fn git_push(
     if branch.is_empty() {
         return Err("当前处于 detached HEAD，无法直接推送".into());
     }
-    let has_upstream = optional_git_text(
-        &root,
-        &[
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{upstream}",
-        ],
-    )
-    .is_some();
-    if has_upstream {
-        git_text(&root, &["push"])?;
-    } else {
-        git_text(&root, &["push", "--set-upstream", "origin", &branch])?;
-    }
+    // Confirm dialog promises origin; never rely on an arbitrary upstream remote.
+    git_text(&root, &["push", "--set-upstream", "origin", &branch])?;
     Ok("推送已完成".into())
 }
 
@@ -2572,6 +2794,878 @@ fn open_file_with_default(cwd: String, path: String) -> Result<(), String> {
         .arg(&file)
         .spawn()
         .map_err(|error| format!("无法打开默认应用：{error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn application_search_roots() -> Vec<PathBuf> {
+    let mut roots = vec![
+        PathBuf::from("/Applications"),
+        PathBuf::from("/System/Applications"),
+    ];
+    if let Ok(home) = user_home() {
+        roots.push(home.join("Applications"));
+    }
+    roots
+}
+
+#[cfg(target_os = "macos")]
+fn discovered_application_paths() -> Vec<PathBuf> {
+    fn collect_bundles(root: &Path, depth: u8, paths: &mut BTreeSet<PathBuf>) {
+        let Ok(entries) = fs::read_dir(root) else { return };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().is_some_and(|value| value == "app") && path.is_dir() {
+                paths.insert(path);
+            } else if depth > 0 && path.is_dir() {
+                collect_bundles(&path, depth - 1, paths);
+            }
+        }
+    }
+
+    let mut paths = BTreeSet::new();
+    for root in application_search_roots() {
+        if !root.is_dir() {
+            continue;
+        }
+        let paths_before_root = paths.len();
+        let root_string = root.to_string_lossy().to_string();
+        if let Ok(output) = std::process::Command::new("/usr/bin/mdfind")
+            .args([
+                "-onlyin",
+                root_string.as_str(),
+                "kMDItemContentType == 'com.apple.application-bundle'",
+            ])
+            .stderr(Stdio::null())
+            .output()
+        {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let path = PathBuf::from(line.trim());
+                if path.extension().is_some_and(|value| value == "app") {
+                    paths.insert(path);
+                }
+            }
+        }
+        // Spotlight is normally instant, but a fresh install or a disabled
+        // index must not make the selector silently empty. A shallow fallback
+        // covers normal top-level and vendor-nested .app bundles without
+        // walking an entire home directory.
+        if paths.len() == paths_before_root {
+            collect_bundles(&root, 2, &mut paths);
+        }
+    }
+    for path in [
+        "/System/Library/CoreServices/Finder.app",
+        "/System/Applications/Utilities/Terminal.app",
+    ] {
+        let path = PathBuf::from(path);
+        if path.is_dir() {
+            paths.insert(path);
+        }
+    }
+    paths.into_iter().collect()
+}
+
+#[cfg(target_os = "macos")]
+fn plist_string(plist: &serde_json::Value, key: &str) -> Option<String> {
+    plist.get(key).and_then(|value| value.as_str()).map(str::to_string)
+}
+
+#[cfg(target_os = "macos")]
+fn app_icon_resource(app_path: &Path, plist: &serde_json::Value) -> Option<PathBuf> {
+    let resources = app_path
+        .join("Contents")
+        .join("Resources")
+        .canonicalize()
+        .ok()?;
+    let configured = plist_string(plist, "CFBundleIconFile")
+        .or_else(|| plist_string(plist, "CFBundleIconName"));
+    if let Some(configured) = configured {
+        let configured = PathBuf::from(configured);
+        let candidate = resources.join(&configured).canonicalize().ok();
+        if let Some(candidate) = candidate.filter(|path| path.starts_with(&resources) && path.is_file()) {
+            return Some(candidate);
+        }
+        if configured.extension().is_none() {
+            let candidate = resources
+                .join(configured)
+                .with_extension("icns")
+                .canonicalize()
+                .ok();
+            if let Some(candidate) = candidate.filter(|path| path.starts_with(&resources) && path.is_file()) {
+                return Some(candidate);
+            }
+        }
+    }
+    fs::read_dir(resources)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.is_file()
+                && path.extension().is_some_and(|extension| {
+                    matches!(extension.to_ascii_lowercase().to_str(), Some("icns") | Some("png"))
+                })
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn app_icon_data_url(app_path: &Path, plist: &serde_json::Value) -> Option<String> {
+    let source = app_icon_resource(app_path, plist)?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let target = std::env::temp_dir().join(format!("grox-app-icon-{nonce}.png"));
+    let status = std::process::Command::new("/usr/bin/sips")
+        .args(["-s", "format", "png", "-z", "32", "32"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    if !status.success() {
+        let _ = fs::remove_file(&target);
+        return None;
+    }
+    let bytes = fs::read(&target).ok();
+    let _ = fs::remove_file(&target);
+    bytes.map(|bytes| format!("data:image/png;base64,{}", BASE64.encode(bytes)))
+}
+
+#[cfg(target_os = "macos")]
+fn inspect_application(path: &Path) -> Option<OpenApplicationOption> {
+    let plist_path = path.join("Contents").join("Info.plist");
+    let output = std::process::Command::new("/usr/bin/plutil")
+        .args(["-convert", "json", "-o", "-"])
+        .arg(&plist_path)
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let plist = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok()?;
+    let bundle_id = plist_string(&plist, "CFBundleIdentifier")?;
+    let name = plist_string(&plist, "CFBundleDisplayName")
+        .or_else(|| plist_string(&plist, "CFBundleName"))
+        .or_else(|| path.file_stem().and_then(|value| value.to_str()).map(str::to_string))?;
+    let lower = format!("{} {}", bundle_id, name).to_ascii_lowercase();
+    let is_finder = bundle_id == "com.apple.finder" || lower.contains("finder");
+    let is_terminal = [
+        "terminal",
+        "ghostty",
+        "iterm",
+        "warp",
+        "alacritty",
+        "kitty",
+        "wezterm",
+        "hyper",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint));
+    let is_editor = [
+        "cursor",
+        "visual studio",
+        "xcode",
+        "zed",
+        "sublime",
+        "textmate",
+        "bbedit",
+        "nova",
+        "intellij",
+        "pycharm",
+        "webstorm",
+        "goland",
+        "clion",
+        "rustrover",
+        "fleet",
+        "coteditor",
+        "emacs",
+        "vim",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint));
+    if !is_finder && !is_terminal && !is_editor {
+        return None;
+    }
+    Some(OpenApplicationOption {
+        id: bundle_id,
+        name,
+        launch_target: Some(path_for_webview(path)),
+        icon_data_url: app_icon_data_url(path, &plist),
+    })
+}
+
+#[cfg(windows)]
+fn windows_application_discovery_script() -> &'static str {
+    // Keep discovery in the OS registry instead of shipping a fixed list.
+    // The same registration is what Windows shows in its own “Open with” UI.
+    r#"
+$ErrorActionPreference = 'SilentlyContinue'
+try { Add-Type -AssemblyName System.Drawing } catch {}
+
+function Resolve-Executable([string]$command) {
+  if ([string]::IsNullOrWhiteSpace($command)) { return $null }
+  $match = [regex]::Match($command, '^\s*"([^"]+)"|^\s*([^\s]+)')
+  if (-not $match.Success) { return $null }
+  $candidate = if ($match.Groups[1].Success) { $match.Groups[1].Value } else { $match.Groups[2].Value }
+  if ($candidate -match '%') { return $null }
+  try { return (Resolve-Path -LiteralPath $candidate -ErrorAction Stop).Path } catch {}
+  try { return (Get-Command $candidate -ErrorAction Stop).Source } catch { return $null }
+}
+
+function Icon-Data([string]$path) {
+  try {
+    if (-not ('System.Drawing.Icon' -as [type])) { return $null }
+    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+    if ($null -eq $icon) { return $null }
+    $bitmap = $icon.ToBitmap()
+    $stream = New-Object System.IO.MemoryStream
+    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    $value = [Convert]::ToBase64String($stream.ToArray())
+    $bitmap.Dispose(); $icon.Dispose(); $stream.Dispose()
+    return "data:image/png;base64,$value"
+  } catch { return $null }
+}
+
+$apps = @{}
+function Add-App([string]$id, [string]$name, [string]$target) {
+  if ([string]::IsNullOrWhiteSpace($target) -or -not (Test-Path -LiteralPath $target -PathType Leaf)) { return }
+  $resolved = (Resolve-Path -LiteralPath $target).Path
+  $extension = [IO.Path]::GetExtension($resolved).ToLowerInvariant()
+  if ($extension -notin @('.exe','.com','.bat','.cmd','.ps1')) { return }
+  if ($apps.ContainsKey($resolved.ToLowerInvariant())) { return }
+  $description = $null
+  try { $description = (Get-Item $resolved).VersionInfo.FileDescription } catch {}
+  if ([string]::IsNullOrWhiteSpace($description)) { $description = [IO.Path]::GetFileNameWithoutExtension($resolved) }
+  $apps[$resolved.ToLowerInvariant()] = [ordered]@{
+    id = if ([string]::IsNullOrWhiteSpace($id)) { "windows:$resolved" } else { "windows:$id" }
+    name = $description
+    launchTarget = $resolved
+    iconDataUrl = (Icon-Data $resolved)
+  }
+}
+
+$hints = '(?i)(cursor|visual studio|vs code|code\.exe|xcode|zed|sublime|textmate|notepad\+\+|notepad|vim|neovim|emacs|idea|pycharm|webstorm|goland|clion|rustrover|fleet|terminal|powershell|alacritty|wezterm|kitty|ghostty|warp|conemu|mintty)'
+$sourceExtensions = '(?i)\.(txt|md|markdown|json|jsonl|js|jsx|ts|tsx|rs|py|go|java|c|h|cpp|hpp|swift|toml|yaml|yml|xml|css|html|htm)$'
+$registryRoots = @(
+  'Registry::HKEY_CLASSES_ROOT\Applications',
+  'Registry::HKEY_CURRENT_USER\Software\Classes\Applications',
+  'Registry::HKEY_LOCAL_MACHINE\Software\Classes\Applications'
+)
+foreach ($registryRoot in $registryRoots) {
+  foreach ($app in @(Get-ChildItem -LiteralPath $registryRoot)) {
+    $commandKey = Join-Path $app.PSPath 'shell\open\command'
+    $commandItem = Get-Item -LiteralPath $commandKey
+    if ($null -eq $commandItem) { continue }
+    $target = Resolve-Executable ([string]$commandItem.GetValue(''))
+    if ($null -eq $target) { continue }
+    $descriptor = "$($app.PSChildName) $target"
+    $sourceAssociation = $false
+    $associationKey = Get-Item -LiteralPath (Join-Path $app.PSPath 'Capabilities\FileAssociations')
+    if ($null -ne $associationKey) {
+      $sourceAssociation = @($associationKey.GetValueNames()) -match $sourceExtensions
+    }
+    if ($descriptor -match $hints -or $sourceAssociation) {
+      Add-App $app.PSChildName $app.PSChildName $target
+    }
+  }
+}
+
+# File Explorer and installed terminal shells are OS applications, not always
+# present below HKCR\Applications. Add them only when the command actually
+# exists on this machine.
+foreach ($entry in @(
+  @{ id = 'file-explorer'; name = 'File Explorer'; command = 'explorer.exe' },
+  @{ id = 'windows-terminal'; name = 'Windows Terminal'; command = 'wt.exe' },
+  @{ id = 'powershell'; name = 'PowerShell'; command = 'powershell.exe' }
+)) {
+  $command = Get-Command $entry.command
+  if ($null -ne $command) { Add-App $entry.id $entry.name $command.Source }
+}
+$apps.Values | Sort-Object name | ConvertTo-Json -Compress
+"#
+}
+
+#[cfg(windows)]
+fn list_windows_open_applications() -> Result<Vec<OpenApplicationOption>, String> {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            windows_application_discovery_script(),
+        ])
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| format!("无法读取 Windows 应用注册表：{error}"))?;
+    if !output.status.success() {
+        return Err("Windows 应用注册表查询失败".into());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value = serde_json::from_str::<serde_json::Value>(stdout.trim())
+        .unwrap_or_else(|_| serde_json::Value::Array(Vec::new()));
+    let values = match value {
+        serde_json::Value::Array(values) => values,
+        serde_json::Value::Object(_) => vec![value],
+        _ => Vec::new(),
+    };
+    let mut applications = values
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<OpenApplicationOption>(value).ok())
+        .filter(|item| item.launch_target.as_deref().is_some_and(|target| Path::new(target).is_absolute()))
+        .collect::<Vec<_>>();
+    applications.sort_by_cached_key(|item| item.name.to_ascii_lowercase());
+    let mut seen = BTreeSet::new();
+    applications.retain(|item| seen.insert(item.id.clone()));
+    Ok(applications)
+}
+
+#[cfg(windows)]
+fn checked_windows_application(requested: &str) -> Result<PathBuf, String> {
+    let path = Path::new(requested);
+    if !path.is_absolute() {
+        return Err("打开应用必须是 Windows 的绝对路径".into());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("无法解析打开应用：{error}"))?;
+    if !canonical.is_file() {
+        return Err("打开应用必须是可执行文件".into());
+    }
+    let extension = canonical
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "exe" | "com" | "bat" | "cmd" | "ps1") {
+        return Err("打开应用必须是 Windows 可执行文件".into());
+    }
+    let discovered = list_windows_open_applications()?;
+    if !discovered.iter().any(|item| {
+        item.launch_target
+            .as_deref()
+            .and_then(|target| Path::new(target).canonicalize().ok())
+            .is_some_and(|target| target == canonical)
+    }) {
+        return Err("打开应用不是 Windows 已发现的可用应用".into());
+    }
+    Ok(canonical)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_application_dirs() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(home).join(".local").join("share"));
+        roots.push(data_home.join("applications"));
+    }
+    let data_dirs = std::env::var_os("XDG_DATA_DIRS")
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    for directory in data_dirs.split(':').filter(|value| !value.is_empty()) {
+        roots.push(PathBuf::from(directory).join("applications"));
+    }
+    roots
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_entry_fields(content: &str) -> BTreeMap<String, String> {
+    let mut fields = BTreeMap::new();
+    let mut in_desktop_entry = false;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            in_desktop_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        if !in_desktop_entry || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            fields.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+    fields
+}
+
+#[cfg(target_os = "linux")]
+fn split_desktop_exec(value: &str) -> Option<Vec<String>> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in value.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' && quote != Some('\'') {
+            escaped = true;
+            continue;
+        }
+        if let Some(active_quote) = quote {
+            if character == active_quote {
+                quote = None;
+            } else {
+                current.push(character);
+            }
+            continue;
+        }
+        if character == '\'' || character == '"' {
+            quote = Some(character);
+        } else if character.is_whitespace() {
+            if !current.is_empty() {
+                args.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(character);
+        }
+    }
+    if escaped || quote.is_some() {
+        return None;
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    (!args.is_empty()).then_some(args)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_icon_file(name: &str) -> Option<PathBuf> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let direct = PathBuf::from(name);
+    if direct.is_absolute() && direct.is_file() {
+        return Some(direct);
+    }
+    let mut roots = linux_application_dirs()
+        .into_iter()
+        .filter_map(|path| path.parent().map(Path::to_path_buf))
+        .collect::<Vec<_>>();
+    roots.extend([
+        PathBuf::from("/usr/share/pixmaps"),
+        PathBuf::from("/usr/local/share/pixmaps"),
+    ]);
+    let names = if Path::new(name).extension().is_some() {
+        vec![name.to_string()]
+    } else {
+        ["png", "svg", "jpg", "jpeg"]
+            .into_iter()
+            .map(|extension| format!("{name}.{extension}"))
+            .collect()
+    };
+    for root in roots {
+        for candidate_name in &names {
+            let direct_candidate = root.join("pixmaps").join(candidate_name);
+            if direct_candidate.is_file() {
+                return Some(direct_candidate);
+            }
+            for theme in ["hicolor", "Adwaita", "breeze", "default"] {
+                for size in ["scalable/apps", "64x64/apps", "48x48/apps", "32x32/apps"] {
+                    let candidate = root.join("icons").join(theme).join(size).join(candidate_name);
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn linux_icon_data_url(name: Option<&str>) -> Option<String> {
+    let path = linux_icon_file(name?)?;
+    let metadata = fs::metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() > 2 * 1024 * 1024 {
+        return None;
+    }
+    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "svg" => "image/svg+xml",
+        "jpg" | "jpeg" => "image/jpeg",
+        _ => return None,
+    };
+    Some(format!("data:{mime};base64,{}", BASE64.encode(fs::read(path).ok()?)))
+}
+
+#[cfg(target_os = "linux")]
+fn inspect_desktop_application(path: &Path) -> Option<OpenApplicationOption> {
+    let content = read_bounded_text(path, 1024 * 1024).ok()?;
+    let fields = desktop_entry_fields(&content);
+    if fields.get("Type").map(String::as_str) != Some("Application")
+        || fields.get("NoDisplay").is_some_and(|value| value.eq_ignore_ascii_case("true"))
+        || fields.get("Hidden").is_some_and(|value| value.eq_ignore_ascii_case("true"))
+    {
+        return None;
+    }
+    let name = fields.get("Name")?.trim();
+    let exec = fields.get("Exec")?;
+    let lower = format!("{} {} {}", name, exec, fields.get("Categories").map(String::as_str).unwrap_or_default()).to_ascii_lowercase();
+    let terminal = lower.contains("terminal")
+        || lower.contains("ghostty")
+        || lower.contains("alacritty")
+        || lower.contains("wezterm")
+        || lower.contains("kitty")
+        || lower.contains("terminalemulator");
+    let editor = lower.contains("development")
+        || lower.contains("ide")
+        || lower.contains("editor")
+        || lower.contains("cursor")
+        || lower.contains("code")
+        || lower.contains("vim")
+        || lower.contains("emacs")
+        || lower.contains("sublime")
+        || lower.contains("notepad")
+        || lower.contains("textmate");
+    let file_manager = lower.contains("filemanager")
+        || lower.contains("file manager")
+        || lower.contains("nautilus")
+        || lower.contains("dolphin")
+        || lower.contains("thunar")
+        || lower.contains("pcmanfm");
+    let source_mime = fields
+        .get("MimeType")
+        .map(|value| value.split(';').any(|mime| mime.starts_with("text/x-") || mime.contains("javascript") || mime.contains("json")))
+        .unwrap_or(false);
+    if !terminal && !editor && !file_manager && !source_mime {
+        return None;
+    }
+    let canonical = path.canonicalize().ok()?;
+    Some(OpenApplicationOption {
+        id: format!("linux:{}", canonical.to_string_lossy()),
+        name: name.to_string(),
+        launch_target: Some(path_for_webview(&canonical)),
+        icon_data_url: linux_icon_data_url(fields.get("Icon").map(String::as_str)),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn list_linux_open_applications() -> Vec<OpenApplicationOption> {
+    let mut applications = Vec::new();
+    for root in linux_application_dirs() {
+        let Ok(entries) = fs::read_dir(root) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) == Some("desktop") {
+                if let Some(application) = inspect_desktop_application(&path) {
+                    applications.push(application);
+                }
+            }
+        }
+    }
+    applications.sort_by_cached_key(|item| item.name.to_ascii_lowercase());
+    let mut seen = BTreeSet::new();
+    applications.retain(|item| seen.insert(item.id.clone()));
+    applications
+}
+
+#[cfg(target_os = "linux")]
+fn checked_desktop_application(requested: &str) -> Result<PathBuf, String> {
+    let path = Path::new(requested);
+    if !path.is_absolute() || path.extension().and_then(|value| value.to_str()) != Some("desktop") {
+        return Err("打开应用必须是 Linux 的 .desktop 文件".into());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("无法解析打开应用：{error}"))?;
+    if !linux_application_dirs().into_iter().any(|root| canonical.starts_with(root)) {
+        return Err("打开应用必须来自系统应用目录".into());
+    }
+    Ok(canonical)
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_command_for_file(path: &Path, file: &Path) -> Result<(String, Vec<String>), String> {
+    let fields = desktop_entry_fields(&read_bounded_text(path, 1024 * 1024)?);
+    let exec = fields.get("Exec").ok_or_else(|| "Linux 应用缺少 Exec 配置".to_string())?;
+    let raw_args = split_desktop_exec(exec).ok_or_else(|| "无法解析 Linux 应用的 Exec 配置".to_string())?;
+    let mut args = Vec::new();
+    let mut inserted_file = false;
+    for argument in raw_args {
+        if matches!(argument.as_str(), "%f" | "%F" | "%u" | "%U") {
+            args.push(path_for_webview(file));
+            inserted_file = true;
+        } else if matches!(argument.as_str(), "%i" | "%c" | "%k" | "%d" | "%D" | "%n" | "%N" | "%v" | "%m") {
+            continue;
+        } else if argument.contains('%') {
+            args.push(argument.replace("%f", &path_for_webview(file)).replace("%u", &path_for_webview(file)));
+            inserted_file = true;
+        } else {
+            args.push(argument);
+        }
+    }
+    let command = args.first().cloned().ok_or_else(|| "Linux 应用的 Exec 配置为空".to_string())?;
+    let mut command_args = args.into_iter().skip(1).collect::<Vec<_>>();
+    if !inserted_file {
+        command_args.push(path_for_webview(file));
+    }
+    Ok((command, command_args))
+}
+
+/// Enumerate installed editor and terminal applications on the host.
+#[tauri::command]
+fn list_open_applications() -> Result<Vec<OpenApplicationOption>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut applications = discovered_application_paths()
+            .iter()
+            .filter_map(|path| inspect_application(path))
+            .collect::<Vec<_>>();
+        applications.sort_by_cached_key(|item| item.name.to_ascii_lowercase());
+        let mut seen = BTreeSet::new();
+        applications.retain(|item| seen.insert(item.id.clone()));
+        return Ok(applications);
+    }
+    #[cfg(windows)]
+    {
+        return list_windows_open_applications();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return Ok(list_linux_open_applications());
+    }
+    #[cfg(all(not(target_os = "macos"), not(windows), not(target_os = "linux")))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn checked_application_bundle(requested: &str) -> Result<Option<PathBuf>, String> {
+    let path = Path::new(requested);
+    if !path.is_absolute() {
+        if matches!(requested, "Cursor" | "Finder" | "Terminal" | "Ghostty" | "Xcode") {
+            return Ok(None);
+        }
+        return Err("不支持的打开应用".into());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("无法解析打开应用：{error}"))?;
+    if !canonical.is_dir() || canonical.extension().map_or(true, |value| value != "app") {
+        return Err("打开应用必须是 macOS .app".into());
+    }
+    let mut allowed_roots = application_search_roots();
+    allowed_roots.extend([
+        PathBuf::from("/System/Library/CoreServices"),
+        PathBuf::from("/Library/CoreServices"),
+    ]);
+    if !allowed_roots
+        .iter()
+        .any(|root| canonical.starts_with(root))
+    {
+        return Err("打开应用必须来自系统应用目录".into());
+    }
+    Ok(Some(canonical))
+}
+
+/// Open a workspace file with one application discovered by the desktop
+/// selector. The launch target is validated again in the native process;
+/// localStorage is not treated as an authority boundary.
+#[tauri::command]
+fn open_file_with_application(cwd: String, path: String, application: String) -> Result<(), String> {
+    let root = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&root, &path)?;
+    if !file.is_file() {
+        return Err("只能使用应用打开文件".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let application_path = checked_application_bundle(&application)?;
+        let application_name = application_path
+            .as_deref()
+            .and_then(|path| path.file_stem())
+            .and_then(|value| value.to_str())
+            .unwrap_or(&application);
+        let status = if application_name.eq_ignore_ascii_case("Finder") {
+            std::process::Command::new("open")
+                .arg("-R")
+                .arg(&file)
+                .status()
+        } else {
+            std::process::Command::new("open")
+                .arg("-a")
+                .arg(application_path.as_deref().unwrap_or(Path::new(&application)))
+                .arg(&file)
+                .status()
+        }
+        .map_err(|error| format!("无法启动 {application}：{error}"))?;
+        if !status.success() {
+            return Err(format!("系统中未找到可用的 {application} 应用"));
+        }
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let target = checked_windows_application(&application)?;
+        let extension = target
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let mut command = if matches!(extension.as_str(), "bat" | "cmd") {
+            let mut command = std::process::Command::new("cmd.exe");
+            command.args(["/D", "/C"]).arg(&target);
+            command
+        } else if extension == "ps1" {
+            let mut command = std::process::Command::new("powershell.exe");
+            command.args(["-NoProfile", "-File"]).arg(&target);
+            command
+        } else {
+            std::process::Command::new(&target)
+        };
+        command
+            .arg(&file)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|error| format!("无法启动 {}：{error}", target.display()))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let target = checked_desktop_application(&application)?;
+        let (command_name, args) = desktop_command_for_file(&target, &file)?;
+        std::process::Command::new(&command_name)
+            .args(args)
+            .spawn()
+            .map_err(|error| format!("无法启动 {}：{error}", target.display()))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "linux")))]
+    {
+        let _ = application;
+        return Err("当前平台请使用系统默认应用或“打开方式…”".into());
+    }
+}
+
+/// Create a sibling Git worktree for the Codex-style “permanent worktree”
+/// actions. The target is never inside the current project, and an available
+/// suffix is chosen instead of overwriting an existing directory.
+#[tauri::command]
+fn create_permanent_worktree(cwd: String) -> Result<String, String> {
+    let root = checked_workspace(&cwd)?;
+    if !root.join(".git").exists() {
+        return Err("当前项目不是 Git 仓库，无法创建永久工作树".into());
+    }
+    let parent = root
+        .parent()
+        .ok_or_else(|| "无法确定工作树所在目录".to_string())?;
+    let base = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("grox-project");
+    let mut target = parent.join(format!("{base}-worktree"));
+    let mut suffix = 2u32;
+    while target.exists() {
+        target = parent.join(format!("{base}-worktree-{suffix}"));
+        suffix = suffix.saturating_add(1);
+        if suffix > 10_000 {
+            return Err("可用的工作树目录过多".into());
+        }
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let branch = format!("grox/worktree-{timestamp}");
+    let output = std::process::Command::new("git")
+        .current_dir(&root)
+        .args(["worktree", "add", "-b", &branch])
+        .arg(&target)
+        .output()
+        .map_err(|error| format!("无法执行 git worktree：{error}"))?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if message.is_empty() {
+            "创建永久工作树失败".into()
+        } else {
+            format!("创建永久工作树失败：{message}")
+        });
+    }
+    Ok(path_for_webview(&target))
+}
+
+/// Let the operating system present its application chooser for a workspace
+/// file.  macOS has no `open` flag for this, so use LaunchServices through a
+/// short, escaped AppleScript; Windows exposes the same chooser via
+/// `OpenAs_RunDLL`.  Linux desktops fall back to their file-manager opener.
+#[tauri::command]
+fn open_file_with_dialog(cwd: String, path: String) -> Result<(), String> {
+    let root = checked_workspace(&cwd)?;
+    let file = checked_workspace_file(&root, &path)?;
+    if !file.is_file() {
+        return Err("只能选择文件的打开方式".into());
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("rundll32.exe")
+            .arg("shell32.dll,OpenAs_RunDLL")
+            .arg(path_for_webview(&file))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|error| format!("无法打开“打开方式”对话框：{error}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        fn apple_script_string(value: &str) -> String {
+            value
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r")
+        }
+        let path = apple_script_string(&path_for_webview(&file));
+        let script = format!(
+            "set targetPath to \"{path}\"\nset chosenApp to choose application with prompt \"选择用于打开文件的应用\"\nset appPath to POSIX path of (chosenApp as alias)\ndo shell script \"open -a \" & quoted form of appPath & \" \" & quoted form of targetPath"
+        );
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|error| format!("无法打开应用选择器：{error}"))?;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if !message.to_ascii_lowercase().contains("user canceled")
+                && !message.to_ascii_lowercase().contains("用户取消")
+            {
+                return Err(if message.is_empty() {
+                    "无法打开应用选择器".into()
+                } else {
+                    format!("无法打开应用选择器：{message}")
+                });
+            }
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    std::process::Command::new("xdg-open")
+        .arg(&file)
+        .spawn()
+        .map_err(|error| format!("无法打开系统文件选择器：{error}"))?;
     Ok(())
 }
 
@@ -4476,6 +5570,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop_environment,
+            preview_session_from_disk,
             validate_workspace,
             pick_workspace,
             list_workspace_files,
@@ -4492,13 +5587,18 @@ fn main() {
             read_preview_file,
             start_file_preview,
             acp_read_text_file,
+            acp_read_file,
             read_prompt_image_paths,
             acp_write_text_file,
             open_in_explorer,
             open_in_app,
             notify_desktop,
             reveal_in_explorer,
+            create_permanent_worktree,
             open_file_with_default,
+            open_file_with_application,
+            list_open_applications,
+            open_file_with_dialog,
             workspace_file_path,
             read_config_documents,
             write_config_document,
@@ -4553,6 +5653,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn session_disk_preview_keeps_recent_visible_conversation() {
+        let history = concat!(
+            "{\"type\":\"system\",\"content\":\"hidden\"}\n",
+            "{\"type\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"first\"}]}\n",
+            "{\"type\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"reminder\"}],\"synthetic_reason\":\"system_reminder\"}\n",
+            "{\"type\":\"tool_result\",\"content\":\"hidden tool output\"}\n",
+            "{\"type\":\"assistant\",\"content\":\"answer\"}\n",
+            "{\"type\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"latest\"}]}\n",
+        );
+        let preview = parse_session_disk_preview(std::io::Cursor::new(history), 2).unwrap();
+        assert_eq!(
+            preview,
+            SessionDiskPreview {
+                messages: vec![
+                    SessionPreviewMessage {
+                        role: "assistant".into(),
+                        text: "answer".into(),
+                    },
+                    SessionPreviewMessage {
+                        role: "user".into(),
+                        text: "latest".into(),
+                    },
+                ],
+                truncated: true,
+            }
+        );
+    }
+
+    #[test]
+    fn session_history_path_rejects_traversal() {
+        assert!(session_history_path(Path::new("unused"), "../session").is_err());
+        assert!(session_history_path(Path::new("unused"), "folder/session").is_err());
+    }
+
+    #[test]
+    fn session_history_path_finds_workspace_session_layout() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-session-preview-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let history = root
+            .join("sessions")
+            .join("encoded-workspace")
+            .join("session-id")
+            .join("chat_history.jsonl");
+        fs::create_dir_all(history.parent().unwrap()).unwrap();
+        fs::write(&history, "").unwrap();
+        assert_eq!(
+            session_history_path(&root, "session-id").unwrap(),
+            Some(history.canonicalize().unwrap())
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn rejects_missing_workspace() {
         let missing = std::env::temp_dir().join("grox-workspace-that-does-not-exist");
         assert!(checked_workspace(&path_for_webview(&missing)).is_err());
@@ -4562,6 +5717,26 @@ mod tests {
     fn accepts_existing_workspace() {
         let workspace = checked_workspace(env!("CARGO_MANIFEST_DIR")).unwrap();
         assert!(workspace.is_dir());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn discovers_installed_open_applications_from_host() {
+        let applications = list_open_applications().unwrap();
+        assert!(applications.iter().any(|item| item.id == "com.apple.finder"));
+        assert!(applications.iter().all(|item| {
+            !item.id.trim().is_empty()
+                && !item.name.trim().is_empty()
+                && item
+                    .launch_target
+                    .as_deref()
+                    .map_or(true, |path| Path::new(path).is_absolute())
+        }));
+        assert!(applications.iter().any(|item| {
+            item.icon_data_url
+                .as_deref()
+                .map_or(false, |value| value.starts_with("data:image/png;base64,"))
+        }));
     }
 
     #[test]
@@ -4596,6 +5771,43 @@ mod tests {
         )
         .is_err());
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn acp_read_file_returns_multimodal_payload_for_images() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-acp-image-{}-{}",
+            std::process::id(),
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("diagram.png");
+        let bytes = BASE64
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLqXQAAAABJRU5ErkJggg==")
+            .unwrap();
+        fs::write(&file, &bytes).unwrap();
+        let payload = acp_read_file(
+            path_for_webview(&root),
+            path_for_webview(&file),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(payload.content.is_empty());
+        assert_eq!(payload.content_type, "image/png");
+        assert_eq!(payload.size, bytes.len() as u64);
+        assert_eq!(payload.content_base64, Some(BASE64.encode(bytes)));
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn acp_read_file_keeps_text_ranges_and_full_size() {
+        let payload = build_acp_read_file(b"one\ntwo\nthree\n".to_vec(), Some(2), Some(1));
+        assert_eq!(payload.content, "two\n");
+        assert_eq!(payload.content_type, "text/plain");
+        assert_eq!(payload.size, 14);
+        assert_eq!(payload.line_count, Some(3));
+        assert!(payload.content_base64.is_none());
     }
 
     #[test]

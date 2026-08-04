@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { Icon } from "../fx/Icon";
 import { ChipSelect } from "../common/ChipSelect";
+import { openFileWithConfiguredApplication } from "../../lib/defaultOpen";
 import { useI18n } from "../../lib/i18n";
 import { useDesktop } from "../../state/store";
 
@@ -32,12 +33,26 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<MediaArtifact[]>([]);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [reference, setReference] = useState<{ name: string; path: string; preview: string } | null>(null);
+  const selected = selectedIndex === null ? undefined : results[selectedIndex];
+
+  const runArtifactAction = async (action: () => Promise<void>) => {
+    setActionError("");
+    try {
+      await action();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
 
   const generate = async () => {
     if (!prompt.trim() || busy) return;
     setBusy(true);
     setError("");
+    setActionError("");
+    setSelectedIndex(null);
     try {
       const result = await invoke<MediaGenerationResult>("generate_media", {
         request: {
@@ -178,7 +193,27 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
           <div className="mb-3 flex items-center justify-between"><span className="lbl !text-[9px]">{zh ? "本次生成" : "CURRENT RUN"}</span><span className="font-mono text-[9px] text-faint">{results.length ? `${results.length} ${zh ? "个结果" : "RESULTS"}` : (zh ? "等待输入" : "WAITING FOR INPUT")}</span></div>
           {error && <div className="mb-3 rounded-[16px] border border-red/30 bg-red/5 px-3 py-2 text-[10.5px] leading-relaxed text-red">{error}</div>}
           {reference && mode === "video" && results.length === 0 && <div className="mb-3 flex items-center gap-3 rounded-[16px] border border-line2 bg-panel p-2.5"><img src={reference.preview} alt="" className="h-12 w-16 rounded-[12px] object-cover" /><div><p className="text-[10px] text-fg2">{reference.name}</p><p className="font-mono text-[9px] text-dim">{zh ? "将使用 image_to_video" : "IMAGE_TO_VIDEO INPUT"}</p></div></div>}
-          {results.length === 0 ? <div className="flex h-44 items-center justify-center rounded-[20px] border border-dashed border-line2 bg-panel/40 text-[11px] text-faint">{busy ? (zh ? "Grok Build 正在生成真实媒体，请保持窗口开启…" : "Grok Build is generating media…") : (zh ? "输入提示词后，实际产物会显示在这里" : "Your generated media will appear here")}</div> : <div className={`grid gap-3 ${mode === "image" ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1"}`}>{results.map((item, index) => { const src = item.url ?? (item.path ? convertFileSrc(item.path) : ""); return <div key={`${src}-${index}`} className={`group relative overflow-hidden rounded-[18px] border border-line2 bg-panel ${mode === "video" ? "aspect-video" : ratioClass}`}>{item.mime.startsWith("video/") ? <video src={src} controls className="absolute inset-0 h-full w-full object-contain" /> : <img src={src} alt={prompt} className="absolute inset-0 h-full w-full object-cover" />}<div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between"><span className="rounded-full bg-black/45 px-2 py-0.5 font-mono text-[9px] text-white/80 backdrop-blur">{mode === "image" ? `IMG_${String(index + 1).padStart(2, "0")}` : "VIDEO_01"}</span></div></div>; })}</div>}
+          {results.length === 0 ? <div className="flex h-44 items-center justify-center rounded-[20px] border border-dashed border-line2 bg-panel/40 text-[11px] text-faint">{busy ? (zh ? "Grok Build 正在生成真实媒体，请保持窗口开启…" : "Grok Build is generating media…") : (zh ? "输入提示词后，实际产物会显示在这里" : "Your generated media will appear here")}</div> : <div className={`grid gap-3 ${mode === "image" ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-1"}`}>{results.map((item, index) => { const src = item.url ?? (item.path ? convertFileSrc(item.path) : ""); return <div key={`${src}-${index}`} onClick={() => setSelectedIndex(index)} className={`group relative cursor-zoom-in overflow-hidden rounded-[18px] border border-line2 bg-panel ${mode === "video" ? "aspect-video" : ratioClass}`}>{item.mime.startsWith("video/") ? <video src={src} controls onClick={(event) => event.stopPropagation()} className="absolute inset-0 h-full w-full cursor-default object-contain" /> : <img src={src} alt={prompt} className="absolute inset-0 h-full w-full object-cover" />}<button onClick={(event) => { event.stopPropagation(); setSelectedIndex(index); }} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/80 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus:opacity-100" title={zh ? "预览产物" : "Preview artifact"} aria-label={zh ? "预览产物" : "Preview artifact"}><Icon name="search" size={11} /></button><div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between"><span className="rounded-full bg-black/45 px-2 py-0.5 font-mono text-[9px] text-white/80 backdrop-blur">{mode === "image" ? `IMG_${String(index + 1).padStart(2, "0")}` : "VIDEO_01"}</span><span className="rounded-full bg-black/45 px-2 py-0.5 font-mono text-[8px] text-white/70 backdrop-blur">{item.path ? (zh ? "本地文件" : "LOCAL") : "URL"}</span></div></div>; })}</div>}
+          {selected && <div role="dialog" aria-modal="true" aria-label={zh ? "生成结果预览" : "Generated artifact preview"} onClick={() => setSelectedIndex(null)} className="fixed inset-0 z-[90] flex items-center justify-center bg-void/90 p-6 backdrop-blur-sm animate-fade-up">
+            <div onClick={(event) => event.stopPropagation()} className="flex max-h-full w-full max-w-[1100px] flex-col overflow-hidden rounded-[20px] border border-line2 bg-panel shadow-2xl">
+              <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+                <Icon name="file" size={12} className="text-acc" />
+                <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-fg2">{selected.path ?? selected.url}</span>
+                {selected.path && <>
+                  <button onClick={() => void runArtifactAction(() => openFileWithConfiguredApplication(workspace, selected.path!))} className="flex h-7 items-center gap-1 rounded-full px-2 text-[9px] text-dim hover:bg-high hover:text-fg2" title={zh ? "用默认应用打开" : "Open with default app"}><Icon name="external" size={10} />{zh ? "打开" : "OPEN"}</button>
+                  <button onClick={() => void runArtifactAction(() => invoke("open_file_with_dialog", { cwd: workspace, path: selected.path }))} className="flex h-7 items-center gap-1 rounded-full px-2 text-[9px] text-dim hover:bg-high hover:text-fg2" title={zh ? "选择打开方式" : "Choose application"}><Icon name="external" size={10} />{zh ? "打开方式" : "WITH…"}</button>
+                  <button onClick={() => void runArtifactAction(() => invoke("reveal_in_explorer", { cwd: workspace, path: selected.path }))} className="flex h-7 items-center gap-1 rounded-full px-2 text-[9px] text-dim hover:bg-high hover:text-fg2" title={zh ? "在 Finder 中显示" : "Reveal in file manager"}><Icon name="folder" size={10} /></button>
+                </>}
+                {selected.url && <button onClick={() => void runArtifactAction(() => invoke("open_external", { url: selected.url }))} className="flex h-7 items-center gap-1 rounded-full px-2 text-[9px] text-dim hover:bg-high hover:text-fg2" title={zh ? "在浏览器打开" : "Open in browser"}><Icon name="external" size={10} />{zh ? "浏览器" : "BROWSER"}</button>}
+                <button onClick={() => void runArtifactAction(() => navigator.clipboard.writeText(selected.path ?? selected.url ?? ""))} className="flex h-7 w-7 items-center justify-center rounded-full text-dim hover:bg-high hover:text-fg2" title={zh ? "复制路径或链接" : "Copy path or URL"}><Icon name="copy" size={10} /></button>
+                <button onClick={() => setSelectedIndex(null)} className="flex h-7 w-7 items-center justify-center text-dim hover:text-fg" title={zh ? "关闭预览" : "Close preview"}><Icon name="x" size={12} /></button>
+              </header>
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-void p-5 checkerboard">
+                {selected.mime.startsWith("video/") ? <video src={selected.url ?? (selected.path ? convertFileSrc(selected.path) : "")} controls autoPlay className="max-h-[75vh] max-w-full object-contain" /> : <img src={selected.url ?? (selected.path ? convertFileSrc(selected.path) : "")} alt={prompt} className="max-h-[75vh] max-w-full object-contain" />}
+              </div>
+              {actionError && <p className="shrink-0 border-t border-line px-3 py-2 font-mono text-[9px] text-red">{actionError}</p>}
+            </div>
+          </div>}
         </section>
       </div>
     </div>

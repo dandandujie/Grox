@@ -89,7 +89,7 @@ export interface GrokBridge {
   newSession(cwd: string): Promise<void>;
 
   /** ACP: session/load — emits session_ready with the restored transcript. */
-  loadSession(id: string): Promise<void>;
+  loadSession(id: string, options?: { background?: boolean }): Promise<void>;
 
   /** ACP: session/prompt — streams events until the turn settles. */
   prompt(sessionId: string, text: string, opts: PromptOptions): Promise<void>;

@@ -103,6 +103,7 @@ export interface ProjectMeta {
 interface SessionFlags {
   pinned?: boolean;
   archived?: boolean;
+  completionUnread?: boolean;
 }
 
 export interface SessionComposerState {
@@ -185,10 +186,16 @@ interface DesktopState {
   archiveProject(id: string): void;
   removeProject(id: string): void;
   openProjectInExplorer(id?: string): Promise<void>;
+  createProjectWorktree(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
   renameSession(id: string, title: string): void;
   pinSession(id: string): void;
   archiveSession(id: string): void;
+  markSessionUnread(id: string): void;
+  copySessionValue(id: string, value: "cwd" | "id" | "link"): Promise<void>;
+  continueSessionInNewChat(id: string): Promise<void>;
+  continueSessionInNewWorktree(id: string): Promise<void>;
+  openSessionInNewWindow(id: string): Promise<void>;
   setWorkspace(cwd: string): Promise<void>;
   authenticate(): Promise<void>;
   logout(): Promise<void>;
@@ -688,14 +695,32 @@ export const useDesktop = create<DesktopState>((set, get) => {
         break;
       }
       case "session_ready": {
-        const readySession = {
+        const filteredSession = {
           ...e.session,
           blocks: e.session.blocks.filter((block) => !isHiddenWorkflowControlPrompt(block)),
+          preview: e.preview === true,
         };
-        const { blocks: _b, usage: _u, status: _st, ...meta } = readySession;
-        const launch = pendingLaunch;
-        pendingLaunch = undefined;
-        const optimistic = Object.values(sessions).find((item) => item.id.startsWith("pending-"));
+        const existing = sessions[filteredSession.id];
+        const localPreviewSuffix = e.background && !e.preview && existing?.preview
+          ? existing.blocks.filter((block) => !block.id.startsWith(`preview-${filteredSession.id}-`))
+          : [];
+        const readySession = e.preview && existing
+          ? existing
+          : localPreviewSuffix.length > 0
+            ? {
+                ...filteredSession,
+                blocks: [...filteredSession.blocks, ...localPreviewSuffix],
+                status: existing?.status ?? filteredSession.status,
+              }
+            : e.background && existing && existing.blocks.length > filteredSession.blocks.length
+              ? { ...filteredSession, blocks: existing.blocks }
+            : filteredSession;
+        const { blocks: _b, usage: _u, status: _st, preview: _preview, ...meta } = readySession;
+        const launch = e.background ? undefined : pendingLaunch;
+        if (!e.background) pendingLaunch = undefined;
+        const optimistic = e.background
+          ? undefined
+          : Object.values(sessions).find((item) => item.id.startsWith("pending-"));
         const nextSession = launch && optimistic
           ? {
               ...readySession,
@@ -711,14 +736,14 @@ export const useDesktop = create<DesktopState>((set, get) => {
             }
           : readySession;
         const previousMeta = sessionIndex.find((item) => item.id === readySession.id);
-        const nextIndex = [
-          {
-            ...decorateSessions([meta])[0],
-            lastStatus: nextSession.status,
-            completionUnread: previousMeta?.completionUnread ?? false,
-          },
-          ...sessionIndex.filter((m) => m.id !== readySession.id),
-        ];
+        const indexedMeta = {
+          ...decorateSessions([meta])[0],
+          lastStatus: nextSession.status,
+          completionUnread: previousMeta?.completionUnread ?? false,
+        };
+        const nextIndex = e.background && previousMeta
+          ? sessionIndex.map((item) => item.id === readySession.id ? indexedMeta : item)
+          : [indexedMeta, ...sessionIndex.filter((item) => item.id !== readySession.id)];
         const projects = ensureProject(get().projects, readySession.cwd);
         persistSessionCatalog(nextIndex);
         const state = get();
@@ -735,23 +760,31 @@ export const useDesktop = create<DesktopState>((set, get) => {
         };
         const sessionComposers = { ...state.sessionComposers, [readySession.id]: composer };
         persistSessionComposers(sessionComposers);
-        bridge.setPermissionMode(composer.permissionMode);
-        const nextSessions = Object.fromEntries(
-          Object.entries(sessions).filter(([id]) => !id.startsWith("pending-")),
-        );
+        const remainsActive = state.activeId === readySession.id && state.view === "session";
+        if (!e.background || remainsActive) bridge.setPermissionMode(composer.permissionMode);
+        const nextSessions = e.background
+          ? sessions
+          : Object.fromEntries(Object.entries(sessions).filter(([id]) => !id.startsWith("pending-")));
         set({
           sessions: { ...nextSessions, [readySession.id]: nextSession },
           sessionIndex: nextIndex,
           projects,
-          workspace: readySession.cwd,
-          activeProjectId: projectId(readySession.cwd),
-          activeId: readySession.id,
-          view: "session",
-          model: composer.model,
-          effort: composer.effort,
-          mode: composer.mode,
-          permissionMode: composer.permissionMode,
           sessionComposers,
+          ...(!e.background ? {
+            workspace: readySession.cwd,
+            activeProjectId: projectId(readySession.cwd),
+            activeId: readySession.id,
+            view: "session" as const,
+            model: composer.model,
+            effort: composer.effort,
+            mode: composer.mode,
+            permissionMode: composer.permissionMode,
+          } : remainsActive ? {
+            model: composer.model,
+            effort: composer.effort,
+            mode: composer.mode,
+            permissionMode: composer.permissionMode,
+          } : {}),
         });
         if (launch) {
           void bridge.prompt(readySession.id, launch.text, {
@@ -1055,7 +1088,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       }
       if (meta && !samePath(meta.cwd, get().workspace)) await get().setWorkspace(meta.cwd);
       const state = get();
-      const has = state.sessions[id];
+      const existing = state.sessions[id];
       const composer = state.sessionComposers[id];
       if (composer) bridge.setPermissionMode(composer.permissionMode);
       set({
@@ -1068,7 +1101,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
           permissionMode: composer.permissionMode,
         } : {}),
       });
-      if (!has) await bridge.loadSession(id);
+      if (!existing || existing.preview) {
+        void bridge.loadSession(id, { background: true }).catch((error) => {
+          set({ startupError: `会话后台同步失败：${error instanceof Error ? error.message : String(error)}` });
+        });
+      }
     },
 
     async newSession(launch) {
@@ -1184,6 +1221,19 @@ export const useDesktop = create<DesktopState>((set, get) => {
         ? get().projects.find((entry) => entry.id === id)
         : get().projects.find((entry) => entry.id === get().activeProjectId);
       await invoke("open_in_explorer", { cwd: project?.path ?? get().workspace, path: null });
+    },
+
+    async createProjectWorktree(id) {
+      const project = get().projects.find((entry) => entry.id === id);
+      if (!project) return;
+      try {
+        const path = await invoke<string>("create_permanent_worktree", { cwd: project.path });
+        // Make the result discoverable immediately, just like Codex's
+        // permanent-worktree action: create it, then reveal it in Finder.
+        await invoke("open_in_explorer", { cwd: path, path: null });
+      } catch (error) {
+        set({ startupError: error instanceof Error ? error.message : String(error) });
+      }
     },
 
     async setWorkspace(cwd) {
@@ -1559,6 +1609,103 @@ export const useDesktop = create<DesktopState>((set, get) => {
         ),
         ...(get().activeId === id && archived ? { activeId: null, view: "home" as View } : {}),
       });
+    },
+
+    markSessionUnread(id) {
+      const nextIndex = get().sessionIndex.map((meta) =>
+        meta.id === id ? { ...meta, completionUnread: true } : meta,
+      );
+      setSessionFlag(id, { completionUnread: true });
+      persistSessionCatalog(nextIndex);
+      set({ sessionIndex: nextIndex });
+    },
+
+    async copySessionValue(id, value) {
+      const meta = get().sessionIndex.find((entry) => entry.id === id);
+      if (!meta) return;
+      try {
+        const text = value === "cwd"
+          ? meta.cwd
+          : value === "id"
+            ? meta.id
+            : (() => {
+                const url = new URL(window.location.href);
+                url.search = "";
+                url.hash = "";
+                url.searchParams.set("open", meta.id);
+                return url.toString();
+              })();
+        await navigator.clipboard.writeText(text);
+      } catch (error) {
+        set({ startupError: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    async continueSessionInNewChat(id) {
+      const meta = get().sessionIndex.find((entry) => entry.id === id);
+      if (!meta) return;
+      const session = get().sessions[id];
+      const lastUser = [...(session?.blocks ?? [])].reverse().find((block) => block.type === "user");
+      const lastAssistant = [...(session?.blocks ?? [])].reverse().find((block) => block.type === "assistant");
+      const userText = lastUser?.type === "user" ? lastUser.text : meta.title;
+      const assistantText = lastAssistant?.type === "assistant" ? lastAssistant.text.slice(-1200) : "";
+      const text = [
+        "请在新会话中继续处理下面这个任务，并保留必要的上下文。",
+        `原始请求：${userText}`,
+        assistantText ? `上一会话的最新回复：${assistantText}` : "",
+      ].filter(Boolean).join("\n\n");
+      try {
+        if (!samePath(meta.cwd, get().workspace)) await get().setWorkspace(meta.cwd);
+        await get().newSession({ text });
+      } catch (error) {
+        set({ startupError: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    async continueSessionInNewWorktree(id) {
+      const meta = get().sessionIndex.find((entry) => entry.id === id);
+      if (!meta) return;
+      try {
+        const path = await invoke<string>("create_permanent_worktree", { cwd: meta.cwd });
+        const session = get().sessions[id];
+        const lastUser = [...(session?.blocks ?? [])].reverse().find((block) => block.type === "user");
+        const text = `请在这个新的工作树中继续处理任务：${lastUser?.type === "user" ? lastUser.text : meta.title}`;
+        await get().setWorkspace(path);
+        await get().newSession({ text });
+      } catch (error) {
+        set({ startupError: error instanceof Error ? error.message : String(error) });
+      }
+    },
+
+    async openSessionInNewWindow(id) {
+      const meta = get().sessionIndex.find((entry) => entry.id === id);
+      if (!meta) return;
+      try {
+        const url = new URL(window.location.href);
+        url.search = "";
+        url.hash = "";
+        url.searchParams.set("open", id);
+        if ("__TAURI_INTERNALS__" in window) {
+          const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+          const label = `session-${id.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 28)}-${Date.now()}`;
+          const child = new WebviewWindow(label, {
+            url: url.toString(),
+            title: meta.title,
+            width: 1180,
+            height: 780,
+            minWidth: 860,
+            minHeight: 560,
+            resizable: true,
+          });
+          child.once("tauri://error", (event) => {
+            set({ startupError: String(event.payload ?? "无法打开新窗口") });
+          });
+        } else {
+          window.open(url.toString(), "_blank", "noopener,noreferrer");
+        }
+      } catch (error) {
+        set({ startupError: error instanceof Error ? error.message : String(error) });
+      }
     },
 
     sendPrompt(text, attachments = [], targetSessionId, modeOverride) {

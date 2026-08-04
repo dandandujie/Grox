@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useDesktop } from "../../state/store";
 import { usePreferences } from "../../state/preferences";
@@ -6,6 +6,7 @@ import { useI18n } from "../../lib/i18n";
 import { Markdown } from "../../lib/markdown";
 import { Icon } from "../fx/Icon";
 import { ResizeHandle } from "../common/ResizeHandle";
+import { openFileWithConfiguredApplication } from "../../lib/defaultOpen";
 
 export function PreviewPane() {
   const { t, language } = useI18n();
@@ -18,6 +19,11 @@ export function PreviewPane() {
   const width = usePreferences((state) => state.previewWidth);
   const setWidth = usePreferences((state) => state.setPreviewWidth);
   const [notice, setNotice] = useState("");
+  const [sourceMode, setSourceMode] = useState(false);
+  const sourceCapable = file?.kind === "markdown" || file?.kind === "html";
+  useEffect(() => {
+    setSourceMode(false);
+  }, [file?.path]);
   const run = (action: () => Promise<void>) => {
     setNotice("");
     void action().catch((cause) => setNotice(cause instanceof Error ? cause.message : String(cause)));
@@ -37,11 +43,18 @@ export function PreviewPane() {
           </span>
           {file?.kind && <span className="lbl !text-[9.5px]">{file.kind}</span>}
           {file && <>
-            <button onClick={() => setInspectorTab("files")} className="flex h-6 w-6 items-center justify-center text-dim hover:text-fg" title={languageLabel(language, "files")}><Icon name="folder" size={11} /></button>
-            <button onClick={() => run(() => navigator.clipboard.writeText(file.path).then(() => undefined))} className="flex h-6 w-6 items-center justify-center text-dim hover:text-fg" title={languageLabel(language, "copyPath")}><Icon name="copy" size={11} /></button>
-            {file.kind !== "image" && <button onClick={() => run(() => navigator.clipboard.writeText(file.content).then(() => undefined))} className="flex h-6 w-6 items-center justify-center text-dim hover:text-fg" title={languageLabel(language, "copyContents")}><Icon name="copy" size={10} /></button>}
-            <button onClick={() => run(() => invoke("reveal_in_explorer", { cwd: workspace, path: file.path }))} className="flex h-6 w-6 items-center justify-center text-dim hover:text-fg" title={languageLabel(language, "reveal")}><Icon name="folder" size={11} /></button>
-            <button onClick={() => run(() => invoke("open_file_with_default", { cwd: workspace, path: file.path }))} className="flex h-6 w-6 items-center justify-center text-dim hover:text-fg" title={languageLabel(language, "openDefault")}><Icon name="external" size={11} /></button>
+            {sourceCapable && <div className="flex items-center rounded-[3px] border border-line2 p-px">
+              <button onClick={() => setSourceMode(false)} className={`h-5 rounded-[2px] px-1.5 font-mono text-[8.5px] ${!sourceMode ? "bg-high text-fg2" : "text-faint hover:text-mute"}`} title={languageLabel(language, "previewMode")}>{languageLabel(language, "previewMode")}</button>
+              <button onClick={() => setSourceMode(true)} className={`h-5 rounded-[2px] px-1.5 font-mono text-[8.5px] ${sourceMode ? "bg-high text-fg2" : "text-faint hover:text-mute"}`} title={languageLabel(language, "sourceMode")}>{languageLabel(language, "sourceMode")}</button>
+            </div>}
+            <div className="ml-1 flex max-w-[62%] shrink-0 items-center gap-0.5 overflow-x-auto border-l border-line pl-1">
+              <PreviewAction label={languageLabel(language, "files")} icon="folder" onClick={() => setInspectorTab("files")} />
+              <PreviewAction label={languageLabel(language, "copyPath")} icon="copy" onClick={() => run(() => navigator.clipboard.writeText(file.path).then(() => undefined))} />
+              {file.kind !== "image" && <PreviewAction label={languageLabel(language, "copyContents")} icon="copy" onClick={() => run(() => navigator.clipboard.writeText(file.content).then(() => undefined))} />}
+              <PreviewAction label={languageLabel(language, "reveal")} icon="folder" onClick={() => run(() => invoke("reveal_in_explorer", { cwd: workspace, path: file.path }))} />
+              <PreviewAction label={languageLabel(language, "openDefault")} icon="external" onClick={() => run(() => openFileWithConfiguredApplication(workspace, file.path))} />
+              <PreviewAction label={languageLabel(language, "openWith")} icon="external" onClick={() => run(() => invoke("open_file_with_dialog", { cwd: workspace, path: file.path }))} />
+            </div>
           </>}
           <button
             onClick={close}
@@ -59,6 +72,10 @@ export function PreviewPane() {
             <PaneMessage text={error} error />
           ) : !file ? (
             <PaneMessage text={t("noFiles")} />
+          ) : sourceMode ? (
+            <pre className="min-h-full whitespace-pre-wrap p-4 font-mono text-[11px] leading-relaxed text-fg2 select-text">
+              {file.content}
+            </pre>
           ) : file.kind === "markdown" ? (
             <article className="mx-auto max-w-[760px] p-5 text-[14px] leading-relaxed text-fg2">
               <Markdown text={file.content} />
@@ -95,10 +112,23 @@ export function PreviewPane() {
   );
 }
 
-function languageLabel(language: "zh-CN" | "en-US", key: "files" | "copyPath" | "copyContents" | "reveal" | "openDefault") {
+function PreviewAction({ label, icon, onClick }: { label: string; icon: React.ComponentProps<typeof Icon>["name"]; onClick(): void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex h-6 shrink-0 items-center gap-1 rounded-[3px] px-1.5 text-[9px] text-dim transition-colors hover:bg-high hover:text-fg2"
+      title={label}
+    >
+      <Icon name={icon} size={10} />
+      <span className="whitespace-nowrap">{label}</span>
+    </button>
+  );
+}
+
+function languageLabel(language: "zh-CN" | "en-US", key: "files" | "copyPath" | "copyContents" | "reveal" | "openDefault" | "openWith" | "previewMode" | "sourceMode") {
   const labels = language === "zh-CN"
-    ? { files: "文件列表", copyPath: "复制路径", copyContents: "复制内容", reveal: "在 Finder 中显示", openDefault: "用默认应用打开" }
-    : { files: "Files", copyPath: "Copy path", copyContents: "Copy contents", reveal: "Reveal in file manager", openDefault: "Open with default app" };
+    ? { files: "文件列表", copyPath: "复制路径", copyContents: "复制内容", reveal: "在 Finder 中显示", openDefault: "用默认应用打开", openWith: "打开方式…", previewMode: "预览", sourceMode: "源代码" }
+    : { files: "Files", copyPath: "Copy path", copyContents: "Copy contents", reveal: "Reveal in file manager", openDefault: "Open with default app", openWith: "Open with…", previewMode: "Preview", sourceMode: "Source" };
   return labels[key];
 }
 function PaneMessage({ text, error = false }: { text: string; error?: boolean }) {

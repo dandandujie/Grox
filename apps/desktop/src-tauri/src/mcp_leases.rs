@@ -15,6 +15,26 @@ pub struct McpLeaseStore {
     browser: Mutex<HashMap<String, Value>>,
 }
 
+/// Frontend `claimPendingBrowserLease` contract — keep in sync with
+/// `apps/desktop/src/bridge/browserLeaseBind.ts`.
+pub fn claim_pending_browser_lease(
+    leases: &mut HashMap<String, String>,
+    session_id: &str,
+    browser_lease_id: &str,
+) {
+    if browser_lease_id.is_empty() {
+        return;
+    }
+    let pending_key = format!("pending:{browser_lease_id}");
+    match leases.get(&pending_key) {
+        Some(id) if id == browser_lease_id => {
+            leases.remove(&pending_key);
+            leases.insert(session_id.to_string(), browser_lease_id.to_string());
+        }
+        _ => {}
+    }
+}
+
 impl McpLeaseStore {
     pub fn put_computer(&self, lease_id: String, server: Value) -> Result<(), String> {
         self.computer
@@ -153,5 +173,34 @@ mod tests {
         let store = McpLeaseStore::default();
         let line = r#"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{}}"#;
         assert_eq!(inject_mcp_servers(line, &store).unwrap(), line);
+    }
+
+    #[test]
+    fn concurrent_session_new_binds_only_matching_pending_browser_lease() {
+        let mut leases = HashMap::new();
+        leases.insert("pending:lease-a".into(), "lease-a".into());
+        leases.insert("pending:lease-b".into(), "lease-b".into());
+
+        // First session/new returns — must claim only lease-a.
+        claim_pending_browser_lease(&mut leases, "session-1", "lease-a");
+        assert_eq!(leases.get("session-1").map(String::as_str), Some("lease-a"));
+        assert!(!leases.contains_key("pending:lease-a"));
+        assert_eq!(leases.get("pending:lease-b").map(String::as_str), Some("lease-b"));
+
+        // Second concurrent session claims its own lease.
+        claim_pending_browser_lease(&mut leases, "session-2", "lease-b");
+        assert_eq!(leases.get("session-1").map(String::as_str), Some("lease-a"));
+        assert_eq!(leases.get("session-2").map(String::as_str), Some("lease-b"));
+        assert!(!leases.contains_key("pending:lease-b"));
+    }
+
+    #[test]
+    fn empty_or_unknown_browser_lease_leaves_pending_untouched() {
+        let mut leases = HashMap::new();
+        leases.insert("pending:lease-a".into(), "lease-a".into());
+        claim_pending_browser_lease(&mut leases, "session-1", "");
+        claim_pending_browser_lease(&mut leases, "session-1", "lease-missing");
+        assert_eq!(leases.get("pending:lease-a").map(String::as_str), Some("lease-a"));
+        assert!(!leases.contains_key("session-1"));
     }
 }

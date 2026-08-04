@@ -210,6 +210,8 @@ const sameWorkspace = (left: string, right: string) =>
   left.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase() ===
   right.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
 
+const workspaceKey = (path: string) => path.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+
 function ProjectGroup({
   project,
   active,
@@ -289,6 +291,7 @@ function ProjectRow({ project, active, expanded, count, onToggle }: { project: P
   const archiveProject = useDesktop((state) => state.archiveProject);
   const removeProject = useDesktop((state) => state.removeProject);
   const openExplorer = useDesktop((state) => state.openProjectInExplorer);
+  const createWorktree = useDesktop((state) => state.createProjectWorktree);
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(project.name);
@@ -298,7 +301,13 @@ function ProjectRow({ project, active, expanded, count, onToggle }: { project: P
   };
 
   return (
-    <div className={`group relative mb-px flex h-8 items-center gap-1 rounded-[4px] px-1 ${active ? "bg-high text-fg" : "text-fg2 hover:bg-high/60"}`}>
+    <div
+      className={`group relative mb-px flex h-8 items-center gap-1 rounded-[4px] px-1 ${active ? "bg-high text-fg" : "text-fg2 hover:bg-high/60"}`}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenu(true);
+      }}
+    >
       <button onClick={onToggle} className="flex h-6 w-5 shrink-0 items-center justify-center text-faint hover:text-fg" title={expanded ? "Collapse" : "Expand"}>
         <Icon name="chevronRight" size={9} className={`transition-transform ${expanded ? "rotate-90" : ""}`} />
       </button>
@@ -340,8 +349,10 @@ function ProjectRow({ project, active, expanded, count, onToggle }: { project: P
         <ContextMenu close={() => setMenu(false)}>
           <MenuButton icon="pin" label={project.pinned ? t("unpin") : t("pin")} onClick={() => pinProject(project.id)} />
           <MenuButton icon="external" label={t("openExplorer")} onClick={() => void openExplorer(project.id)} />
-          <MenuButton icon="edit" label={t("rename")} onClick={() => setEditing(true)} />
-          <MenuButton icon="archive" label={project.archived ? t("unarchive") : t("archive")} onClick={() => archiveProject(project.id)} />
+          <MenuButton icon="branch" label={language === "zh-CN" ? "创建永久工作树" : "Create permanent worktree"} onClick={() => void createWorktree(project.id)} />
+          <MenuButton icon="gear" label={language === "zh-CN" ? "编辑项目" : "Edit project"} onClick={() => setEditing(true)} />
+          <MenuDivider />
+          <MenuButton icon="archive" label={project.archived ? t("unarchive") : (language === "zh-CN" ? "归档项目" : "Archive project")} onClick={() => archiveProject(project.id)} />
           <MenuButton icon="x" label={t("remove")} tone="text-red" onClick={() => removeProject(project.id)} />
         </ContextMenu>
       )}
@@ -350,10 +361,15 @@ function ProjectRow({ project, active, expanded, count, onToggle }: { project: P
 }
 
 function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: { meta: SessionMeta; status: SessionStatus; completionUnread: boolean; active: boolean; tokens: number; onOpen(): void }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const renameSession = useDesktop((state) => state.renameSession);
   const pinSession = useDesktop((state) => state.pinSession);
   const archiveSession = useDesktop((state) => state.archiveSession);
+  const markSessionUnread = useDesktop((state) => state.markSessionUnread);
+  const continueInNewChat = useDesktop((state) => state.continueSessionInNewChat);
+  const continueInWorktree = useDesktop((state) => state.continueSessionInNewWorktree);
+  const openInNewWindow = useDesktop((state) => state.openSessionInNewWindow);
+  const copySessionValue = useDesktop((state) => state.copySessionValue);
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const [draft, setDraft] = useState(meta.title);
@@ -364,7 +380,15 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
   };
 
   return (
-    <div className={`group relative mb-px cursor-pointer rounded-[4px] border-l-2 px-2 py-1.5 ${active ? "border-acc bg-high" : "border-transparent hover:bg-high/60"}`} onClick={onOpen}>
+    <div
+      className={`group relative mb-px cursor-pointer rounded-[4px] border-l-2 px-2 py-1.5 ${active ? "border-acc bg-high" : "border-transparent hover:bg-high/60"}`}
+      onClick={onOpen}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenu(true);
+      }}
+    >
       <div className="flex items-center gap-2">
         <SessionStatusLight status={status} completionUnread={completionUnread} />
         <span className={status === "running" || status.startsWith("awaiting_") ? "" : "opacity-55"}><BlackHole size={11} spin={status === "running" ? true : status.startsWith("awaiting_") ? "slow" : false} /></span>
@@ -386,6 +410,17 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
           <MenuButton icon="pin" label={meta.pinned ? t("unpin") : t("pin")} onClick={() => pinSession(meta.id)} />
           <MenuButton icon="edit" label={t("rename")} onClick={() => setEditing(true)} />
           <MenuButton icon="archive" label={t("archive")} onClick={() => archiveSession(meta.id)} />
+          <MenuButton icon="dot" label={language === "zh-CN" ? "标记为未读" : "Mark as unread"} onClick={() => markSessionUnread(meta.id)} />
+          <MenuDivider />
+          <MenuButton icon="external" label={language === "zh-CN" ? "在 Finder 中显示" : "Show in Finder"} onClick={() => void useDesktop.getState().openProjectInExplorer(workspaceKey(meta.cwd))} />
+          <MenuButton icon="folder" label={language === "zh-CN" ? "复制工作目录" : "Copy working directory"} onClick={() => void copySessionValue(meta.id, "cwd")} />
+          <MenuButton icon="copy" label={language === "zh-CN" ? "复制会话 ID" : "Copy session ID"} onClick={() => void copySessionValue(meta.id, "id")} />
+          <MenuButton icon="external" label={language === "zh-CN" ? "复制深度链接" : "Copy deep link"} onClick={() => void copySessionValue(meta.id, "link")} />
+          <MenuDivider />
+          <MenuButton icon="arrowRight" label={language === "zh-CN" ? "在新聊天中继续" : "Continue in new chat"} onClick={() => void continueInNewChat(meta.id)} />
+          <MenuButton icon="branch" label={language === "zh-CN" ? "在新工作树中继续" : "Continue in new worktree"} onClick={() => void continueInWorktree(meta.id)} />
+          <MenuDivider />
+          <MenuButton icon="external" label={language === "zh-CN" ? "在新窗口中打开" : "Open in new window"} onClick={() => void openInNewWindow(meta.id)} />
         </ContextMenu>
       )}
     </div>
@@ -408,23 +443,29 @@ function SessionStatusLight({ status, completionUnread }: { status: SessionStatu
 
 function ContextMenu({ children, close }: { children: React.ReactNode; close(): void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
     const outside = (event: PointerEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) close();
+      if (ref.current && !ref.current.contains(event.target as Node)) closeRef.current();
     };
-    const escape = (event: KeyboardEvent) => event.key === "Escape" && close();
-    document.addEventListener("pointerdown", outside);
+    const escape = (event: KeyboardEvent) => event.key === "Escape" && closeRef.current();
+    document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", escape);
     return () => {
-      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", escape);
     };
-  }, [close]);
+  }, []);
   return (
     <div ref={ref} className="absolute right-1 top-7 z-40 w-[min(192px,calc(100vw-24px))] overflow-hidden rounded-[5px] border border-line2 bg-raise p-1 shadow-2xl" onClick={(event) => { event.stopPropagation(); close(); }}>
       {children}
     </div>
   );
+}
+
+function MenuDivider() {
+  return <div className="my-1 border-t border-line" role="separator" />;
 }
 
 function MenuButton({ icon, label, onClick, tone = "text-fg2" }: { icon: React.ComponentProps<typeof Icon>["name"]; label: string; onClick(): void; tone?: string }) {

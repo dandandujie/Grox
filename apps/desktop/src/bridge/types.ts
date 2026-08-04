@@ -272,6 +272,8 @@ export interface Session extends SessionMeta {
   blocks: SessionBlock[];
   usage: Usage;
   status: SessionStatus;
+  /** A fast local transcript while canonical ACP history is still binding. */
+  preview?: boolean;
 }
 
 export type AgentMode = "agent" | "plan" | "ask";
@@ -467,7 +469,7 @@ export type BridgeEvent =
   | { type: "available_commands"; sessionId: string; commands: SlashCommand[] }
   | { type: "workflow_update"; sessionId: string; workflow: WorkflowRun }
   | { type: "workflow_trace_update"; sessionId: string; runId: string; trace: WorkflowAgentTrace }
-  | { type: "session_ready"; session: Session }
+  | { type: "session_ready"; session: Session; background?: boolean; preview?: boolean }
   | { type: "session_meta"; sessionId: string; patch: Partial<SessionMeta> }
   | { type: "block_add"; sessionId: string; block: SessionBlock }
   | { type: "block_patch"; sessionId: string; blockId: string; patch: Partial<SessionBlock> }
