@@ -53,6 +53,7 @@ export function PromptOptionsMenu({
   onMode,
   onEffort,
   onPermission,
+  efforts = EFFORTS,
 }: {
   mode: AgentMode;
   effort: Effort;
@@ -60,6 +61,7 @@ export function PromptOptionsMenu({
   onMode(mode: AgentMode): void;
   onEffort(effort: Effort): void;
   onPermission(mode: PermissionMode): void;
+  efforts?: readonly Effort[];
 }) {
   const { language } = useI18n();
   const [open, setOpen] = useState(false);
@@ -98,7 +100,7 @@ export function PromptOptionsMenu({
             ["auto", language === "zh-CN" ? "自动策略" : "AUTO"],
             ["bypass", "YOLO"],
           ]} active={permissionMode} onSelect={(value) => onPermission(value as PermissionMode)} />
-          <OptionRow label={language === "zh-CN" ? "思考强度" : "EFFORT"} values={EFFORTS.map((value) => [value, value.toUpperCase()])} active={effort} onSelect={(value) => onEffort(value as Effort)} last />
+          <OptionRow label={language === "zh-CN" ? "思考强度" : "EFFORT"} values={efforts.map((value) => [value, value.toUpperCase()])} active={effort} onSelect={(value) => onEffort(value as Effort)} last />
         </div>
       )}
     </div>
@@ -109,7 +111,7 @@ function OptionRow({ label, values, active, onSelect, last = false }: { label: s
   return (
     <div className={last ? "" : "mb-3 border-b border-line pb-3"}>
       <p className="lbl mb-1.5 !text-[9px]">{label}</p>
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${values.length}, minmax(0, 1fr))` }}>
         {values.map(([value, text]) => (
           <button key={value} onClick={() => onSelect(value)} className={`min-w-0 truncate rounded-full border px-2.5 py-1.5 font-mono text-[9.5px] ${active === value ? "border-acc-dim bg-acc-wash text-acc" : "border-line2 text-dim hover:text-fg2"}`} title={text}>
             {text}

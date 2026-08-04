@@ -6,7 +6,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { bridge } from "../bridge";
-import { isSessionTerminal, MODELS } from "../bridge/types";
+import { EFFORTS, isSessionTerminal, MODELS } from "../bridge/types";
 import { notifyDesktop } from "../lib/notify";
 import type {
   AgentMode,
@@ -295,7 +295,11 @@ function loadSessionComposers(): Record<string, SessionComposerState> {
     {},
   );
   return Object.fromEntries(
-    Object.entries(stored).map(([id, state]) => [id, { ...state, attachments: [] }]),
+    Object.entries(stored).map(([id, state]) => [id, {
+      ...state,
+      effort: EFFORTS.find((effort) => effort === state.effort) ?? "high",
+      attachments: [],
+    }]),
   );
 }
 
@@ -1052,7 +1056,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
     model: localStorage.getItem("grok.model") ?? "grok-build",
     models: MODELS,
     modelsUpdatedAt: 0,
-    effort: (localStorage.getItem("grok.effort") as Effort) ?? "high",
+    effort: EFFORTS.find((effort) => effort === localStorage.getItem("grok.effort")) ?? "high",
     mode: "agent",
     permissionMode: readStoredPermissionMode(localStorage.getItem("grok.permissionMode")),
     computerUseEnabled: localStorage.getItem("grox.computerUseEnabled") !== "0",

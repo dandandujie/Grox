@@ -435,7 +435,7 @@ export function Composer() {
               width={240}
             />
 
-            <PromptOptionsMenu mode={mode} effort={effort} permissionMode={permissionMode} onMode={setMode} onEffort={setEffort} onPermission={setPermissionMode} />
+            <PromptOptionsMenu mode={mode} effort={effort} efforts={models.find((item) => item.id === model)?.efforts} permissionMode={permissionMode} onMode={setMode} onEffort={setEffort} onPermission={setPermissionMode} />
 
             {deepResearchAvailable && <button
               onClick={() => {

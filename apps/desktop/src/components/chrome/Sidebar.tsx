@@ -8,6 +8,7 @@ import { Wordmark } from "../fx/Wordmark";
 import { Icon } from "../fx/Icon";
 import type { Session, SessionMeta, SessionStatus } from "../../bridge/types";
 import { BlackHole } from "../fx/BlackHole";
+import { normalizeSessionQuery, sessionMatchesLoadedContent } from "../../lib/sessionSearch";
 
 export function Sidebar() {
   const { t, language } = useI18n();
@@ -31,6 +32,9 @@ export function Sidebar() {
   const historyCount = useDesktop((state) => state.historyCount);
   const historyError = useDesktop((state) => state.historyError);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [historyMatches, setHistoryMatches] = useState<Set<string>>(() => new Set());
+  const [historySearching, setHistorySearching] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
     () => new Set(activeProjectId ? [activeProjectId] : []),
@@ -61,8 +65,46 @@ export function Sidebar() {
   const orderedSessions = [...sessionIndex].sort(
     (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt - a.updatedAt,
   );
-  const activeProjects = orderedProjects.filter((project) => !project.archived);
-  const archivedProjects = orderedProjects.filter((project) => project.archived);
+  const sessionSearchIdsKey = sessionIndex.map((session) => session.id).join("\n");
+  const normalizedQuery = normalizeSessionQuery(sessionQuery);
+  const matchedSessions = normalizedQuery
+    ? orderedSessions.filter((meta) =>
+        historyMatches.has(meta.id) || sessionMatchesLoadedContent(meta, sessions[meta.id], normalizedQuery)
+      )
+    : orderedSessions;
+  const matchedWorkspaceKeys = new Set(matchedSessions.map((session) => workspaceKey(session.cwd)));
+  const activeProjects = orderedProjects.filter(
+    (project) => !project.archived && (!normalizedQuery || matchedWorkspaceKeys.has(workspaceKey(project.path))),
+  );
+  const archivedProjects = orderedProjects.filter(
+    (project) => project.archived && (!normalizedQuery || matchedWorkspaceKeys.has(workspaceKey(project.path))),
+  );
+
+  useEffect(() => {
+    if (!normalizedQuery) {
+      setHistoryMatches(new Set());
+      setHistorySearching(false);
+      return;
+    }
+    let cancelled = false;
+    setHistorySearching(true);
+    const timeout = window.setTimeout(() => {
+      void invoke<string[]>("search_session_history", {
+        query: normalizedQuery,
+        sessionIds: sessionIndex.map((session) => session.id),
+      }).then((ids) => {
+        if (!cancelled) setHistoryMatches(new Set(ids));
+      }).catch(() => {
+        if (!cancelled) setHistoryMatches(new Set());
+      }).finally(() => {
+        if (!cancelled) setHistorySearching(false);
+      });
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [normalizedQuery, sessionSearchIdsKey]);
 
   return (
     <aside className="relative flex shrink-0 flex-col border-r border-line bg-panel" style={{ width }}>
@@ -81,6 +123,21 @@ export function Sidebar() {
           {t("newProject")}
           <span className="ml-auto font-mono text-[9.5px] text-faint">Ctrl N</span>
         </button>
+        <div className="mt-1.5 flex h-8 items-center gap-2 rounded-[4px] border border-line2 bg-void px-2.5 focus-within:border-line3">
+          <Icon name="search" size={11} className={historySearching ? "animate-pulse text-acc" : "text-dim"} />
+          <input
+            value={sessionQuery}
+            onChange={(event) => setSessionQuery(event.target.value)}
+            placeholder={language === "zh-CN" ? "搜索会话标题与内容" : "Search titles and content"}
+            aria-label={language === "zh-CN" ? "搜索会话标题与内容" : "Search session titles and content"}
+            className="min-w-0 flex-1 bg-transparent text-[10.5px] text-fg outline-none placeholder:text-faint"
+          />
+          {sessionQuery && (
+            <button type="button" onClick={() => setSessionQuery("")} className="text-faint hover:text-fg" aria-label={language === "zh-CN" ? "清除搜索" : "Clear search"}>
+              <Icon name="x" size={10} />
+            </button>
+          )}
+        </div>
         <button
           onClick={() => void refreshHistory()}
           disabled={historySyncing}
@@ -96,14 +153,15 @@ export function Sidebar() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <SectionTitle label={t("projects")} count={projects.length} />
+        <SectionTitle label={normalizedQuery ? (language === "zh-CN" ? "搜索结果" : "SEARCH RESULTS") : t("projects")} count={normalizedQuery ? matchedSessions.length : projects.length} />
         {activeProjects.map((project) => (
           <ProjectGroup
             key={project.id}
             project={project}
             active={project.id === activeProjectId}
-            expanded={expandedProjectIds.has(project.id)}
-            sessions={orderedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
+            expanded={Boolean(normalizedQuery) || expandedProjectIds.has(project.id)}
+            sessions={matchedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
+            showArchived={Boolean(normalizedQuery)}
             activeId={activeId}
             loadedSessions={sessions}
             onOpenSession={(id) => void openSession(id)}
@@ -116,14 +174,15 @@ export function Sidebar() {
           />
         ))}
         {archivedProjects.length > 0 && (
-          <ArchiveGroup label={t("archived")}>
+          <ArchiveGroup label={t("archived")} forceOpen={Boolean(normalizedQuery)}>
             {archivedProjects.map((project) => (
               <ProjectGroup
                 key={project.id}
                 project={project}
                 active={project.id === activeProjectId}
-                expanded={expandedProjectIds.has(project.id)}
-                sessions={orderedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
+                expanded={Boolean(normalizedQuery) || expandedProjectIds.has(project.id)}
+                sessions={matchedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
+                showArchived={Boolean(normalizedQuery)}
                 activeId={activeId}
                 loadedSessions={sessions}
                 onOpenSession={(id) => void openSession(id)}
@@ -136,6 +195,11 @@ export function Sidebar() {
               />
             ))}
           </ArchiveGroup>
+        )}
+        {normalizedQuery && !historySearching && matchedSessions.length === 0 && (
+          <p className="px-2 py-6 text-center font-mono text-[9.5px] text-faint">
+            {language === "zh-CN" ? "没有匹配的历史会话" : "NO MATCHING SESSIONS"}
+          </p>
         )}
       </div>
 
@@ -219,6 +283,7 @@ function ProjectGroup({
   sessions,
   activeId,
   loadedSessions,
+  showArchived,
   onOpenSession,
   onToggle,
 }: {
@@ -228,10 +293,11 @@ function ProjectGroup({
   sessions: SessionMeta[];
   activeId: string | null;
   loadedSessions: Record<string, Session>;
+  showArchived?: boolean;
   onOpenSession(id: string): void;
   onToggle(): void;
 }) {
-  const visible = sessions.filter((session) => !session.archived);
+  const visible = showArchived ? sessions : sessions.filter((session) => !session.archived);
   return (
     <div className="mb-1">
       <ProjectRow
@@ -269,9 +335,9 @@ function SectionTitle({ label, count }: { label: string; count: number }) {
   );
 }
 
-function ArchiveGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function ArchiveGroup({ label, children, forceOpen = false }: { label: string; children: React.ReactNode; forceOpen?: boolean }) {
   return (
-    <details className="group/archive mt-1">
+    <details className="group/archive mt-1" open={forceOpen || undefined}>
       <summary className="flex cursor-pointer items-center gap-1.5 px-2 py-1 font-mono text-[9.5px] text-faint hover:text-mute">
         <Icon name="chevronRight" size={8} className="transition-transform group-open/archive:rotate-90" />
         {label}

@@ -84,6 +84,10 @@ const MEDIA_HTTPS_HOST_ALLOWLIST: &[&str] = &[
     "imagine.x.ai",
 ];
 const MAX_SESSION_PREVIEW_MESSAGES: usize = 200;
+const MAX_SESSION_SEARCH_IDS: usize = 2_000;
+const MAX_SESSION_SEARCH_HITS: usize = 500;
+const MAX_SESSION_SEARCH_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_SESSION_SEARCH_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
 
 struct AgentProcess {
     child: Child,
@@ -679,6 +683,124 @@ fn preview_session_from_disk(id: String) -> Result<Option<SessionDiskPreview>, S
         .map_err(|error| format!("无法打开会话预览 {}：{error}", path.display()))?;
     parse_session_disk_preview(std::io::BufReader::new(file), MAX_SESSION_PREVIEW_MESSAGES)
         .map(Some)
+}
+
+fn valid_session_id(id: &str) -> bool {
+    let mut components = Path::new(id).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
+fn session_history_candidates(
+    grok: &Path,
+    wanted: &BTreeSet<String>,
+) -> Result<BTreeMap<String, PathBuf>, String> {
+    let sessions = grok.join("sessions");
+    if !sessions.is_dir() {
+        return Ok(BTreeMap::new());
+    }
+    let root = sessions
+        .canonicalize()
+        .map_err(|error| format!("无法读取 Grok 会话目录：{error}"))?;
+    let mut found = BTreeMap::new();
+    let mut inspect_directory = |directory: &Path| {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let Some(id) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !wanted.contains(&id) || found.contains_key(&id) {
+                continue;
+            }
+            let candidate = entry.path().join("chat_history.jsonl");
+            let Ok(candidate) = candidate.canonicalize() else {
+                continue;
+            };
+            if candidate.starts_with(&root) && candidate.is_file() {
+                found.insert(id, candidate);
+            }
+        }
+    };
+    inspect_directory(&root);
+    for workspace in fs::read_dir(&root)
+        .map_err(|error| format!("无法扫描 Grok 会话目录：{error}"))?
+        .filter_map(Result::ok)
+    {
+        if workspace.path().is_dir() {
+            inspect_directory(&workspace.path());
+        }
+    }
+    Ok(found)
+}
+
+fn session_history_content_matches(content: &str, needle: &str) -> bool {
+    content.lines().any(|line| {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            return false;
+        };
+        let Some(role @ ("user" | "assistant")) =
+            value.get("type").and_then(serde_json::Value::as_str)
+        else {
+            return false;
+        };
+        if role == "user" && value.get("synthetic_reason").is_some() {
+            return false;
+        }
+        value
+            .get("content")
+            .and_then(session_history_text)
+            .is_some_and(|text| text.to_lowercase().contains(needle))
+    })
+}
+
+#[tauri::command]
+fn search_session_history(query: String, session_ids: Vec<String>) -> Result<Vec<String>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    if query.chars().count() > 200 {
+        return Err("会话搜索词不能超过 200 个字符".into());
+    }
+    if session_ids.len() > MAX_SESSION_SEARCH_IDS
+        || session_ids.iter().any(|id| !valid_session_id(id))
+    {
+        return Err("会话搜索范围无效或过大".into());
+    }
+    let wanted = session_ids.iter().cloned().collect::<BTreeSet<_>>();
+    let candidates = session_history_candidates(&grok_home()?, &wanted)?;
+    let needle = query.to_lowercase();
+    let mut scanned_bytes = 0_u64;
+    let mut matches = BTreeSet::new();
+    for id in &session_ids {
+        if matches.len() >= MAX_SESSION_SEARCH_HITS {
+            break;
+        }
+        let Some(path) = candidates.get(id) else {
+            continue;
+        };
+        let Ok(size) = path.metadata().map(|metadata| metadata.len()) else {
+            continue;
+        };
+        if size > MAX_SESSION_SEARCH_FILE_BYTES
+            || scanned_bytes.saturating_add(size) > MAX_SESSION_SEARCH_TOTAL_BYTES
+        {
+            continue;
+        }
+        scanned_bytes += size;
+        let Ok(content) = read_bounded_text(path, MAX_SESSION_SEARCH_FILE_BYTES) else {
+            continue;
+        };
+        let matched = session_history_content_matches(&content, &needle);
+        if matched {
+            matches.insert(id.clone());
+        }
+    }
+    Ok(session_ids
+        .into_iter()
+        .filter(|id| matches.contains(id))
+        .collect())
 }
 
 /// Resolve the actual user home independently of `GROK_HOME`. The latter may
@@ -3835,10 +3957,7 @@ const CONFIG_SECRET_REDACTED: &str = "********";
 
 fn is_redacted_config_secret(value: &str) -> bool {
     let value = value.trim().trim_matches('"').trim_matches('\'');
-    value.is_empty()
-        || value == CONFIG_SECRET_REDACTED
-        || value == "[REDACTED]"
-        || value.contains('…')
+    value == CONFIG_SECRET_REDACTED || value == "[REDACTED]" || value.contains('…')
 }
 
 fn config_secret_key(value: &str) -> bool {
@@ -3852,19 +3971,12 @@ fn redact_config_document_secrets(content: &str) -> String {
     content
         .lines()
         .map(|line| {
-            let trimmed = line.trim_start();
-            if trimmed
-                .strip_prefix("api_key")
-                .or_else(|| trimmed.strip_prefix("API_KEY"))
-                .is_some_and(|rest| rest.trim_start().starts_with('='))
-            {
-                let indent = &line[..line.len() - trimmed.len()];
-                return format!("{indent}api_key = \"{CONFIG_SECRET_REDACTED}\"");
-            }
-            if let Some((key, _)) = trimmed.split_once('=') {
+            if let Some((indent, key, _, suffix)) = config_assignment_parts(line) {
+                if key.eq_ignore_ascii_case("api_key") {
+                    return format!("{indent}{key} = \"{CONFIG_SECRET_REDACTED}\"{suffix}");
+                }
                 if config_secret_key(key) {
-                    let indent = &line[..line.len() - trimmed.len()];
-                    return format!("{indent}{}={CONFIG_SECRET_REDACTED}", key.trim());
+                    return format!("{indent}{key}={CONFIG_SECRET_REDACTED}{suffix}");
                 }
             }
             line.to_string()
@@ -3891,6 +4003,15 @@ fn toml_line_without_comment(line: &str) -> &str {
         }
     }
     line.trim_end()
+}
+
+fn config_assignment_parts(line: &str) -> Option<(&str, &str, &str, &str)> {
+    let body = toml_line_without_comment(line);
+    let suffix = &line[body.len()..];
+    let (left, value) = body.split_once('=')?;
+    let key = left.trim();
+    let indent = &left[..left.len() - left.trim_start().len()];
+    (!key.is_empty()).then_some((indent, key, value.trim(), suffix))
 }
 
 fn toml_table_header_key(line: &str) -> Option<String> {
@@ -3933,11 +4054,11 @@ fn collect_config_env_keys(content: &str) -> BTreeMap<String, String> {
     content
         .lines()
         .filter_map(|line| {
-            let (key, value) = line.trim().split_once('=')?;
+            let (_, key, value, _) = config_assignment_parts(line)?;
             config_secret_key(key).then(|| {
                 (
-                    key.trim().to_ascii_uppercase(),
-                    value.trim().trim_matches('"').trim_matches('\'').to_string(),
+                    key.to_ascii_uppercase(),
+                    value.trim_matches('"').trim_matches('\'').to_string(),
                 )
             })
         })
@@ -3949,9 +4070,9 @@ fn config_contains_redacted_secret(content: &str) -> bool {
     content.lines().any(|line| {
         let trimmed = line.trim();
         parse_toml_api_key_value(trimmed).is_some_and(is_redacted_config_secret)
-            || trimmed
-                .split_once('=')
-                .is_some_and(|(key, value)| config_secret_key(key) && is_redacted_config_secret(value))
+            || config_assignment_parts(line).is_some_and(|(_, key, value, _)| {
+                config_secret_key(key) && is_redacted_config_secret(value)
+            })
     })
 }
 
@@ -3973,20 +4094,20 @@ fn merge_config_secrets_from_existing(existing: &str, incoming: &str) -> Result<
                 let real = prior_api.get(&table).ok_or_else(|| {
                     format!("无法安全恢复 {table} 的 api_key，请重新输入该段密钥")
                 })?;
-                let indent = &line[..line.len() - line.trim_start().len()];
+                let (indent, key, _, suffix) = config_assignment_parts(line)
+                    .ok_or_else(|| "无法解析 api_key 配置行".to_string())?;
                 let quoted = serde_json::to_string(real)
                     .map_err(|error| format!("无法编码配置密钥：{error}"))?;
-                output.push(format!("{indent}api_key = {quoted}"));
+                output.push(format!("{indent}{key} = {quoted}{suffix}"));
                 continue;
             }
         }
-        if let Some((key, raw)) = trimmed.split_once('=') {
+        if let Some((indent, key, raw, suffix)) = config_assignment_parts(line) {
             if config_secret_key(key) && is_redacted_config_secret(raw) {
                 let real = prior_env
-                    .get(&key.trim().to_ascii_uppercase())
-                    .ok_or_else(|| format!("无法安全恢复环境变量密钥 {}，请重新输入", key.trim()))?;
-                let indent = &line[..line.len() - line.trim_start().len()];
-                output.push(format!("{indent}{}={}", key.trim(), env_value(real)));
+                    .get(&key.to_ascii_uppercase())
+                    .ok_or_else(|| format!("无法安全恢复环境变量密钥 {key}，请重新输入"))?;
+                output.push(format!("{indent}{key}={}{suffix}", env_value(real)));
                 continue;
             }
         }
@@ -5335,6 +5456,16 @@ fn collect_media_strings(value: &serde_json::Value, output: &mut Vec<String>) {
     }
 }
 
+fn checked_reasoning_effort(effort: Option<String>) -> Result<Option<String>, String> {
+    match effort {
+        Some(value) if matches!(value.as_str(), "low" | "medium" | "high" | "xhigh" | "max") => {
+            Ok(Some(value))
+        }
+        Some(_) => Err("无效思考强度".into()),
+        None => Ok(None),
+    }
+}
+
 /// Start a fresh ACP child and stream each stdout JSON-RPC line to the webview.
 /// A repeated call intentionally replaces the old child so a webview reload
 /// cannot initialize the same agent process twice.
@@ -5344,6 +5475,7 @@ async fn acp_spawn(
     state: tauri::State<'_, Arc<AcpState>>,
     cwd: String,
     computer_use_enabled: Option<bool>,
+    reasoning_effort: Option<String>,
 ) -> Result<u64, String> {
     let cwd = checked_workspace(&cwd)?;
 
@@ -5372,6 +5504,9 @@ async fn acp_spawn(
     let command_path = PathBuf::from(&runtime.path);
     let mut command = Command::new(&command_path);
     command.arg("agent");
+    if let Some(effort) = checked_reasoning_effort(reasoning_effort)? {
+        command.arg("--reasoning-effort").arg(effort);
+    }
     if let Some(plugin) = computer_plugin.as_ref() {
         command.arg("--plugin-dir").arg(plugin);
     }
@@ -6007,6 +6142,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             desktop_environment,
             preview_session_from_disk,
+            search_session_history,
             read_session_cache,
             write_session_cache,
             delete_session_cache,
@@ -6145,6 +6281,29 @@ mod tests {
             Some(history.canonicalize().unwrap())
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn session_history_search_matches_only_visible_user_and_assistant_text() {
+        let history = concat!(
+            "{\"type\":\"user\",\"content\":\"修复登录问题\"}\n",
+            "{\"type\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"已经完成 OAuth 修复\"}]}\n",
+            "{\"type\":\"tool\",\"content\":\"secret token\"}\n",
+            "{\"type\":\"user\",\"synthetic_reason\":\"workflow\",\"content\":\"hidden marker\"}\n",
+        );
+        assert!(session_history_content_matches(history, "oauth"));
+        assert!(session_history_content_matches(history, "登录"));
+        assert!(!session_history_content_matches(history, "secret"));
+        assert!(!session_history_content_matches(history, "hidden"));
+    }
+
+    #[test]
+    fn reasoning_effort_accepts_max_and_rejects_unknown_values() {
+        assert_eq!(
+            checked_reasoning_effort(Some("max".into())).unwrap(),
+            Some("max".into())
+        );
+        assert!(checked_reasoning_effort(Some("ultra".into())).is_err());
     }
 
     #[test]
@@ -6372,21 +6531,35 @@ mod tests {
 [model.local]
 api_key = "local-secret"
 [model.prod] # primary
-api_key = "prod-secret" # keep this key
+API_KEY = "prod-secret" # keep this key
 base_url = "https://api.example.com/v1"
+OPENAI_API_KEY="env-secret" # keep env comment
 "#;
         let redacted = redact_config_document_secrets(existing);
         assert!(!redacted.contains("local-secret"));
         assert!(!redacted.contains("prod-secret"));
+        assert!(redacted.contains("API_KEY = \"********\" # keep this key"));
+        assert!(redacted.contains("OPENAI_API_KEY=******** # keep env comment"));
         let incoming = r#"
 [model.prod] # primary
-api_key = "********"
+API_KEY = "********" # keep this key
 base_url = "https://api.example.com/v2"
+OPENAI_API_KEY=******** # keep env comment
 "#;
         let merged = merge_config_secrets_from_existing(existing, incoming).unwrap();
-        assert!(merged.contains("prod-secret"));
+        assert!(merged.contains("API_KEY = \"prod-secret\" # keep this key"));
+        assert!(merged.contains("OPENAI_API_KEY=\"env-secret\" # keep env comment"));
         assert!(!merged.contains("local-secret"));
         assert!(merged.contains("/v2"));
+    }
+
+    #[test]
+    fn empty_config_secret_explicitly_clears_the_existing_value() {
+        let existing = "[model.local]\napi_key = \"old-secret\"\n";
+        let incoming = "[model.local]\napi_key = \"\"\n";
+        let merged = merge_config_secrets_from_existing(existing, incoming).unwrap();
+        assert_eq!(merged, incoming.trim_end());
+        assert!(!config_contains_redacted_secret(incoming));
     }
 
     #[test]

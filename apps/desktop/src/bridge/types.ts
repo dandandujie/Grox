@@ -282,6 +282,8 @@ export interface ModelInfo {
   id: string;
   label: string;
   tagline: string;
+  /** 由 CLI 模型目录声明；缺省时保留全部客户端档位供兼容供应商使用。 */
+  efforts?: Effort[];
 }
 
 export interface ModelState {
@@ -457,7 +459,7 @@ export const MODELS: ModelInfo[] = [
   { id: "grok-4", label: "GROK-4", tagline: "Flagship reasoning" },
 ];
 
-export const EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 export type PermissionMode = "default" | "auto" | "bypass";
 

@@ -5,7 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { GrokBridge } from "./GrokBridge";
 import { claimPendingBrowserLease } from "./browserLeaseBind";
-import { MODELS } from "./types";
+import { EFFORTS, MODELS } from "./types";
 import type {
   AccountInfo,
   AgentMode,
@@ -21,6 +21,7 @@ import type {
   QuestionResponse,
   GrokRuntimeInfo,
   ModelState,
+  Effort,
   Session,
   SessionBlock,
   SessionMeta,
@@ -112,6 +113,11 @@ interface PendingRequest {
   reject(error: Error): void;
   method: string;
   timeoutId?: number;
+}
+
+function storedEffort(): Effort {
+  const value = localStorage.getItem("grok.effort");
+  return EFFORTS.find((effort) => effort === value) ?? "high";
 }
 
 interface ContentCursor {
@@ -1190,6 +1196,7 @@ export class AcpBridge implements GrokBridge {
     this.acpGeneration = await invoke<number>("acp_spawn", {
       cwd: this.workspace,
       computerUseEnabled: this.computerUseEnabled,
+      reasoningEffort: storedEffort(),
     });
     // The inference proxy gates on the client version, so never assert a
     // hardcoded one: report the actual CLI version whenever it is detectable.
@@ -2254,10 +2261,19 @@ export class AcpBridge implements GrokBridge {
         const model = record(value);
         const id = string(model?.modelId);
         if (!model || !id) return undefined;
+        const modelMeta = record(model._meta);
+        const efforts = array(modelMeta?.reasoningEfforts)
+          .map((option) => {
+            const row = record(option);
+            const effort = string(row?.value) ?? string(row?.id);
+            return EFFORTS.find((candidate) => candidate === effort);
+          })
+          .filter((effort): effort is Effort => Boolean(effort));
         return {
           id,
           label: string(model.name) ?? id,
           tagline: string(model.description) ?? "Available through Grok Agent",
+          ...(efforts.length > 0 ? { efforts: [...new Set(efforts)] } : {}),
         };
       })
       .filter((model): model is ModelState["models"][number] => Boolean(model));
@@ -2675,6 +2691,7 @@ export class AcpBridge implements GrokBridge {
   private async createSession(cwd: string): Promise<void> {
     const metaRequest = await this.sessionMeta(cwd);
     const preferredModel = localStorage.getItem("grok.model")?.trim();
+    const reasoningEffort = storedEffort();
     let computer = await this.resolveComputerExtensions();
     let responseValue: unknown;
     try {
@@ -2686,6 +2703,7 @@ export class AcpBridge implements GrokBridge {
           _meta: {
             ...metaRequest,
             ...(preferredModel ? { modelId: preferredModel } : {}),
+            reasoningEffort,
             ...(computer.pluginDirs.length ? { pluginDirs: computer.pluginDirs } : {}),
             ...(computer.computerLeaseId ? { groxComputerLeaseId: computer.computerLeaseId } : {}),
             ...(computer.browserLeaseId ? { groxBrowserLeaseId: computer.browserLeaseId } : {}),
@@ -2704,6 +2722,7 @@ export class AcpBridge implements GrokBridge {
           _meta: {
             ...metaRequest,
             ...(preferredModel ? { modelId: preferredModel } : {}),
+            reasoningEffort,
           },
         });
       }
@@ -2738,7 +2757,7 @@ export class AcpBridge implements GrokBridge {
       // model as synchronized so the first prompt does not issue a redundant
       // session/set_model that some compatible providers reject.
       model: meta.model,
-      effort: (localStorage.getItem("grok.effort") as PromptOptions["effort"]) ?? "high",
+      effort: reasoningEffort,
       mode: "agent",
     });
     this.sessionWorkspaces.set(sessionId, cwd);
@@ -3111,6 +3130,7 @@ export class AcpBridge implements GrokBridge {
           await this.requestRaw(ACP_METHODS.sessionSetModel, {
             sessionId,
             modelId: options.model,
+            _meta: { reasoningEffort: options.effort },
           });
         } catch (error) {
           if (!isInvalidParamsError(error)) throw error;
@@ -3140,6 +3160,7 @@ export class AcpBridge implements GrokBridge {
       const promptRequest = this.requestRaw(ACP_METHODS.sessionPrompt, {
         sessionId,
         prompt: promptContent(dispatchText, options.attachments ?? []),
+        _meta: { reasoningEffort: options.effort },
       }, 0, (id) => {
         promptRpcId = id;
       });

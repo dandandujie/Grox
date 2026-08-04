@@ -503,10 +503,12 @@ fn is_blocked_browser_ip(address: std::net::IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_blocked_browser_v4(v4);
             }
-            v6.is_unique_local()
-                || v6.is_unicast_link_local()
+            let first = v6.segments()[0];
+            // Rust 1.77 没有 Ipv6Addr 的 unique/link-local 便捷方法；直接按
+            // RFC 4193 (fc00::/7) 与 RFC 4291 (fe80::/10) 判断，保持声明的 MSRV。
+            (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
                 || v6.is_unspecified()
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
         }
     }
 }
