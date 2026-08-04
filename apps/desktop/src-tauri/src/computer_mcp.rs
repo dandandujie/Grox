@@ -69,6 +69,14 @@ fn tokens_equal(left: &str, right: &str) -> bool {
         == 0
 }
 
+fn merge_content_length(current: Option<usize>, value: &str) -> Result<usize, ()> {
+    let parsed = value.trim().parse::<usize>().map_err(|_| ())?;
+    if parsed > MAX_HTTP_BODY_BYTES || current.is_some_and(|previous| previous != parsed) {
+        return Err(());
+    }
+    Ok(parsed)
+}
+
 pub fn serve_http(lease_id: String) -> Result<HttpEndpoint, String> {
     #[cfg(windows)]
     {
@@ -218,7 +226,8 @@ fn handle_http(
         return;
     }
     let mut headers = HashMap::<String, String>::new();
-    let mut content_length = 0_usize;
+    let mut content_length = None;
+    let mut invalid_content_length = false;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty()
@@ -229,7 +238,10 @@ fn handle_http(
             let key = key.trim().to_ascii_lowercase();
             let value = value.trim().to_string();
             if key == "content-length" {
-                content_length = value.parse().unwrap_or(0).min(MAX_HTTP_BODY_BYTES);
+                match merge_content_length(content_length, &value) {
+                    Ok(length) => content_length = Some(length),
+                    Err(()) => invalid_content_length = true,
+                }
             }
             headers.insert(key, value);
         }
@@ -245,9 +257,12 @@ fn handle_http(
         .unwrap_or(false);
     let (status, response) = if !authorized {
         (401, Some(json!({"error":"Unauthorized"})))
+    } else if invalid_content_length {
+        (413, Some(json!({"error":"invalid or oversized Content-Length"})))
     } else if !request_line.starts_with("POST ") {
         (405, Some(json!({"error":"Method Not Allowed"})))
     } else {
+        let content_length = content_length.unwrap_or(0);
         let mut body = vec![0_u8; content_length];
         if content_length > 0 && reader.read_exact(&mut body).is_err() {
             (400, Some(json!({"error":"bad body"})))
@@ -286,6 +301,7 @@ fn handle_http(
         200 => "OK",
         401 => "Unauthorized",
         405 => "Method Not Allowed",
+        413 => "Payload Too Large",
         400 => "Bad Request",
         503 => "Service Unavailable",
         504 => "Gateway Timeout",
@@ -2278,6 +2294,15 @@ return out"#,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn content_length_rejects_invalid_oversized_and_conflicting_values() {
+        assert_eq!(merge_content_length(None, "128"), Ok(128));
+        assert_eq!(merge_content_length(Some(128), "128"), Ok(128));
+        assert!(merge_content_length(None, "invalid").is_err());
+        assert!(merge_content_length(None, &(MAX_HTTP_BODY_BYTES + 1).to_string()).is_err());
+        assert!(merge_content_length(Some(128), "129").is_err());
+    }
 
     #[test]
     fn action_schemas_are_specific_and_stateful() {
