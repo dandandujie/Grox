@@ -408,7 +408,7 @@ function ProjectRow({ project, active, expanded, count, onToggle }: { project: P
       >
         <Icon name="plus" size={12} />
       </button>
-      <button onClick={() => setMenu((open) => !open)} className="hidden h-5 w-5 items-center justify-center text-dim hover:text-fg group-hover:flex">
+      <button onClick={() => setMenu((open) => !open)} className="flex h-5 w-5 shrink-0 items-center justify-center text-dim hover:text-fg opacity-0 group-hover:opacity-100">
         <Icon name="more" size={12} />
       </button>
       {menu && (
@@ -463,7 +463,7 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
         ) : (
           <span className="min-w-0 flex-1 truncate text-[11px] text-fg2">{meta.title}</span>
         )}
-        <button onClick={(event) => { event.stopPropagation(); setMenu((open) => !open); }} className="hidden h-5 w-5 items-center justify-center text-dim hover:text-fg group-hover:flex">
+        <button onClick={(event) => { event.stopPropagation(); setMenu((open) => !open); }} className="flex h-5 w-5 shrink-0 items-center justify-center text-dim hover:text-fg opacity-0 group-hover:opacity-100">
           <Icon name="more" size={12} />
         </button>
       </div>
