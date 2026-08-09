@@ -72,6 +72,58 @@ describe("draft buffer", () => {
     expect(loaded?.text).toBe("未发送的提示词");
   });
 
+  it("persists attachments for first-send crash recovery", () => {
+    saveDraftBuffer("C:\\Work\\Repo", "with file", [
+      {
+        id: "a1",
+        kind: "text",
+        name: "notes.txt",
+        mime: "text/plain",
+        size: 4,
+        text: "body",
+      },
+    ]);
+    const loaded = loadDraftBuffer("C:/Work/Repo");
+    expect(loaded?.text).toBe("with file");
+    expect(loaded?.attachments).toEqual([
+      {
+        id: "a1",
+        kind: "text",
+        name: "notes.txt",
+        mime: "text/plain",
+        size: 4,
+        text: "body",
+      },
+    ]);
+  });
+
+  it("falls back to text-only when attachments blow the size budget", () => {
+    const huge = "x".repeat(900_000);
+    saveDraftBuffer("C:\\Work\\Repo", "keep me", [
+      {
+        id: "img",
+        kind: "image",
+        name: "big.png",
+        mime: "image/png",
+        size: huge.length,
+        data: huge,
+      },
+      {
+        id: "img2",
+        kind: "image",
+        name: "big2.png",
+        mime: "image/png",
+        size: huge.length,
+        data: huge,
+      },
+    ]);
+    const loaded = loadDraftBuffer("C:/Work/Repo");
+    expect(loaded?.text).toBe("keep me");
+    // Full dual payloads exceed budget; metadata-only or empty attachments OK.
+    const bodies = (loaded?.attachments ?? []).filter((a) => a.data || a.text);
+    expect(bodies.length).toBe(0);
+  });
+
   it("clears empty drafts", () => {
     saveDraftBuffer("C:\\Work\\Repo", "x");
     saveDraftBuffer("C:\\Work\\Repo", "   ");

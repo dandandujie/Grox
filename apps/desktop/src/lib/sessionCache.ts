@@ -181,29 +181,84 @@ export async function scrubSessionCacheOrphans(): Promise<number> {
 }
 
 // ── Draft composer crash buffer ─────────────────────────────────────────
-// Unsent draft text never reaches CLI disk. Persist a tiny local copy so a
-// BSOD mid-compose can restore the prompt after reboot.
+// Unsent draft text/attachments never reach CLI disk. Persist a local copy so
+// BSOD mid-compose or a failed first-send (session/new) can restore after reboot.
 
 const DRAFT_BUFFER_KEY = "grox.draftBuffer.v1";
+/** Soft cap for the entire draftBuffer map payload (localStorage quota). */
+const DRAFT_BUFFER_MAX_CHARS = 1_500_000;
+
+export type DraftAttachment = {
+  id: string;
+  kind: "image" | "text" | "binary";
+  name: string;
+  mime: string;
+  size: number;
+  text?: string;
+  data?: string;
+};
 
 export type DraftBuffer = {
   cwd: string;
   text: string;
+  /** Full payloads when they fit; otherwise empty after size fallback. */
+  attachments?: DraftAttachment[];
   updatedAt: number;
 };
 
-export function saveDraftBuffer(cwd: string, text: string): void {
+export function saveDraftBuffer(
+  cwd: string,
+  text: string,
+  attachments: DraftAttachment[] = [],
+): void {
   const trimmed = text.trimEnd();
-  if (!trimmed) {
+  if (!trimmed && attachments.length === 0) {
     clearDraftBuffer(cwd);
     return;
   }
   try {
     const all = loadAllDraftBuffers();
-    all[normalizeDraftCwd(cwd)] = { cwd, text, updatedAt: Date.now() };
+    const key = normalizeDraftCwd(cwd);
+    const updatedAt = Date.now();
+    // Prefer full recovery (text + attachment bodies). If over budget, keep
+    // text and strip heavy payloads; if still over, text only.
+    const candidates: DraftBuffer[] = [
+      { cwd, text: trimmed, attachments, updatedAt },
+      {
+        cwd,
+        text: trimmed,
+        attachments: attachments.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          name: item.name,
+          mime: item.mime,
+          size: item.size,
+        })),
+        updatedAt,
+      },
+      { cwd, text: trimmed, attachments: [], updatedAt },
+    ];
+    let chosen = candidates[candidates.length - 1]!;
+    for (const candidate of candidates) {
+      all[key] = candidate;
+      if (JSON.stringify(all).length <= DRAFT_BUFFER_MAX_CHARS) {
+        chosen = candidate;
+        break;
+      }
+    }
+    all[key] = chosen;
     localStorage.setItem(DRAFT_BUFFER_KEY, JSON.stringify(all));
   } catch {
-    // quota / private mode
+    // quota / private mode — best-effort text-only retry
+    try {
+      const all = loadAllDraftBuffers();
+      if (trimmed) {
+        all[normalizeDraftCwd(cwd)] = { cwd, text: trimmed, attachments: [], updatedAt: Date.now() };
+        localStorage.setItem(DRAFT_BUFFER_KEY, JSON.stringify(all));
+      }
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -211,13 +266,19 @@ export function loadDraftBuffer(cwd: string): DraftBuffer | null {
   try {
     const entry = loadAllDraftBuffers()[normalizeDraftCwd(cwd)];
     if (!entry || typeof entry.text !== "string") return null;
-    if (!entry.text.trim()) return null;
+    const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+    if (!entry.text.trim() && attachments.length === 0) return null;
     // Drop stale buffers older than 7 days.
     if (Date.now() - (entry.updatedAt || 0) > 7 * 24 * 60 * 60 * 1000) {
       clearDraftBuffer(cwd);
       return null;
     }
-    return entry;
+    return {
+      cwd: entry.cwd,
+      text: entry.text,
+      attachments,
+      updatedAt: entry.updatedAt,
+    };
   } catch {
     return null;
   }

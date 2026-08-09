@@ -6,6 +6,7 @@ import type {
   Session,
   SessionStatus,
 } from "../bridge/types";
+import { isDraftSessionId } from "./projectCatalog";
 
 export type DraftLaunchPayload = {
   text: string;
@@ -105,5 +106,5 @@ export function buildDraftRestoreAfterSessionNewFailure(input: {
 
 /** First-send draft must keep crash buffer until ACP session is ready. */
 export function shouldRetainDraftBufferUntilSessionReady(sessionId: string): boolean {
-  return sessionId.startsWith("draft-");
+  return isDraftSessionId(sessionId);
 }

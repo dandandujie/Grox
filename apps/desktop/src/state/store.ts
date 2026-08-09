@@ -949,13 +949,17 @@ export const useDesktop = create<DesktopState>((set, get) => {
           mode: state.mode,
           permissionMode: state.permissionMode,
         };
-        const sessionComposers = { ...state.sessionComposers, [readySession.id]: composer };
+        // Drop ephemeral draft/pending composer shells once a real session binds.
+        const sessionComposers = Object.fromEntries(
+          Object.entries({ ...state.sessionComposers, [readySession.id]: composer })
+            .filter(([id]) => !isEphemeralSessionId(id)),
+        );
         persistSessionComposers(sessionComposers);
         const remainsActive = state.activeId === readySession.id && state.view === "session";
         if (!e.background || remainsActive) bridge.setPermissionMode(composer.permissionMode);
         const nextSessions = e.background
           ? sessions
-          : Object.fromEntries(Object.entries(sessions).filter(([id]) => !id.startsWith("pending-") && !id.startsWith("draft-")));
+          : Object.fromEntries(Object.entries(sessions).filter(([id]) => !isEphemeralSessionId(id)));
         const readyProjectId = projects.some((project) => samePath(project.path, readySession.cwd))
           ? projectId(readySession.cwd)
           : null;
@@ -1474,14 +1478,24 @@ export const useDesktop = create<DesktopState>((set, get) => {
         const workspace = get().workspace;
         const recovered = loadDraftBuffer(workspace);
         const recoveredText = recovered?.text ?? "";
+        const recoveredAttachments = (recovered?.attachments ?? []).map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          name: item.name,
+          mime: item.mime,
+          size: item.size,
+          text: item.text,
+          data: item.data,
+        }));
+        const hasRecovered = Boolean(recoveredText.trim() || recoveredAttachments.length > 0);
         set((state) => {
           const baseComposers = state.sessionComposers;
-          const sessionComposers = recoveredText
+          const sessionComposers = hasRecovered
             ? {
                 ...baseComposers,
                 [draftId]: {
                   text: recoveredText,
-                  attachments: [],
+                  attachments: recoveredAttachments,
                   model: state.model,
                   effort: state.effort,
                   mode: state.mode,
@@ -1489,7 +1503,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
                 },
               }
             : baseComposers;
-          if (recoveredText) persistSessionComposers(sessionComposers);
+          if (hasRecovered) persistSessionComposers(sessionComposers);
           return {
             view: "session" as const,
             activeId: draftId,
@@ -1587,8 +1601,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
           },
           now: Date.now(),
         });
-        if (restored.draftText.trim()) {
-          saveDraftBuffer(workspace, restored.draftText);
+        if (restored.draftText.trim() || restored.draftAttachments.length > 0) {
+          saveDraftBuffer(workspace, restored.draftText, restored.draftAttachments);
         }
         persistSessionComposers(restored.sessionComposers);
         set({
@@ -2201,11 +2215,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
       if (!trimmed && attachments.length === 0) return false;
       const cwd = session.cwd || get().workspace;
       // Real sessions: text is durable via CLI. Draft first-send must keep the
-      // crash buffer (and attachments via pendingLaunch) until session_ready.
+      // crash buffer (text + attachments) until session_ready.
       if (!shouldRetainDraftBufferUntilSessionReady(session.id)) {
         clearDraftBuffer(cwd);
-      } else if (trimmed) {
-        saveDraftBuffer(cwd, trimmed);
+      } else {
+        saveDraftBuffer(cwd, trimmed, attachments);
       }
 
       // Promote a local draft into a real ACP session on first send only.
@@ -2590,14 +2604,20 @@ export const useDesktop = create<DesktopState>((set, get) => {
       const session = sessions[activeId];
       const cwd = session?.cwd || workspace;
       if (isDraftSessionId(activeId) || !session || isSessionTerminal(session.status)) {
-        saveDraftBuffer(cwd, text);
+        saveDraftBuffer(cwd, text, current.attachments);
       }
     },
     setComposerAttachments(attachments) {
-      const { activeId, sessionComposers, model, effort, mode, permissionMode } = get();
+      const { activeId, sessionComposers, model, effort, mode, permissionMode, sessions, workspace } = get();
       if (!activeId) return;
       const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
-      set({ sessionComposers: { ...sessionComposers, [activeId]: { ...current, attachments } } });
+      const next = { ...sessionComposers, [activeId]: { ...current, attachments } };
+      set({ sessionComposers: next });
+      const session = sessions[activeId];
+      const cwd = session?.cwd || workspace;
+      if (isDraftSessionId(activeId) || !session || isSessionTerminal(session.status)) {
+        saveDraftBuffer(cwd, current.text, attachments);
+      }
     },
     flushDurableState() {
       const state = get();
@@ -2621,13 +2641,15 @@ export const useDesktop = create<DesktopState>((set, get) => {
         localStorage.setItem(SESSION_COMPOSERS_KEY, JSON.stringify(serializable));
         pendingComposerStates = undefined;
       }
-      // Active composer text crash buffer
+      // Active composer crash buffer (text + attachments when budget allows).
       const activeId = state.activeId;
       if (activeId) {
-        const text = state.sessionComposers[activeId]?.text ?? "";
+        const composer = state.sessionComposers[activeId];
+        const text = composer?.text ?? "";
+        const attachments = composer?.attachments ?? [];
         const cwd = state.sessions[activeId]?.cwd || state.workspace;
         if (isDraftSessionId(activeId) || isSessionTerminal(state.sessions[activeId]?.status ?? "idle")) {
-          saveDraftBuffer(cwd, text);
+          saveDraftBuffer(cwd, text, attachments);
         }
       }
     },
