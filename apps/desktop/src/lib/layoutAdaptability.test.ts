@@ -71,13 +71,14 @@ describe("layout adaptability — density isolation", () => {
     expect(dock).toMatch(/padding-left:\s*var\(--grox-content-px/);
   });
 
-  it("default transcript type is compact (md ≤ 13px prose)", () => {
+  it("default transcript type is compact (md ≤ 13px prose, tight leading)", () => {
     expect(tokens).toMatch(/html\s*\{[\s\S]*?--grox-prose-size\s*:\s*13px/);
     const md = blockFor(`html[data-font="md"]`);
     expect(md).toMatch(/--grox-prose-size\s*:\s*13px/);
-    expect(md).toMatch(/--grox-prose-leading\s*:\s*1\.55/);
+    expect(md).toMatch(/--grox-prose-leading\s*:\s*1\.45/);
     const sm = blockFor(`html[data-font="sm"]`);
     expect(sm).toMatch(/--grox-prose-size\s*:\s*12px/);
+    expect(tokens).toMatch(/\.md p\s*\{[\s\S]*?margin:\s*0 0 0\.42em/);
   });
 
   it("timeline uses native scroller (Virtuoso yanks scroll on process expand)", () => {

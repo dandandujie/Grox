@@ -86,11 +86,10 @@ html {
   --grox-component-font-size: 11px;
   /*
    * Transcript-only integer tiers (default = md).
-   * Tuned compact: ~1px smaller than the previous ladder + tighter leading
-   * so long Chinese replies read denser without shrinking chrome.
+   * Compact type + tight leading for long Chinese replies; chrome untouched.
    */
   --grox-prose-size: 13px;
-  --grox-prose-leading: 1.55;
+  --grox-prose-leading: 1.45;
   --grox-user-size: 12px;
   --grox-process-size: 11px;
   --grox-code-size: 11px;
@@ -110,28 +109,28 @@ html {
 
 html[data-font="sm"] {
   --grox-prose-size: 12px;
-  --grox-prose-leading: 1.5;
+  --grox-prose-leading: 1.4;
   --grox-user-size: 11px;
   --grox-process-size: 10px;
   --grox-code-size: 10px;
 }
 html[data-font="md"] {
   --grox-prose-size: 13px;
-  --grox-prose-leading: 1.55;
+  --grox-prose-leading: 1.45;
   --grox-user-size: 12px;
   --grox-process-size: 11px;
   --grox-code-size: 11px;
 }
 html[data-font="lg"] {
   --grox-prose-size: 14px;
-  --grox-prose-leading: 1.6;
+  --grox-prose-leading: 1.5;
   --grox-user-size: 13px;
   --grox-process-size: 12px;
   --grox-code-size: 12px;
 }
 html[data-font="xl"] {
   --grox-prose-size: 15px;
-  --grox-prose-leading: 1.65;
+  --grox-prose-leading: 1.55;
   --grox-user-size: 14px;
   --grox-process-size: 13px;
   --grox-code-size: 13px;
@@ -893,7 +892,7 @@ html[data-reduce-motion="1"] .plan-spinner {
   .md p {
     /* Fill the reading column — no nested ch clamp (caused hollow wide layouts). */
     max-width: 100%;
-    margin: 0 0 0.85em;
+    margin: 0 0 0.42em;
   }
   .md h1,
   .md h2,
@@ -904,19 +903,19 @@ html[data-reduce-motion="1"] .plan-spinner {
     color: var(--color-fg);
     font-weight: 640;
     letter-spacing: -0.012em;
-    line-height: 1.4;
-    margin: 1.5em 0 0.55em;
+    line-height: 1.3;
+    margin: 1.05em 0 0.35em;
   }
   .md h1 {
-    font-size: 1.32em;
-    padding-bottom: 0.3em;
+    font-size: 1.22em;
+    padding-bottom: 0.22em;
     border-bottom: 1px solid var(--color-line);
   }
   .md h2 {
-    font-size: 1.16em;
+    font-size: 1.1em;
   }
   .md h3 {
-    font-size: 1.05em;
+    font-size: 1.02em;
   }
   .md h4 {
     font-size: 1em;
@@ -1076,8 +1075,8 @@ html[data-reduce-motion="1"] .plan-spinner {
   .md ul,
   .md ol {
     max-width: 100%;
-    margin: 0.35em 0 0.9em;
-    padding-left: 1.5em;
+    margin: 0.2em 0 0.5em;
+    padding-left: 1.35em;
     list-style: outside disc;
   }
   .md ol {
@@ -1087,18 +1086,18 @@ html[data-reduce-motion="1"] .plan-spinner {
     list-style-type: circle;
   }
   .md li {
-    margin: 0.28em 0;
-    padding-left: 0.25em;
+    margin: 0.12em 0;
+    padding-left: 0.2em;
   }
   .md li::marker {
     color: var(--color-acc-dim);
   }
   .md li > ul,
   .md li > ol {
-    margin: 0.28em 0 0.1em;
+    margin: 0.12em 0 0.05em;
   }
   .md li > p {
-    margin-bottom: 0.4em;
+    margin-bottom: 0.2em;
   }
   .md li:has(> input[type="checkbox"]) {
     margin-left: -1.5em;
@@ -1127,8 +1126,8 @@ html[data-reduce-motion="1"] .plan-spinner {
 
   .md blockquote {
     max-width: 100%;
-    margin: 0.9em 0;
-    padding: 0.1em 0 0.1em 1em;
+    margin: 0.55em 0;
+    padding: 0.05em 0 0.05em 0.85em;
     border-left: 2px solid var(--color-line3);
     color: var(--color-mute);
   }

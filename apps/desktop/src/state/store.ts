@@ -1224,42 +1224,78 @@ export const useDesktop = create<DesktopState>((set, get) => {
       if (bridgeSubscribed) return;
       bridgeSubscribed = true;
       bridge.subscribe(applyEvent);
+
+      // Paint the shell immediately from local cache. Waiting on CLI connect
+      // (2–3s) for ready:true freezes the whole window before any click works.
+      const sessionIndex = decorateSessions(loadJson<SessionMeta[]>("grox.sessionCatalog", []));
+      const cachedWorkspace = (() => {
+        try {
+          return localStorage.getItem("grok.workspace")?.trim() || "";
+        } catch {
+          return "";
+        }
+      })();
+      if (cachedWorkspace) {
+        const projects = ensureProject(get().projects, cachedWorkspace);
+        set({
+          workspace: cachedWorkspace,
+          projects,
+          activeProjectId: projectId(cachedWorkspace),
+          sessionIndex,
+          ready: true,
+        });
+      } else {
+        set({ sessionIndex, ready: true });
+      }
+
       try {
-        const runtime = bridge.kind === "acp"
-          ? await invoke<GrokRuntimeInfo>("grok_runtime_info")
-          : null;
-        // Host-attested CU: migrate FE once, then host_prefs is authority.
         const feCu = localStorage.getItem("grox.computerUseEnabled") !== "0";
-        await invoke("host_prefs_migrate_computer_use", { feEnabled: feCu }).catch(() => {});
-        const hostPrefs = await invoke<{ computerUseEnabled?: boolean }>("host_prefs_get").catch(() => null);
+        // Host-attested CU migrate is fire-and-forget — never serialize startup.
+        void invoke("host_prefs_migrate_computer_use", { feEnabled: feCu }).catch(() => {});
+
+        const runtimeP = bridge.kind === "acp"
+          ? invoke<GrokRuntimeInfo>("grok_runtime_info").catch(() => null)
+          : Promise.resolve(null);
+        const hostPrefsP = invoke<{ computerUseEnabled?: boolean }>("host_prefs_get").catch(() => null);
+        const envOnP = invoke<boolean>("computer_use_env_enabled").catch(() => false);
+        const envP = invoke<{ appVersion?: string }>("desktop_environment").catch(() => null);
+        // These await CLI connect internally; run them in parallel with host IPC.
+        const workspaceP = bridge.getWorkspace().catch(() => get().workspace);
+        const authP = bridge.getAuthState().catch(() => get().auth);
+        const modelP = bridge.getModelState().catch(() => ({
+          models: get().models,
+          currentId: get().model,
+        }));
+        const providerP = bridge.getProviderStatus().catch(() => get().provider);
+
+        const [runtime, hostPrefs, envOn, env, workspace, auth, modelState, provider] = await Promise.all([
+          runtimeP,
+          hostPrefsP,
+          envOnP,
+          envP,
+          workspaceP,
+          authP,
+          modelP,
+          providerP,
+        ]);
+
         if (hostPrefs && typeof hostPrefs.computerUseEnabled === "boolean") {
           setComputerUseHostPrefsEnabled(hostPrefs.computerUseEnabled);
         }
-        const envOn = await invoke<boolean>("computer_use_env_enabled").catch(() => false);
         setComputerUseHostEnvEnabled(Boolean(envOn));
-        const env = await invoke<{ appVersion?: string }>("desktop_environment").catch(() => null);
         if (env?.appVersion && consumeShellUpgradeRescan(env.appVersion)) {
           upgradeForceOfflineRescan = true;
           upgradeForceRescanned.clear();
         }
+
+        const projects = ensureProject(get().projects, workspace);
         set({
-          runtime,
+          runtime: runtime ?? null,
           computerUseEnabled: isComputerUseOperatorEnabled(),
           accountSetupOpen: get().accountSetupOpen || Boolean(runtime?.selectionRequired),
-        });
-        const workspace = await bridge.getWorkspace();
-        const projects = ensureProject(get().projects, workspace);
-        const [auth, modelState, provider] = await Promise.all([
-          bridge.getAuthState(),
-          bridge.getModelState(),
-          bridge.getProviderStatus(),
-        ]);
-        const sessionIndex = decorateSessions(loadJson<SessionMeta[]>("grox.sessionCatalog", []));
-        set({
           workspace,
           projects,
           activeProjectId: projectId(workspace),
-          sessionIndex,
           auth,
           ...resolveModelState(modelState),
           provider,
