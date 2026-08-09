@@ -322,6 +322,8 @@ html:not([data-theme="light"]) {
 .timeline-scroller {
   overflow-anchor: none;
   overscroll-behavior: contain;
+  /* Room for the right-edge message rail so ticks don't cover prose. */
+  padding-right: 28px;
 }
 
 .timeline-turn {
@@ -1308,140 +1310,180 @@ html[data-reduce-motion="1"] .plan-spinner {
     color: var(--color-mute);
   }
 
-  /* Request rail — a compact, evenly spaced table of contents for turns. */
-  .request-rail {
+  /*
+   * Message / request node rail — grok-app style (right edge).
+   * Tick list + prev/next steppers; jump without relying on scroll wheel alone.
+   */
+  .msg-rail {
     position: absolute;
-    z-index: 20;
-    top: 18px;
-    bottom: 18px;
-    left: 0;
-    width: 54px;
-    touch-action: none;
-  }
-  .request-rail__spine {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 20px;
-    width: 1px;
-    background: linear-gradient(to bottom, transparent, var(--color-line3) 8%, var(--color-line3) 92%, transparent);
-    opacity: 0.9;
-  }
-  .request-rail__marker {
-    position: absolute;
-    left: 10px;
-    z-index: 1;
-    display: block;
-    width: calc(11px + var(--request-rail-wave, 0) * 13px + var(--request-rail-hovered, 0) * 9px);
-    height: 17px;
-    padding: 0;
-    transform: translateY(-50%);
-    cursor: pointer;
-    outline: none;
-    will-change: width;
-    transition: width 90ms linear;
-  }
-  .request-rail__marker::before {
-    position: absolute;
-    inset: 0 -7px;
-    content: "";
-  }
-  .request-rail__marker:focus-visible .request-rail__bar {
-    outline: 1px solid var(--color-acc);
-    outline-offset: 3px;
-  }
-  .request-rail__bar {
-    position: absolute;
+    z-index: 30;
     top: 50%;
-    right: 0;
-    left: 0;
-    height: 2.5px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-mute) 84%, var(--color-fg));
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-void) 42%, transparent);
-    opacity: calc(0.84 + var(--request-rail-wave, 0) * 0.16);
+    right: 8px;
     transform: translateY(-50%);
-    transition: height 90ms linear, background-color 120ms ease, box-shadow 120ms ease, opacity 90ms linear;
-  }
-  .request-rail__marker.is-hovered {
-    z-index: 3;
-  }
-  .request-rail__marker.is-hovered .request-rail__bar {
-    height: 3px;
-    background: var(--color-acc);
-    box-shadow: 0 0 13px var(--color-glow);
-    opacity: 1;
-  }
-  .request-rail__tooltip {
-    position: absolute;
-    top: 50%;
-    left: 43px;
-    display: grid;
-    width: min(350px, calc(100vw - 150px));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     gap: 4px;
-    padding: 12px 14px;
-    border: 1px solid color-mix(in srgb, var(--color-line3) 82%, var(--color-acc));
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--color-raise) 94%, transparent);
-    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.34), 0 0 0 1px color-mix(in srgb, var(--color-void) 30%, transparent);
-    color: var(--color-fg2);
+    max-height: min(70vh, 520px);
+    padding: 4px 2px;
     pointer-events: none;
-    text-align: left;
-    transform: translateY(-50%);
-    animation: requestRailTooltip 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-  .request-rail__tooltip-label {
+  .msg-rail__step,
+  .msg-rail__tick,
+  .msg-rail__list {
+    pointer-events: auto;
+  }
+  .msg-rail__step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .msg-rail__step:hover:not(:disabled) {
+    color: var(--color-fg);
+    background: color-mix(in srgb, var(--color-fg) 8%, transparent);
+  }
+  .msg-rail__step:disabled {
+    opacity: 0.28;
+    cursor: default;
+  }
+  .msg-rail__list {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: min(56vh, 420px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 4px 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .msg-rail__list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .msg-rail__item {
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: center;
+    align-items: center;
+  }
+  .msg-rail__tick {
+    position: relative;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 10px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .msg-rail__tick::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 10px;
+    height: 2px;
+    border-radius: 1px;
+    transform: translate(-50%, -50%);
+    background: color-mix(in srgb, var(--color-dim) 55%, transparent);
+    transition: width 120ms ease, background 120ms ease, opacity 120ms ease;
+  }
+  .msg-rail__tick.is-hover::before,
+  .msg-rail__tick:hover::before {
+    width: 14px;
+    background: color-mix(in srgb, var(--color-mute) 90%, transparent);
+  }
+  .msg-rail__tick.is-active::before {
+    width: 14px;
+    height: 2.5px;
+    background: var(--color-fg);
+  }
+  .msg-rail__tick:focus-visible {
+    outline: 1px solid var(--color-acc);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .msg-rail__tip {
+    position: fixed;
+    z-index: 80;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(300px, 42vw);
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--color-line3) 82%, var(--color-acc));
+    background: color-mix(in srgb, var(--color-raise) 96%, #000);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
+    color: var(--color-fg);
+    pointer-events: none;
+    text-align: start;
+    transform: translateY(-50%);
+    animation: msgRailTip 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .msg-rail__tip-role {
+    margin-bottom: 4px;
     color: var(--color-acc-dim);
     font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.12em;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    line-height: 1.3;
   }
-  .request-rail__tooltip-prompt,
-  .request-rail__tooltip-response {
+  .msg-rail__tip-body,
+  .msg-rail__tip-response {
     overflow: hidden;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    color: var(--color-fg);
-    font-size: 11px;
+    color: var(--color-fg2);
+    font-size: 12px;
     line-height: 1.45;
-    -webkit-line-clamp: 2;
-  }
-  .request-rail__tooltip-prompt::before {
-    content: "› ";
-    color: var(--color-acc);
-  }
-  .request-rail__tooltip-response {
-    margin-top: 2px;
-    color: var(--color-dim);
-    font-size: 10px;
     -webkit-line-clamp: 3;
   }
-  .request-rail__tooltip-response::before {
-    content: "GROK · ";
+  .msg-rail__tip-response {
+    margin-top: 4px;
+    color: var(--color-dim);
+    font-size: 11px;
+    -webkit-line-clamp: 3;
+  }
+  .msg-rail__tip-count {
+    margin-top: 8px;
     color: var(--color-faint);
     font-family: var(--font-mono);
-    font-size: 0.9em;
-    letter-spacing: 0.07em;
+    font-size: 10px;
+    letter-spacing: 0.04em;
   }
   @media (max-width: 760px) {
-    .request-rail {
+    .msg-rail {
       display: none;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .request-rail__marker,
-    .request-rail__bar,
-    .request-rail__tooltip {
+    .msg-rail__tick::before,
+    .msg-rail__tip {
       transition-duration: 0.01ms;
       animation: none;
     }
   }
 }
 
-@keyframes requestRailTooltip {
+@keyframes msgRailTip {
   from {
     opacity: 0;
-    transform: translate(-5px, -50%);
+    transform: translate(6px, -50%);
   }
   to {
     opacity: 1;

@@ -82,6 +82,19 @@ describe("layout adaptability — density isolation", () => {
     expect(timelineSrc).toMatch(/data-turn-id/);
   });
 
+  it("request navigation is a right-edge msg-rail (grok-app style), not left request-rail", () => {
+    const timelineSrc = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../components/session/Timeline.tsx"),
+      "utf8",
+    );
+    expect(timelineSrc).toMatch(/msg-rail/);
+    expect(timelineSrc).toMatch(/RequestNodeRail/);
+    expect(timelineSrc).not.toMatch(/className="request-rail"/);
+    expect(tokens).toMatch(/\.msg-rail\s*\{/);
+    expect(tokens).toMatch(/right:\s*8px/);
+    expect(tokens).not.toMatch(/\.request-rail\s*\{/);
+  });
+
   it("assistant content fills reading column (no nested hollow max)", () => {
     expect(tokens).toMatch(/\.assistant-message__content\s*\{[\s\S]*?max-width:\s*100%/);
     expect(tokens).toMatch(/\.assistant-prose\s*\{[\s\S]*?max-width:\s*100%/);

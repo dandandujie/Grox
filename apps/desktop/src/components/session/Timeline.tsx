@@ -1,4 +1,5 @@
-import { memo, type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { isSessionTerminal, type Session, type SessionBlock, type WorkflowRun } from "../../bridge/types";
 import { useI18n } from "../../lib/i18n";
 import {
@@ -29,7 +30,6 @@ interface Turn {
 interface RequestMarker {
   id: string;
   index: number;
-  position: number;
   prompt: string;
   response: string;
 }
@@ -129,7 +129,7 @@ function compactPreview(text: string, limit: number): string {
   return `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
-function requestPreview(turn: Turn, language: string): Omit<RequestMarker, "index" | "position"> | undefined {
+function requestPreview(turn: Turn, language: string): Omit<RequestMarker, "index"> | undefined {
   const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
   if (!user) return undefined;
   const assistant = turn.blocks.filter((block): block is Extract<SessionBlock, { type: "assistant" }> => block.type === "assistant").at(-1);
@@ -142,82 +142,195 @@ function requestPreview(turn: Turn, language: string): Omit<RequestMarker, "inde
   };
 }
 
-function RequestRail({ markers, language, onJump }: { markers: RequestMarker[]; language: string; onJump(id: string): void }) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const markerNodes = useRef(new Map<string, HTMLButtonElement>());
-  const waveFrame = useRef<number | null>(null);
-  const pointerPosition = useRef<number | null>(null);
+type RailTip = { marker: RequestMarker; top: number; right: number };
 
-  const updateWave = (position: number | null) => {
-    pointerPosition.current = position;
-    if (waveFrame.current !== null) return;
-    waveFrame.current = requestAnimationFrame(() => {
-      waveFrame.current = null;
-      const point = pointerPosition.current;
-      for (const marker of markers) {
-        const node = markerNodes.current.get(marker.id);
-        if (!node) continue;
-        const wave = point === null ? 0 : Math.max(0, 1 - Math.abs(marker.position - point) / 17);
-        node.style.setProperty("--request-rail-wave", wave.toFixed(3));
+/**
+ * Grok-app / grok.com style message node rail — right edge, tick list,
+ * prev/next steppers, hover preview. Click jumps without relying on the
+ * transcript scroll wheel alone.
+ */
+function RequestNodeRail({
+  markers,
+  language,
+  scrollerRef,
+  onJump,
+}: {
+  markers: RequestMarker[];
+  language: string;
+  scrollerRef: RefObject<HTMLDivElement | null>;
+  onJump(id: string): void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [tip, setTip] = useState<RailTip | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const zh = language === "zh-CN";
+
+  const activeIndex = useMemo(
+    () => (activeId ? markers.findIndex((m) => m.id === activeId) : -1),
+    [markers, activeId],
+  );
+  const canPrev = activeIndex > 0 || (activeIndex < 0 && markers.length > 0);
+  const canNext =
+    (activeIndex >= 0 && activeIndex < markers.length - 1) ||
+    (activeIndex < 0 && markers.length > 0);
+
+  // Keep the active tick visible inside a long rail list.
+  useEffect(() => {
+    if (activeIndex < 0 || !listRef.current) return;
+    const tick = listRef.current.querySelector(
+      `[data-node-id="${CSS.escape(markers[activeIndex]!.id)}"]`,
+    ) as HTMLElement | null;
+    tick?.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }, [activeIndex, markers]);
+
+  // Free-scroll highlight: which turn is near the reading focus line.
+  useEffect(() => {
+    const viewport = scrollerRef.current;
+    if (!viewport || markers.length === 0) return;
+
+    const sync = () => {
+      rafRef.current = null;
+      const viewportRect = viewport.getBoundingClientRect();
+      const focusY = viewportRect.top + viewport.clientHeight * 0.28;
+      const idSet = new Set(markers.map((m) => m.id));
+      const rows = viewport.querySelectorAll<HTMLElement>("[data-turn-id]");
+      let bestId: string | null = null;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (const row of rows) {
+        const id = row.getAttribute("data-turn-id");
+        if (!id || !idSet.has(id)) continue;
+        const r = row.getBoundingClientRect();
+        if (r.bottom < viewportRect.top || r.top > viewportRect.bottom) continue;
+        const mid = (r.top + r.bottom) / 2;
+        const dist = Math.abs(mid - focusY);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestId = id;
+        }
       }
+      if (!bestId) {
+        // Fallback: first / last by scroll extremes.
+        if (viewport.scrollTop <= 8) bestId = markers[0]?.id ?? null;
+        else if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 8) {
+          bestId = markers[markers.length - 1]?.id ?? null;
+        }
+      }
+      if (bestId) setActiveId((prev) => (prev === bestId ? prev : bestId));
+    };
+
+    const onScroll = () => {
+      if (rafRef.current != null) return;
+      rafRef.current = window.requestAnimationFrame(sync);
+    };
+
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    rafRef.current = window.requestAnimationFrame(sync);
+    return () => {
+      viewport.removeEventListener("scroll", onScroll);
+      if (rafRef.current != null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [scrollerRef, markers]);
+
+  const showTip = (marker: RequestMarker, el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setTip({
+      marker,
+      top: r.top + r.height / 2,
+      right: window.innerWidth - r.left + 10,
     });
   };
+  const clearTip = (id: string) => {
+    setTip((cur) => (cur?.marker.id === id ? null : cur));
+  };
 
-  useEffect(() => () => {
-    if (waveFrame.current !== null) cancelAnimationFrame(waveFrame.current);
-  }, []);
+  const jumpIndex = (index: number) => {
+    const marker = markers[index];
+    if (!marker) return;
+    setActiveId(marker.id);
+    onJump(marker.id);
+  };
+
+  const onPrev = () => {
+    if (activeIndex > 0) jumpIndex(activeIndex - 1);
+    else if (activeIndex < 0 && markers.length > 0) jumpIndex(markers.length - 1);
+  };
+  const onNext = () => {
+    if (activeIndex >= 0 && activeIndex < markers.length - 1) jumpIndex(activeIndex + 1);
+    else if (activeIndex < 0 && markers.length > 0) jumpIndex(0);
+  };
 
   if (markers.length === 0) return null;
 
   return (
-    <nav
-      className="request-rail"
-      aria-label={language === "zh-CN" ? "请求导航" : "Request navigation"}
-      onPointerMove={(event) => {
-        const bounds = event.currentTarget.getBoundingClientRect();
-        if (bounds.height <= 0) return;
-        updateWave(Math.max(0, Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100)));
-      }}
-      onPointerLeave={() => {
-        updateWave(null);
-        setHoveredId(null);
-      }}
-    >
-      <span className="request-rail__spine" aria-hidden="true" />
-      {markers.map((marker) => {
-        const hovering = hoveredId === marker.id;
-        const style = {
-          top: `${marker.position}%`,
-          "--request-rail-hovered": hovering ? "1" : "0",
-        } as CSSProperties;
-        const label = language === "zh-CN" ? `请求 ${marker.index + 1}` : `Request ${marker.index + 1}`;
-        return (
-          <button
-            key={marker.id}
-            type="button"
-            className={`request-rail__marker ${hovering ? "is-hovered" : ""}`}
-            style={style}
-            ref={(node) => {
-              if (node) markerNodes.current.set(marker.id, node);
-              else markerNodes.current.delete(marker.id);
-            }}
-            onPointerEnter={() => setHoveredId(marker.id)}
-            onFocus={() => setHoveredId(marker.id)}
-            onBlur={() => setHoveredId(null)}
-            onClick={() => onJump(marker.id)}
-            aria-label={`${label}: ${marker.prompt}`}
-          >
-            <span className="request-rail__bar" aria-hidden="true" />
-            {hovering && (
-              <span className="request-rail__tooltip" role="tooltip">
-                <span className="request-rail__tooltip-label">{label}</span>
-                <span className="request-rail__tooltip-prompt">{marker.prompt}</span>
-                <span className="request-rail__tooltip-response">{marker.response}</span>
-              </span>
-            )}
-          </button>
-        );
-      })}
+    <nav className="msg-rail" aria-label={zh ? "请求导航" : "Request navigation"}>
+      <button
+        type="button"
+        className="msg-rail__step"
+        aria-label={zh ? "上一条请求" : "Previous request"}
+        disabled={!canPrev}
+        onClick={onPrev}
+      >
+        <Icon name="chevronDown" size={12} className="rotate-180" />
+      </button>
+
+      <div ref={listRef} className="msg-rail__list" role="list">
+        {markers.map((marker) => {
+          const isActive = marker.id === activeId;
+          const isHover = tip?.marker.id === marker.id;
+          const label = zh ? `请求 ${marker.index + 1}` : `Request ${marker.index + 1}`;
+          return (
+            <div key={marker.id} role="listitem" className="msg-rail__item">
+              <button
+                type="button"
+                data-node-id={marker.id}
+                className={`msg-rail__tick${isActive ? " is-active" : ""}${isHover ? " is-hover" : ""}`}
+                aria-label={`${label}: ${marker.prompt}`}
+                aria-current={isActive ? "true" : undefined}
+                onMouseEnter={(e) => showTip(marker, e.currentTarget)}
+                onMouseLeave={() => clearTip(marker.id)}
+                onFocus={(e) => showTip(marker, e.currentTarget)}
+                onBlur={() => clearTip(marker.id)}
+                onClick={() => {
+                  setActiveId(marker.id);
+                  onJump(marker.id);
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        className="msg-rail__step"
+        aria-label={zh ? "下一条请求" : "Next request"}
+        disabled={!canNext}
+        onClick={onNext}
+      >
+        <Icon name="chevronDown" size={12} />
+      </button>
+
+      {tip && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="msg-rail__tip"
+              role="tooltip"
+              style={{ top: tip.top, right: tip.right }}
+            >
+              <div className="msg-rail__tip-role">{zh ? "请求" : "Request"} · {tip.marker.index + 1}</div>
+              <div className="msg-rail__tip-body">{tip.marker.prompt}</div>
+              <div className="msg-rail__tip-response">{tip.marker.response}</div>
+              <div className="msg-rail__tip-count">
+                {tip.marker.index + 1} / {markers.length}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </nav>
   );
 }
@@ -453,14 +566,8 @@ export function Timeline({ session }: { session: Session }) {
   const markers = useMemo<RequestMarker[]>(() => {
     const requests = turns
       .map((turn) => requestPreview(turn, language))
-      .filter((marker): marker is Omit<RequestMarker, "index" | "position"> => Boolean(marker));
-    return requests.map((marker, index) => ({
-      ...marker,
-      index,
-      // This is a navigation index, not a miniature transcript map. Keep
-      // every request evenly distributed, like a compact table of contents.
-      position: ((index + 0.5) / requests.length) * 100,
-    }));
+      .filter((marker): marker is Omit<RequestMarker, "index"> => Boolean(marker));
+    return requests.map((marker, index) => ({ ...marker, index }));
   }, [language, turns]);
 
   const stopFollowForInspect = useCallback(() => {
@@ -558,7 +665,7 @@ export function Timeline({ session }: { session: Session }) {
         })}
         <div className="h-11 shrink-0" />
       </div>
-      <RequestRail markers={markers} language={language} onJump={jumpToTurn} />
+      <RequestNodeRail markers={markers} language={language} scrollerRef={scrollerRef} onJump={jumpToTurn} />
     </div>
   );
 }
