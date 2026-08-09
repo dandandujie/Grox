@@ -35,7 +35,7 @@ export function AccountSetup() {
       }
     };
     return (
-      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-void/80 p-5 backdrop-blur-[4px]">
+      <div className="settings-shell fixed inset-0 z-[70] flex items-center justify-center bg-void/80 p-5 backdrop-blur-[4px]">
         <div className="w-full max-w-[620px] rounded-[9px] border border-line3 bg-panel p-6 shadow-2xl animate-fade-up">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line3 bg-raise"><BlackHole size={22} /></div>
@@ -99,7 +99,7 @@ export function AccountSetup() {
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-void/80 p-5 backdrop-blur-[4px]">
+    <div className="settings-shell fixed inset-0 z-[70] flex items-center justify-center bg-void/80 p-5 backdrop-blur-[4px]">
       <div className="w-full max-w-[560px] rounded-[9px] border border-line3 bg-panel p-6 shadow-2xl animate-fade-up">
         <div className="flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line3 bg-raise">

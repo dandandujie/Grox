@@ -48,8 +48,14 @@ export function SettingsModal() {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/75 p-5 backdrop-blur-[3px]" onMouseDown={() => setOpen(false)}>
-      <div className="flex h-[min(820px,92vh)] w-[min(1180px,96vw)] overflow-hidden rounded-[9px] border border-line3 bg-panel shadow-2xl animate-fade-up" onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      className="settings-shell fixed inset-0 z-50 flex items-center justify-center bg-void/75 p-5 backdrop-blur-[3px]"
+      onMouseDown={() => setOpen(false)}
+    >
+      <div
+        className="flex h-[min(820px,92vh)] w-[min(1180px,96vw)] overflow-hidden rounded-[9px] border border-line3 bg-panel shadow-2xl animate-fade-up"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <nav className="flex w-[210px] shrink-0 flex-col border-r border-line bg-void py-3">
           <div className="px-4 pb-3"><Wordmark size={11} withMark={false} /></div>
           {sections.map((item) => (
