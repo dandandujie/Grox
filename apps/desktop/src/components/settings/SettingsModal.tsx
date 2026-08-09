@@ -496,8 +496,8 @@ function Appearance() {
     <Row label={t("language")}><div className="flex gap-1"><Choice active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>{t("chinese")}</Choice><Choice active={language === "en-US"} onClick={() => setLanguage("en-US")}>{t("english")}</Choice></div></Row>
     <Row label={t("theme")}><div className="flex gap-1"><Choice active={theme === "dark"} onClick={() => setTheme("dark")}><Icon name="moon" size={10} /> {t("dark")}</Choice><Choice active={theme === "light"} onClick={() => setTheme("light")}><Icon name="sun" size={10} /> {t("light")}</Choice></div></Row>
     <Row
-      label={uiLanguage === "zh-CN" ? "内容宽度" : "Content width"}
-      hint={uiLanguage === "zh-CN" ? "只改变会话栏宽度，不影响侧栏与按钮布局。" : "Only changes the transcript column width — not chrome layout."}
+      label={uiLanguage === "zh-CN" ? "阅读栏宽度" : "Reading width"}
+      hint={uiLanguage === "zh-CN" ? "仅改会话正文与输入框的最大宽度（720 / 920 / 1120px）；行距、内边距、侧栏与按钮完全不变。" : "Only the transcript + composer max-width (720 / 920 / 1120px). Spacing, sidebar, and buttons never change."}
     >
       <div className="flex gap-1">
         <Choice active={contentDensity === "narrow"} onClick={() => setContentDensity("narrow")}>{uiLanguage === "zh-CN" ? "窄" : "Narrow"}</Choice>

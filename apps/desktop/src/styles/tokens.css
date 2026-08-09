@@ -90,13 +90,18 @@ html {
   --grox-user-size: 13px;
   --grox-process-size: 12px;
   --grox-code-size: 12px;
-  /* Content density (narrow / medium / wide) — width only */
-  --grox-content-max: 980px;
+  /*
+   * Reading column (narrow / medium / wide)
+   * ---------------------------------------
+   * ONLY --grox-content-max / --grox-composer-max change with density.
+   * Padding, turn gap, and nested prose max-widths stay FIXED so density
+   * cannot reflow chrome, collapse tables, or leave a hollow column.
+   * Composer max always equals content max (aligned gutters).
+   */
+  --grox-content-max: 920px;
   --grox-composer-max: 920px;
-  --grox-content-px: 2.5rem;
-  --grox-prose-max: 72ch;
-  --grox-assistant-max: 740px;
-  --grox-turn-gap: 1.75rem;
+  --grox-content-px: 2rem; /* fixed — never density-coupled */
+  --grox-turn-gap: 1.75rem; /* fixed — never density-coupled */
 }
 
 html[data-font="sm"] {
@@ -128,31 +133,20 @@ html[data-font="xl"] {
   --grox-code-size: 13px;
 }
 
+/* Density: column width only. Keep values ≤ available main pane on 1280+ displays. */
 html[data-density="narrow"] {
-  --grox-content-max: 760px;
+  --grox-content-max: 720px;
   --grox-composer-max: 720px;
-  --grox-content-px: 1.5rem;
-  --grox-prose-max: 58ch;
-  --grox-assistant-max: 620px;
-  --grox-turn-gap: 1.25rem;
 }
 
 html[data-density="medium"] {
-  --grox-content-max: 980px;
+  --grox-content-max: 920px;
   --grox-composer-max: 920px;
-  --grox-content-px: 2.5rem;
-  --grox-prose-max: 72ch;
-  --grox-assistant-max: 740px;
-  --grox-turn-gap: 1.75rem;
 }
 
 html[data-density="wide"] {
-  --grox-content-max: 1360px;
-  --grox-composer-max: 1280px;
-  --grox-content-px: 1.25rem;
-  --grox-prose-max: 96ch;
-  --grox-assistant-max: 980px;
-  --grox-turn-gap: 1.35rem;
+  --grox-content-max: 1120px;
+  --grox-composer-max: 1120px;
 }
 
 body {
@@ -323,15 +317,31 @@ html:not([data-theme="light"]) {
 }
 
 .timeline-content {
+  box-sizing: border-box;
   width: 100%;
-  max-width: var(--grox-content-max, 980px);
-  padding-left: var(--grox-content-px, 2.5rem);
-  padding-right: var(--grox-content-px, 2.5rem);
+  max-width: var(--grox-content-max, 920px);
+  padding-left: var(--grox-content-px, 2rem);
+  padding-right: var(--grox-content-px, 2rem);
+}
+
+/*
+ * Composer dock shares the SAME outer max + horizontal pad as .timeline-content
+ * so density changes never desync the input card from the transcript column.
+ */
+.composer-dock {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--grox-content-max, 920px);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--grox-content-px, 2rem);
+  padding-right: var(--grox-content-px, 2rem);
 }
 
 .composer-shell {
+  box-sizing: border-box;
   width: 100%;
-  max-width: var(--grox-composer-max, 920px);
+  max-width: none;
 }
 
 .animate-orbit,
@@ -861,7 +871,8 @@ html[data-reduce-motion="1"] .plan-spinner {
     margin-bottom: 0;
   }
   .md p {
-    max-width: var(--grox-prose-max, 72ch);
+    /* Fill the reading column — no nested ch clamp (caused hollow wide layouts). */
+    max-width: 100%;
     margin: 0 0 0.85em;
   }
   .md h1,
@@ -1044,7 +1055,7 @@ html[data-reduce-motion="1"] .plan-spinner {
 
   .md ul,
   .md ol {
-    max-width: var(--grox-prose-max, 72ch);
+    max-width: 100%;
     margin: 0.35em 0 0.9em;
     padding-left: 1.5em;
     list-style: outside disc;
@@ -1095,7 +1106,7 @@ html[data-reduce-motion="1"] .plan-spinner {
   }
 
   .md blockquote {
-    max-width: var(--grox-prose-max, 72ch);
+    max-width: 100%;
     margin: 0.9em 0;
     padding: 0.1em 0 0.1em 1em;
     border-left: 2px solid var(--color-line3);
@@ -1178,11 +1189,12 @@ html[data-reduce-motion="1"] .plan-spinner {
   }
 
   .assistant-message__content {
-    max-width: min(100%, var(--grox-assistant-max, 740px));
+    /* Span the full reading column so actions stay under the text, not in a void. */
+    max-width: 100%;
   }
   .assistant-prose {
     letter-spacing: -0.008em;
-    max-width: min(100%, var(--grox-prose-max, 72ch));
+    max-width: 100%;
   }
   .md-streaming {
     color: var(--color-fg2);

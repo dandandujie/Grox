@@ -318,7 +318,7 @@ export function Composer() {
   const currentModel = models.find((m) => m.id === model);
 
   return (
-    <div className="shrink-0 px-6 pb-4 pt-1">
+    <div className="composer-dock shrink-0 px-0 pb-4 pt-1">
       <div className="composer-shell relative mx-auto">
         {/* slash menu */}
         {slashOpen && matches.length > 0 && (
