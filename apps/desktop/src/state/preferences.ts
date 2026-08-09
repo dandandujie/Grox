@@ -2,8 +2,8 @@ import { create } from "zustand";
 
 export type Language = "zh-CN" | "en-US";
 export type Theme = "dark" | "light";
-/** Content column density: narrow (compact read), medium, wide (more on-screen). */
-export type ContentDensity = "narrow" | "medium" | "wide";
+/** Content column density: narrow → xwide (reading column max-width only). */
+export type ContentDensity = "narrow" | "medium" | "wide" | "xwide";
 /**
  * Transcript font scale only — integer CSS px tiers.
  * Never applied to chrome (sidebar / titlebar / fixed-height chips) to avoid
@@ -54,7 +54,9 @@ const persistDimension = (key: string, value: number) => {
 const clampFontWeight = (value: number) => Math.min(700, Math.max(400, Math.round(value / 25) * 25));
 
 const parseContentDensity = (value: string | null): ContentDensity => {
-  if (value === "narrow" || value === "wide" || value === "medium") return value;
+  if (value === "narrow" || value === "medium" || value === "wide" || value === "xwide") return value;
+  // Legacy aliases
+  if (value === "full" || value === "xl" || value === "wider") return "xwide";
   return "medium";
 };
 

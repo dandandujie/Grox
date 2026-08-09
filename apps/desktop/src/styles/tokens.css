@@ -133,7 +133,7 @@ html[data-font="xl"] {
   --grox-code-size: 13px;
 }
 
-/* Density: column width only. Keep values ≤ available main pane on 1280+ displays. */
+/* Density: column width only (padding/gap fixed). */
 html[data-density="narrow"] {
   --grox-content-max: 720px;
   --grox-composer-max: 720px;
@@ -147,6 +147,12 @@ html[data-density="medium"] {
 html[data-density="wide"] {
   --grox-content-max: 1120px;
   --grox-composer-max: 1120px;
+}
+
+/* Extra-wide: use most of the main pane on large monitors. */
+html[data-density="xwide"] {
+  --grox-content-max: 1480px;
+  --grox-composer-max: 1480px;
 }
 
 body {

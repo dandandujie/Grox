@@ -22,7 +22,7 @@ function blockFor(selector: string): string {
 
 describe("layout adaptability — density isolation", () => {
   it("density blocks only set content/composer max-width", () => {
-    for (const name of ["narrow", "medium", "wide"] as const) {
+    for (const name of ["narrow", "medium", "wide", "xwide"] as const) {
       const body = blockFor(`html[data-density="${name}"]`);
       expect(body, name).toBeTruthy();
       expect(body).toMatch(/--grox-content-max\s*:/);
@@ -41,7 +41,7 @@ describe("layout adaptability — density isolation", () => {
   });
 
   it("content max equals composer max in each density tier", () => {
-    for (const name of ["narrow", "medium", "wide"] as const) {
+    for (const name of ["narrow", "medium", "wide", "xwide"] as const) {
       const body = blockFor(`html[data-density="${name}"]`);
       const content = body.match(/--grox-content-max\s*:\s*([^;]+);/)?.[1]?.trim();
       const composer = body.match(/--grox-composer-max\s*:\s*([^;]+);/)?.[1]?.trim();

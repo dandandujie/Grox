@@ -497,12 +497,13 @@ function Appearance() {
     <Row label={t("theme")}><div className="flex gap-1"><Choice active={theme === "dark"} onClick={() => setTheme("dark")}><Icon name="moon" size={10} /> {t("dark")}</Choice><Choice active={theme === "light"} onClick={() => setTheme("light")}><Icon name="sun" size={10} /> {t("light")}</Choice></div></Row>
     <Row
       label={uiLanguage === "zh-CN" ? "阅读栏宽度" : "Reading width"}
-      hint={uiLanguage === "zh-CN" ? "仅改会话正文与输入框的最大宽度（720 / 920 / 1120px）；行距、内边距、侧栏与按钮完全不变。" : "Only the transcript + composer max-width (720 / 920 / 1120px). Spacing, sidebar, and buttons never change."}
+      hint={uiLanguage === "zh-CN" ? "仅改会话正文与输入框最大宽度（720 / 920 / 1120 / 1480px）；行距、内边距、侧栏与按钮不变。" : "Transcript + composer max-width only (720 / 920 / 1120 / 1480px). Spacing and chrome never change."}
     >
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         <Choice active={contentDensity === "narrow"} onClick={() => setContentDensity("narrow")}>{uiLanguage === "zh-CN" ? "窄" : "Narrow"}</Choice>
         <Choice active={contentDensity === "medium"} onClick={() => setContentDensity("medium")}>{uiLanguage === "zh-CN" ? "中" : "Medium"}</Choice>
         <Choice active={contentDensity === "wide"} onClick={() => setContentDensity("wide")}>{uiLanguage === "zh-CN" ? "宽" : "Wide"}</Choice>
+        <Choice active={contentDensity === "xwide"} onClick={() => setContentDensity("xwide")}>{uiLanguage === "zh-CN" ? "更宽" : "Wider"}</Choice>
       </div>
     </Row>
     <Row
