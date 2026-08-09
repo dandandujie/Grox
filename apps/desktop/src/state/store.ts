@@ -48,7 +48,6 @@ import {
   flushAllPendingSessionCaches,
   flushSessionCache,
   loadDraftBuffer,
-  loadSessionCache,
   removeSessionCache,
   saveDraftBuffer,
   scheduleSaveSessionCache,
@@ -64,7 +63,6 @@ import {
 } from "../lib/sessionGate";
 import {
   consumeShellUpgradeRescan,
-  sanitizeSessionForOpen,
   shouldCloseDetachedSession,
   shouldForceOfflineRescan,
 } from "../lib/sessionOpenPolicy";
@@ -97,6 +95,7 @@ import {
   shouldRetainDraftBufferUntilSessionReady,
 } from "../lib/draftLaunchRecovery";
 import { sessionShellFromMeta } from "../lib/sessionShell";
+import { hydrateSessionOffline, preferRicherSession } from "../lib/offlineSessionHydrate";
 
 export type View = "home" | "session";
 export type InspectorTab = "files" | "tasks" | "preview" | "usage";
@@ -1458,54 +1457,79 @@ export const useDesktop = create<DesktopState>((set, get) => {
         sessionAlreadyForceRescanned: upgradeForceRescanned.has(id),
       });
       const needsHydrate = !existing || existing.preview || existing.blocks.length === 0 || forceRescan;
+      const openMeta: SessionMeta | null = (meta ?? existing)
+        ? {
+            id,
+            title: meta?.title ?? existing?.title ?? "Untitled mission",
+            cwd: meta?.cwd ?? existing?.cwd ?? get().workspace,
+            createdAt: meta?.createdAt ?? existing?.createdAt ?? Date.now(),
+            updatedAt: meta?.updatedAt ?? existing?.updatedAt ?? Date.now(),
+            model: meta?.model ?? existing?.model ?? get().model,
+            lastStatus: meta?.lastStatus ?? existing?.lastStatus,
+            summary: meta?.summary ?? existing?.summary,
+            completionUnread: meta?.completionUnread,
+            parentId: meta?.parentId ?? existing?.parentId,
+            demo: meta?.demo ?? existing?.demo,
+            pinned: meta?.pinned ?? existing?.pinned,
+            archived: meta?.archived ?? existing?.archived,
+          }
+        : null;
 
-      if (!existing || existing.blocks.length === 0 || existing.preview) {
-        void loadSessionCache(id).then((cached) => {
-          if (!cached) return;
+      // Local cache + disk jsonl first (fast paint). ACP may fail with "找不到会话"
+      // when the CLI catalogue no longer lists a sidebar id.
+      if (openMeta && (!existing || existing.blocks.length === 0 || existing.preview)) {
+        void hydrateSessionOffline(id, openMeta).then((offline) => {
+          if (!offline) return;
           const latest = get();
+          if (latest.activeId !== id) return;
           const currentSession = latest.sessions[id];
-          // Do not clobber a fuller live/ACP payload that won the race.
-          if (currentSession && !currentSession.preview && currentSession.blocks.length > 0) return;
-          if (currentSession && currentSession.blocks.length > cached.blocks.length) return;
-          const painted = {
-            ...cached,
-            ...sanitizeSessionForOpen(cached),
-          };
-          set({ sessions: { ...latest.sessions, [id]: painted } });
+          const next = preferRicherSession(currentSession, offline);
+          if (next === currentSession) return;
+          set({ sessions: { ...latest.sessions, [id]: next } });
         });
       }
-      // Upgrade generation / missing body: re-bind full history in background.
+
+      // ACP bind / full history when needed.
       if (needsHydrate) {
         if (forceRescan) upgradeForceRescanned.add(id);
         void bridge.loadSession(id, { background: true }).catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
-          set((latest) => {
-            const shell = latest.sessions[id];
-            // Keep a navigable shell; surface the error instead of spinning forever.
-            return {
-              startupError: `会话后台同步失败：${message}`,
-              sessions: shell
-                ? {
-                    ...latest.sessions,
-                    [id]: {
-                      ...shell,
-                      // Leave preview so empty shell still shows load UI, but mark failed.
-                      status: shell.blocks.length === 0 ? shell.status : shell.status,
-                      blocks: shell.blocks.length > 0
-                        ? shell.blocks
-                        : [{
-                            type: "system" as const,
-                            id: `open-fail-${id}`,
-                            text: message,
-                            ts: Date.now(),
-                            kind: "error" as const,
-                          }],
-                      preview: shell.blocks.length === 0 ? false : shell.preview,
-                    },
-                  }
-                : latest.sessions,
-            };
-          });
+          void (async () => {
+            const offline = openMeta ? await hydrateSessionOffline(id, openMeta) : null;
+            set((latest) => {
+              if (latest.activeId !== id) return latest;
+              const shell = latest.sessions[id];
+              if (offline && offline.blocks.length > 0) {
+                const next = preferRicherSession(shell, offline);
+                return {
+                  // Soft notice — offline history is still usable.
+                  startupError: `会话未能绑定到 CLI（已显示本地历史）：${message}`,
+                  sessions: { ...latest.sessions, [id]: { ...next, preview: true } },
+                };
+              }
+              return {
+                startupError: `会话后台同步失败：${message}`,
+                sessions: shell
+                  ? {
+                      ...latest.sessions,
+                      [id]: {
+                        ...shell,
+                        blocks: shell.blocks.length > 0
+                          ? shell.blocks
+                          : [{
+                              type: "system" as const,
+                              id: `open-fail-${id}`,
+                              text: message,
+                              ts: Date.now(),
+                              kind: "error" as const,
+                            }],
+                        preview: false,
+                      },
+                    }
+                  : latest.sessions,
+              };
+            });
+          })();
         });
       }
     },

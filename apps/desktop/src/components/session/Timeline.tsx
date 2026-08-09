@@ -556,6 +556,7 @@ export function Timeline({ session }: { session: Session }) {
   const { language } = useI18n();
   const workflows = useDesktop((state) => state.workflows[session.id] ?? EMPTY_WORKFLOWS);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement>(null);
   // Native scroller + turn window (not Virtuoso): expanding process used to make
   // Virtuoso re-range and yank scrollTop to 0 / stick-to-bottom thrash so the
   // operator could not freely scroll. DOM stays bounded via a hard mount cap.
@@ -563,8 +564,13 @@ export function Timeline({ session }: { session: Session }) {
   const inspectHoldRef = useRef(false);
   const leftBottomRef = useRef(false);
   const pendingJumpIdRef = useRef<string | null>(null);
-  /** Land on latest answer once content is ready after open (not only on id change). */
-  const needsInitialBottomRef = useRef(true);
+  /**
+   * Until the operator scrolls away, keep re-landing at bottom whenever
+   * transcript body grows (cache → disk → ACP). Clearing after first rAF was
+   * wrong: later hydrations replace content and leave scrollTop at the top.
+   */
+  const userTookOverRef = useRef(false);
+  const settleTimerRef = useRef<number | undefined>(undefined);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
   const [visibleCount, setVisibleCount] = useState(TIMELINE_TURN_WINDOW_INITIAL);
   const sessionRunning = !isSessionTerminal(session.status);
@@ -573,11 +579,12 @@ export function Timeline({ session }: { session: Session }) {
   const liveSignature = sessionRunning
     ? `${session.blocks.length}:${lastBlock?.type === "assistant" || lastBlock?.type === "thinking" ? lastBlock.text.length : lastBlock?.id ?? ""}:${session.status}`
     : "";
+  const contentEpoch = `${session.id}:${turns.length}:${session.blocks.length}:${lastBlock?.id ?? ""}:${lastBlock && "text" in lastBlock ? String(lastBlock.text).length : 0}`;
 
   useEffect(() => {
     setVisibleCount(TIMELINE_TURN_WINDOW_INITIAL);
     pendingJumpIdRef.current = null;
-    needsInitialBottomRef.current = true;
+    userTookOverRef.current = false;
     followRef.current = true;
     inspectHoldRef.current = false;
     leftBottomRef.current = false;
@@ -603,32 +610,35 @@ export function Timeline({ session }: { session: Session }) {
     followRef.current = false;
     inspectHoldRef.current = true;
     leftBottomRef.current = false;
-    needsInitialBottomRef.current = false;
+    userTookOverRef.current = true;
   }, []);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+  const scrollToBottom = useCallback(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    // Direct assignment is more reliable than scrollTo during rapid reflows.
+    el.scrollTop = el.scrollHeight;
+    bottomAnchorRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
   }, []);
 
-  // Open / hydrate: content often arrives AFTER activeId is set (cache/ACP).
-  // Re-land at bottom whenever the first real turn list appears, and once more
-  // after layout settles — otherwise the scroller stays at top (scrollHeight=0
-  // on first paint, then content grows below).
+  // Open / hydrate landing: re-apply on every content growth until the user
+  // scrolls away. Debounce "done" only after content stops changing.
   useLayoutEffect(() => {
-    if (!needsInitialBottomRef.current) return;
+    if (userTookOverRef.current) return;
     if (turns.length === 0) return;
-    scrollToBottom("auto");
-    const outer = window.requestAnimationFrame(() => {
-      scrollToBottom("auto");
-      window.requestAnimationFrame(() => {
-        scrollToBottom("auto");
-        needsInitialBottomRef.current = false;
-      });
-    });
-    return () => window.cancelAnimationFrame(outer);
-  }, [session.id, turns.length, session.blocks.length, scrollToBottom]);
+    scrollToBottom();
+    if (settleTimerRef.current !== undefined) window.clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = window.setTimeout(() => {
+      scrollToBottom();
+      settleTimerRef.current = undefined;
+    }, 120);
+    return () => {
+      if (settleTimerRef.current !== undefined) {
+        window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = undefined;
+      }
+    };
+  }, [contentEpoch, visibleTurns.length, scrollToBottom, turns.length]);
 
   // New live turn after idle: resume stick-to-bottom for streaming.
   useEffect(() => {
@@ -636,7 +646,8 @@ export function Timeline({ session }: { session: Session }) {
       inspectHoldRef.current = false;
       leftBottomRef.current = false;
       followRef.current = true;
-      scrollToBottom("auto");
+      userTookOverRef.current = false;
+      scrollToBottom();
     }
     wasRunningRef.current = sessionRunning;
   }, [sessionRunning, scrollToBottom]);
@@ -644,9 +655,8 @@ export function Timeline({ session }: { session: Session }) {
   // Streaming stick-to-bottom — only while live and operator has not scrolled away.
   useLayoutEffect(() => {
     if (!sessionRunning || !liveSignature) return;
-    if (inspectHoldRef.current || !followRef.current) return;
-    if (needsInitialBottomRef.current) return;
-    scrollToBottom("auto");
+    if (inspectHoldRef.current || !followRef.current || userTookOverRef.current) return;
+    scrollToBottom();
   }, [liveSignature, sessionRunning, scrollToBottom]);
 
   // After expanding the window for a rail jump, scroll to the target once mounted.
@@ -662,11 +672,9 @@ export function Timeline({ session }: { session: Session }) {
   const onScrollerScroll = () => {
     const el = scrollerRef.current;
     if (!el) return;
-    // User took over — cancel any pending initial-bottom land.
-    if (needsInitialBottomRef.current && !isNearBottom(el)) {
-      needsInitialBottomRef.current = false;
-    }
     if (!isNearBottom(el)) {
+      // Operator left the bottom — never force-land again this open.
+      userTookOverRef.current = true;
       followRef.current = false;
       leftBottomRef.current = true;
       return;
@@ -678,11 +686,13 @@ export function Timeline({ session }: { session: Session }) {
         inspectHoldRef.current = false;
         leftBottomRef.current = false;
         followRef.current = true;
+        userTookOverRef.current = false;
       }
       return;
     }
     leftBottomRef.current = false;
     followRef.current = true;
+    userTookOverRef.current = false;
   };
 
   if (isSessionHistoryPending(session)) {
@@ -754,7 +764,7 @@ export function Timeline({ session }: { session: Session }) {
             </div>
           );
         })}
-        <div className="h-11 shrink-0" />
+        <div ref={bottomAnchorRef} className="h-11 shrink-0" aria-hidden="true" />
       </div>
       <RequestNodeRail markers={markers} language={language} scrollerRef={scrollerRef} onJump={jumpToTurn} />
     </div>
