@@ -96,6 +96,7 @@ import {
   buildDraftRestoreAfterSessionNewFailure,
   shouldRetainDraftBufferUntilSessionReady,
 } from "../lib/draftLaunchRecovery";
+import { sessionShellFromMeta } from "../lib/sessionShell";
 
 export type View = "home" | "session";
 export type InspectorTab = "files" | "tasks" | "preview" | "usage";
@@ -1420,28 +1421,52 @@ export const useDesktop = create<DesktopState>((set, get) => {
       }
       if (meta && !samePath(meta.cwd, get().workspace)) await get().setWorkspace(meta.cwd);
       const state = get();
-      const existing = state.sessions[id];
+      let existing = state.sessions[id];
       const composer = state.sessionComposers[id];
       if (composer) bridge.setPermissionMode(composer.permissionMode);
-      set({
-        activeId: id,
-        view: "session",
-        ...(composer ? {
-          model: composer.model,
-          effort: composer.effort,
-          mode: composer.mode,
-          permissionMode: composer.permissionMode,
-        } : {}),
-      });
+
+      // Never leave activeId set with sessions[id] missing — that paints the
+      // infinite black "RESTORING MISSION" spinner when cache/ACP is slow.
+      if (!existing && meta) {
+        existing = sessionShellFromMeta(meta, meta.lastStatus === "failed" ? "failed" : "idle");
+        set({
+          activeId: id,
+          view: "session",
+          sessions: { ...state.sessions, [id]: existing },
+          ...(composer ? {
+            model: composer.model,
+            effort: composer.effort,
+            mode: composer.mode,
+            permissionMode: composer.permissionMode,
+          } : {}),
+        });
+      } else {
+        set({
+          activeId: id,
+          view: "session",
+          ...(composer ? {
+            model: composer.model,
+            effort: composer.effort,
+            mode: composer.mode,
+            permissionMode: composer.permissionMode,
+          } : {}),
+        });
+      }
+
       const forceRescan = shouldForceOfflineRescan({
         upgradeRescanActive: upgradeForceOfflineRescan,
         sessionAlreadyForceRescanned: upgradeForceRescanned.has(id),
       });
-      if (!existing) {
+      const needsHydrate = !existing || existing.preview || existing.blocks.length === 0 || forceRescan;
+
+      if (!existing || existing.blocks.length === 0 || existing.preview) {
         void loadSessionCache(id).then((cached) => {
           if (!cached) return;
           const latest = get();
-          if (latest.sessions[id]) return;
+          const currentSession = latest.sessions[id];
+          // Do not clobber a fuller live/ACP payload that won the race.
+          if (currentSession && !currentSession.preview && currentSession.blocks.length > 0) return;
+          if (currentSession && currentSession.blocks.length > cached.blocks.length) return;
           const painted = {
             ...cached,
             ...sanitizeSessionForOpen(cached),
@@ -1449,11 +1474,38 @@ export const useDesktop = create<DesktopState>((set, get) => {
           set({ sessions: { ...latest.sessions, [id]: painted } });
         });
       }
-      // Upgrade generation: always re-bind full history once per session.
-      if (!existing || existing.preview || forceRescan) {
+      // Upgrade generation / missing body: re-bind full history in background.
+      if (needsHydrate) {
         if (forceRescan) upgradeForceRescanned.add(id);
         void bridge.loadSession(id, { background: true }).catch((error) => {
-          set({ startupError: `会话后台同步失败：${error instanceof Error ? error.message : String(error)}` });
+          const message = error instanceof Error ? error.message : String(error);
+          set((latest) => {
+            const shell = latest.sessions[id];
+            // Keep a navigable shell; surface the error instead of spinning forever.
+            return {
+              startupError: `会话后台同步失败：${message}`,
+              sessions: shell
+                ? {
+                    ...latest.sessions,
+                    [id]: {
+                      ...shell,
+                      // Leave preview so empty shell still shows load UI, but mark failed.
+                      status: shell.blocks.length === 0 ? shell.status : shell.status,
+                      blocks: shell.blocks.length > 0
+                        ? shell.blocks
+                        : [{
+                            type: "system" as const,
+                            id: `open-fail-${id}`,
+                            text: message,
+                            ts: Date.now(),
+                            kind: "error" as const,
+                          }],
+                      preview: shell.blocks.length === 0 ? false : shell.preview,
+                    },
+                  }
+                : latest.sessions,
+            };
+          });
         });
       }
     },

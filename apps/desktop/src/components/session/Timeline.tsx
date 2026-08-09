@@ -13,6 +13,7 @@ import {
   visibleCountToIncludeIndex,
   visibleTurnSlice,
 } from "../../lib/timelineWindow";
+import { isSessionHistoryPending } from "../../lib/sessionShell";
 import { useDesktop } from "../../state/store";
 import { Icon } from "../fx/Icon";
 import { BlackHole } from "../fx/BlackHole";
@@ -562,6 +563,8 @@ export function Timeline({ session }: { session: Session }) {
   const inspectHoldRef = useRef(false);
   const leftBottomRef = useRef(false);
   const pendingJumpIdRef = useRef<string | null>(null);
+  /** Land on latest answer once content is ready after open (not only on id change). */
+  const needsInitialBottomRef = useRef(true);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
   const [visibleCount, setVisibleCount] = useState(TIMELINE_TURN_WINDOW_INITIAL);
   const sessionRunning = !isSessionTerminal(session.status);
@@ -574,6 +577,10 @@ export function Timeline({ session }: { session: Session }) {
   useEffect(() => {
     setVisibleCount(TIMELINE_TURN_WINDOW_INITIAL);
     pendingJumpIdRef.current = null;
+    needsInitialBottomRef.current = true;
+    followRef.current = true;
+    inspectHoldRef.current = false;
+    leftBottomRef.current = false;
   }, [session.id]);
 
   // Window is "last N turns" — as new turns stream in, the newest stay mounted
@@ -596,6 +603,7 @@ export function Timeline({ session }: { session: Session }) {
     followRef.current = false;
     inspectHoldRef.current = true;
     leftBottomRef.current = false;
+    needsInitialBottomRef.current = false;
   }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
@@ -604,13 +612,23 @@ export function Timeline({ session }: { session: Session }) {
     el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
 
-  // Open / switch session: land on the latest answer once.
+  // Open / hydrate: content often arrives AFTER activeId is set (cache/ACP).
+  // Re-land at bottom whenever the first real turn list appears, and once more
+  // after layout settles — otherwise the scroller stays at top (scrollHeight=0
+  // on first paint, then content grows below).
   useLayoutEffect(() => {
-    followRef.current = true;
-    inspectHoldRef.current = false;
-    leftBottomRef.current = false;
+    if (!needsInitialBottomRef.current) return;
+    if (turns.length === 0) return;
     scrollToBottom("auto");
-  }, [session.id, scrollToBottom]);
+    const outer = window.requestAnimationFrame(() => {
+      scrollToBottom("auto");
+      window.requestAnimationFrame(() => {
+        scrollToBottom("auto");
+        needsInitialBottomRef.current = false;
+      });
+    });
+    return () => window.cancelAnimationFrame(outer);
+  }, [session.id, turns.length, session.blocks.length, scrollToBottom]);
 
   // New live turn after idle: resume stick-to-bottom for streaming.
   useEffect(() => {
@@ -627,6 +645,7 @@ export function Timeline({ session }: { session: Session }) {
   useLayoutEffect(() => {
     if (!sessionRunning || !liveSignature) return;
     if (inspectHoldRef.current || !followRef.current) return;
+    if (needsInitialBottomRef.current) return;
     scrollToBottom("auto");
   }, [liveSignature, sessionRunning, scrollToBottom]);
 
@@ -643,6 +662,10 @@ export function Timeline({ session }: { session: Session }) {
   const onScrollerScroll = () => {
     const el = scrollerRef.current;
     if (!el) return;
+    // User took over — cancel any pending initial-bottom land.
+    if (needsInitialBottomRef.current && !isNearBottom(el)) {
+      needsInitialBottomRef.current = false;
+    }
     if (!isNearBottom(el)) {
       followRef.current = false;
       leftBottomRef.current = true;
@@ -661,6 +684,17 @@ export function Timeline({ session }: { session: Session }) {
     leftBottomRef.current = false;
     followRef.current = true;
   };
+
+  if (isSessionHistoryPending(session)) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 pb-24">
+        <BlackHole size={28} spin />
+        <span className="lbl !text-[10px]">
+          {language === "zh-CN" ? "正在加载会话记录…" : "LOADING MISSION LOG…"}
+        </span>
+      </div>
+    );
+  }
 
   if (session.blocks.length === 0) return <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-24"><BlackHole size={44} spin="slow" /><div className="text-center"><p className="text-[14px] text-mute">{language === "zh-CN" ? "任务通道已打开。" : "Mission channel open."}</p><p className="lbl mt-1.5 !text-[10px]">{language === "zh-CN" ? "输入你的第一个请求" : "TRANSMIT YOUR FIRST DIRECTIVE"}</p></div></div>;
 
