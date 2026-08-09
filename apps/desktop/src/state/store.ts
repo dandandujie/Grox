@@ -70,6 +70,17 @@ import {
   setComputerUseHostPrefsEnabled,
   setComputerUseOperatorEnabled,
 } from "../lib/computerUse";
+import {
+  dedupeProjects,
+  dismissProjectId,
+  ensureProject as ensureProjectPure,
+  isDraftSessionId,
+  isEphemeralSessionId,
+  mergeDiscoveredProjects as mergeDiscoveredProjectsPure,
+  projectId,
+  samePath,
+  undismissProjectId,
+} from "../lib/projectCatalog";
 
 export type View = "home" | "session";
 export type InspectorTab = "files" | "tasks" | "preview" | "usage";
@@ -390,30 +401,34 @@ function persistWorkflowRuns(runs: Record<string, WorkflowRun[]>) {
   }, 300);
 }
 
-const projectId = (path: string) => path.replace(/[\\/]+$/, "").toLocaleLowerCase();
-const projectName = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || path;
-const samePath = (left: string, right: string) => projectId(left) === projectId(right);
+const DISMISSED_PROJECTS_KEY = "grox.dismissedProjects";
+
+function loadDismissedProjects(): Set<string> {
+  const raw = loadJson<string[]>(DISMISSED_PROJECTS_KEY, []);
+  return new Set(raw.map((entry) => projectId(entry)).filter(Boolean));
+}
+
+function persistDismissedProjects(dismissed: Iterable<string>) {
+  localStorage.setItem(
+    DISMISSED_PROJECTS_KEY,
+    JSON.stringify([...new Set([...dismissed].map((entry) => projectId(entry)).filter(Boolean))].sort()),
+  );
+}
+
+function loadProjects(): ProjectMeta[] {
+  const loaded = dedupeProjects(loadJson<ProjectMeta[]>("grox.projects", []));
+  localStorage.setItem("grox.projects", JSON.stringify(loaded));
+  return loaded;
+}
 
 function ensureProject(projects: ProjectMeta[], path: string): ProjectMeta[] {
+  // Operator actively opened this path — clear any prior "remove" dismissal.
+  const dismissed = loadDismissedProjects();
   const id = projectId(path);
-  const now = Date.now();
-  const current = projects.find((project) => project.id === id);
-  const next = current
-    ? projects.map((project) =>
-        project.id === id ? { ...project, path, lastOpenedAt: now } : project,
-      )
-    : [
-        ...projects,
-        {
-          id,
-          path,
-          name: projectName(path),
-          pinned: false,
-          archived: false,
-          createdAt: now,
-          lastOpenedAt: now,
-        },
-      ];
+  if (id && dismissed.has(id)) {
+    persistDismissedProjects(undismissProjectId(dismissed, id));
+  }
+  const next = ensureProjectPure(projects, path) as ProjectMeta[];
   localStorage.setItem("grox.projects", JSON.stringify(next));
   return next;
 }
@@ -458,24 +473,24 @@ function mergeSessions(
 }
 
 function mergeDiscoveredProjects(projects: ProjectMeta[], sessions: SessionMeta[]): ProjectMeta[] {
-  const next = [...projects];
-  const known = new Set(next.map((project) => project.id));
-  for (const session of sessions) {
-    const id = projectId(session.cwd);
-    if (!session.cwd.trim() || known.has(id)) continue;
-    known.add(id);
-    next.push({
-      id,
-      path: session.cwd,
-      name: projectName(session.cwd),
-      pinned: false,
-      archived: false,
-      createdAt: session.createdAt,
-      lastOpenedAt: session.updatedAt,
-    });
+  const next = mergeDiscoveredProjectsPure(
+    projects,
+    sessions,
+    loadDismissedProjects(),
+  ) as ProjectMeta[];
+  if (JSON.stringify(next) !== JSON.stringify(projects)) {
+    localStorage.setItem("grox.projects", JSON.stringify(next));
   }
-  if (next.length !== projects.length) localStorage.setItem("grox.projects", JSON.stringify(next));
   return next;
+}
+
+function dropEphemeralSessions(
+  sessions: Record<string, Session>,
+  keepId?: string | null,
+): Record<string, Session> {
+  return Object.fromEntries(
+    Object.entries(sessions).filter(([id]) => id === keepId || !isEphemeralSessionId(id)),
+  );
 }
 
 function patchLines(path: string, patch: string, additions = 0, deletions = 0): DiffHunk {
@@ -1120,7 +1135,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
     bridgeKind: bridge.kind,
     workspace: DEMO_CWD,
     view: "home",
-    projects: loadJson<ProjectMeta[]>("grox.projects", []),
+    projects: loadProjects(),
     activeProjectId: null,
     sessionIndex: [],
     sessions: {},
@@ -1253,8 +1268,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
       const prompt = params.get("prompt");
       if (open) void get().openSession(open);
       else if (prompt) {
-        await get().newSession();
-        get().sendPrompt(prompt);
+        // Create the ACP session only when there is an actual first message.
+        await get().newSession({ text: prompt });
       }
     },
 
@@ -1269,7 +1284,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
       if (shouldCloseDetachedSession({ currentId, nextId: null, status: current?.status })) {
         void bridge.closeSession(currentId!).catch(() => {});
       }
-      set({ view: "home", activeId: null });
+      set({
+        view: "home",
+        activeId: null,
+        sessions: dropEphemeralSessions(state.sessions),
+      });
     },
 
     async openSession(id) {
@@ -1334,16 +1353,57 @@ export const useDesktop = create<DesktopState>((set, get) => {
       if (shouldCloseDetachedSession({ currentId, nextId: null, status: current?.status })) {
         void bridge.closeSession(currentId!).catch(() => {});
       }
-      pendingLaunch = launch
-        ? { text: launch.text, attachments: launch.attachments ?? [] }
-        : undefined;
+      const launchAttachments = launch?.attachments ?? [];
+      const hasLaunch = Boolean(launch && (launch.text.trim() || launchAttachments.length > 0));
+
+      // Empty "+" / new mission: open a local draft composer only. Do not call
+      // session/new or insert an "Untitled mission" into the sidebar until the
+      // operator actually sends the first message.
+      if (!hasLaunch) {
+        pendingLaunch = undefined;
+        const draftId = `draft-${uid()}`;
+        const now = Date.now();
+        set((state) => ({
+          view: "session",
+          activeId: draftId,
+          sessions: {
+            ...dropEphemeralSessions(state.sessions),
+            [draftId]: {
+              id: draftId,
+              title: "",
+              cwd: state.workspace,
+              createdAt: now,
+              updatedAt: now,
+              model: state.model,
+              blocks: [],
+              usage: {
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                costUSD: 0,
+                contextUsed: 0,
+                contextMax: 0,
+                turns: 0,
+              },
+              status: "idle",
+            },
+          },
+          startupError: null,
+        }));
+        return;
+      }
+
+      pendingLaunch = {
+        text: launch!.text,
+        attachments: launchAttachments,
+      };
       const pendingId = `pending-${uid()}`;
       const now = Date.now();
       set((state) => ({
         view: "session",
         activeId: pendingId,
         sessions: {
-          ...state.sessions,
+          ...dropEphemeralSessions(state.sessions),
           [pendingId]: {
             id: pendingId,
             title: "正在创建任务",
@@ -1351,15 +1411,13 @@ export const useDesktop = create<DesktopState>((set, get) => {
             createdAt: now,
             updatedAt: now,
             model: state.model,
-            blocks: launch
-              ? [{
-                  type: "user" as const,
-                  id: uid(),
-                  text: launch.text,
-                  attachments: (launch.attachments ?? []).map(({ id, kind, name, mime, size }) => ({ id, kind, name, mime, size })),
-                  ts: now,
-                }]
-              : [],
+            blocks: [{
+              type: "user" as const,
+              id: uid(),
+              text: launch!.text,
+              attachments: launchAttachments.map(({ id, kind, name, mime, size }) => ({ id, kind, name, mime, size })),
+              ts: now,
+            }],
             usage: {
               inputTokens: 0,
               outputTokens: 0,
@@ -1405,7 +1463,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     async openProject(id) {
-      const project = get().projects.find((entry) => entry.id === id);
+      const project = get().projects.find(
+        (entry) => entry.id === id || samePath(entry.path, id) || entry.id === projectId(id),
+      );
       if (project) await get().setWorkspace(project.path);
     },
 
@@ -1436,9 +1496,21 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     removeProject(id) {
-      const projects = get().projects.filter((project) => project.id !== id);
+      const target = get().projects.find((project) => project.id === id || samePath(project.path, id));
+      const dismissId = target ? projectId(target.path) : projectId(id);
+      if (dismissId) {
+        persistDismissedProjects(dismissProjectId(loadDismissedProjects(), dismissId));
+      }
+      const projects = get().projects.filter(
+        (project) => project.id !== id && project.id !== dismissId && !samePath(project.path, id),
+      );
       localStorage.setItem("grox.projects", JSON.stringify(projects));
-      set({ projects, ...(get().activeProjectId === id ? { activeProjectId: null } : {}) });
+      set({
+        projects,
+        ...(get().activeProjectId === id || get().activeProjectId === dismissId
+          ? { activeProjectId: null }
+          : {}),
+      });
     },
 
     async openProjectInExplorer(id) {
@@ -1952,6 +2024,21 @@ export const useDesktop = create<DesktopState>((set, get) => {
 
       const trimmed = text.trim();
       if (!trimmed && attachments.length === 0) return false;
+
+      // Promote a local draft into a real ACP session on first send only.
+      if (isDraftSessionId(session.id)) {
+        const nextComposers = { ...sessionComposers };
+        delete nextComposers[session.id];
+        persistSessionComposers(nextComposers);
+        set((state) => ({
+          sessionComposers: nextComposers,
+          sessions: dropEphemeralSessions(state.sessions),
+          activeId: null,
+          ...(modeOverride ? { mode: modeOverride } : {}),
+        }));
+        void get().newSession({ text: trimmed, attachments });
+        return true;
+      }
       if (!isSessionTerminal(session.status)) {
         const queue = get().promptQueues[session.id] ?? [];
         const duplicate = queue.some((item) => item.text.trim() === trimmed && trimmed.length > 0);

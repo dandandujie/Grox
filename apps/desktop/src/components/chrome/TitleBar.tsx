@@ -33,11 +33,21 @@ export function TitleBar() {
   const { language } = useI18n();
   const activeId = useDesktop((s) => s.activeId);
   const meta = useDesktop((s) => s.sessionIndex.find((m) => m.id === s.activeId));
+  const draftSession = useDesktop((s) => {
+    const id = s.activeId;
+    if (!id || !id.startsWith("draft-")) return null;
+    return s.sessions[id] ?? null;
+  });
   const toggleInspector = useDesktop((s) => s.toggleInspector);
   const inspectorOpen = useDesktop((s) => s.inspectorOpen);
   const toggleTerminal = useDesktop((s) => s.toggleTerminal);
   const terminalOpen = useDesktop((s) => s.terminalOpen);
   const setPaletteOpen = useDesktop((s) => s.setPaletteOpen);
+  const breadcrumbCwd = meta?.cwd ?? draftSession?.cwd;
+  const breadcrumbTitle = meta?.title
+    || (draftSession
+      ? (language === "zh-CN" ? "新会话" : "New session")
+      : null);
 
   return (
     <header
@@ -50,11 +60,11 @@ export function TitleBar() {
         className="pointer-events-none flex min-w-0 flex-1 items-center justify-center px-3"
       >
         <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden whitespace-nowrap text-[11px]">
-          {activeId && meta ? (
+          {activeId && breadcrumbCwd && breadcrumbTitle !== null ? (
             <>
-              <span className="lbl max-w-[35%] shrink-0 truncate">{baseName(meta.cwd)}</span>
+              <span className="lbl max-w-[35%] shrink-0 truncate">{baseName(breadcrumbCwd)}</span>
               <span className="shrink-0 text-faint">/</span>
-              <span className="min-w-0 truncate text-fg2">{meta.title}</span>
+              <span className="min-w-0 truncate text-fg2">{breadcrumbTitle}</span>
             </>
           ) : (
             <span className="lbl" style={{ letterSpacing: "0.3em" }}>

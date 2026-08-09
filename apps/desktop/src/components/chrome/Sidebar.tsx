@@ -9,6 +9,7 @@ import { Icon } from "../fx/Icon";
 import type { Session, SessionMeta, SessionStatus } from "../../bridge/types";
 import { BlackHole } from "../fx/BlackHole";
 import { normalizeSessionQuery, sessionMatchesLoadedContent } from "../../lib/sessionSearch";
+import { projectId, samePath } from "../../lib/projectCatalog";
 
 export function Sidebar() {
   const { t, language } = useI18n();
@@ -75,12 +76,12 @@ export function Sidebar() {
         historyMatches.has(meta.id) || sessionMatchesLoadedContent(meta, sessions[meta.id], normalizedQuery)
       )
     : orderedSessions;
-  const matchedWorkspaceKeys = new Set(matchedSessions.map((session) => workspaceKey(session.cwd)));
+  const matchedWorkspaceKeys = new Set(matchedSessions.map((session) => projectId(session.cwd)));
   const activeProjects = orderedProjects.filter(
-    (project) => !project.archived && (!normalizedQuery || matchedWorkspaceKeys.has(workspaceKey(project.path))),
+    (project) => !project.archived && (!normalizedQuery || matchedWorkspaceKeys.has(projectId(project.path))),
   );
   const archivedProjects = orderedProjects.filter(
-    (project) => project.archived && (!normalizedQuery || matchedWorkspaceKeys.has(workspaceKey(project.path))),
+    (project) => project.archived && (!normalizedQuery || matchedWorkspaceKeys.has(projectId(project.path))),
   );
 
   useEffect(() => {
@@ -163,7 +164,7 @@ export function Sidebar() {
             project={project}
             active={project.id === activeProjectId}
             expanded={Boolean(normalizedQuery) || expandedProjectIds.has(project.id)}
-            sessions={matchedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
+            sessions={matchedSessions.filter((session) => samePath(session.cwd, project.path))}
             showArchived={Boolean(normalizedQuery)}
             activeId={activeId}
             loadedSessions={sessions}
@@ -184,7 +185,7 @@ export function Sidebar() {
                 project={project}
                 active={project.id === activeProjectId}
                 expanded={Boolean(normalizedQuery) || expandedProjectIds.has(project.id)}
-                sessions={matchedSessions.filter((session) => sameWorkspace(session.cwd, project.path))}
+                sessions={matchedSessions.filter((session) => samePath(session.cwd, project.path))}
                 showArchived={Boolean(normalizedQuery)}
                 activeId={activeId}
                 loadedSessions={sessions}
@@ -292,12 +293,6 @@ export function Sidebar() {
     </aside>
   );
 }
-
-const sameWorkspace = (left: string, right: string) =>
-  left.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase() ===
-  right.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
-
-const workspaceKey = (path: string) => path.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
 
 function ProjectGroup({
   project,
@@ -514,7 +509,7 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
           <MenuButton icon="archive" label={t("archive")} onClick={() => archiveSession(meta.id)} />
           <MenuButton icon="dot" label={language === "zh-CN" ? "标记为未读" : "Mark as unread"} onClick={() => markSessionUnread(meta.id)} />
           <MenuDivider />
-          <MenuButton icon="external" label={language === "zh-CN" ? "在 Finder 中显示" : "Show in Finder"} onClick={() => void useDesktop.getState().openProjectInExplorer(workspaceKey(meta.cwd))} />
+          <MenuButton icon="external" label={language === "zh-CN" ? "在 Finder 中显示" : "Show in Finder"} onClick={() => void useDesktop.getState().openProjectInExplorer(projectId(meta.cwd))} />
           <MenuButton icon="folder" label={language === "zh-CN" ? "复制工作目录" : "Copy working directory"} onClick={() => void copySessionValue(meta.id, "cwd")} />
           <MenuButton icon="copy" label={language === "zh-CN" ? "复制会话 ID" : "Copy session ID"} onClick={() => void copySessionValue(meta.id, "id")} />
           <MenuButton icon="external" label={language === "zh-CN" ? "复制深度链接" : "Copy deep link"} onClick={() => void copySessionValue(meta.id, "link")} />
