@@ -2,6 +2,7 @@ import { memo, type CSSProperties, useEffect, useMemo, useRef, useState } from "
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { isSessionTerminal, type Session, type SessionBlock, type WorkflowRun } from "../../bridge/types";
 import { useI18n } from "../../lib/i18n";
+import { initialProcessOpen, nextProcessOpenOnCompleteChange } from "../../lib/processFold";
 import { useDesktop } from "../../state/store";
 import { Icon } from "../fx/Icon";
 import { BlackHole } from "../fx/BlackHole";
@@ -281,17 +282,25 @@ interface TurnGroupProps {
 function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps) {
   const { language } = useI18n();
   const complete = !active || isSessionTerminal(status);
-  // Public thought/tool events are meaningful audit trail. Start them open so
-  // their timing and summaries are visible; each dense child card remains
-  // independently collapsible.
-  const hasInspectableProcess = turn.blocks.some((block) => block.type === "thinking" || block.type === "tool" || block.type === "plan");
-  const [processOpen, setProcessOpen] = useState(() => !complete || hasInspectableProcess);
+  // Codex-style: keep the process trail open while live, then auto-collapse
+  // into the one-line summary once the turn finishes. Operators can still
+  // expand the completed trail manually.
+  const [processOpen, setProcessOpen] = useState(() => initialProcessOpen(complete));
+  const wasCompleteRef = useRef(complete);
   const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
   const deepResearch = isDeepResearchRequest(user);
   const query = user ? deepResearchQuery(user.text) : undefined;
 
   useEffect(() => {
-    if (!complete) setProcessOpen(true);
+    setProcessOpen((current) => {
+      const next = nextProcessOpenOnCompleteChange({
+        wasComplete: wasCompleteRef.current,
+        complete,
+        currentOpen: current,
+      });
+      wasCompleteRef.current = complete;
+      return next;
+    });
   }, [complete]);
 
   if (!complete) {
@@ -300,7 +309,7 @@ function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps
     const streamingAnswer = lastLiveBlock?.type === "assistant" ? lastLiveBlock : undefined;
     const processBlocks = streamingAnswer ? liveBlocks.slice(0, -1) : liveBlocks;
     return (
-      <section className="timeline-turn mb-8">
+      <section className="timeline-turn">
         {user && <UserMsg block={user} />}
         {deepResearch && <DeepResearchToolCard run={workflow} query={query} />}
         {!deepResearch && <div className="process-live mb-5">
@@ -355,7 +364,7 @@ function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps
   const turnElapsed = user && finishedAt > user.ts ? finishedAt - user.ts : 0;
 
   return (
-    <section className="timeline-turn mb-8">
+    <section className="timeline-turn">
       {user && <UserMsg block={user} rewindPromptIndex={turn.promptIndex >= 0 ? turn.promptIndex : undefined} />}
       {deepResearch && <DeepResearchToolCard run={workflow} query={query} />}
       {/*
@@ -364,7 +373,12 @@ function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps
        * quiet in that case instead of manufacturing a "process" row.
        */}
       {!deepResearch && process.length > 0 && <div className="process-complete mb-5">
-        <button className="process-summary" onClick={() => setProcessOpen((open) => !open)}>
+        <button
+          type="button"
+          className="process-summary"
+          onClick={() => setProcessOpen((open) => !open)}
+          aria-expanded={processOpen}
+        >
           <Icon name={processOpen ? "chevronDown" : "chevronRight"} size={9} className="shrink-0 text-dim" />
           <span className="shrink-0 text-[10.5px] font-medium text-fg2">{language === "zh-CN" ? "已处理" : "Processed"}</span>
           <span className="min-w-0 flex-1 truncate text-[10px] text-dim" title={processSummary}>{processSummary}{elapsed ? ` · ${(elapsed / 1000).toFixed(1)}s` : ""}</span>
@@ -372,7 +386,7 @@ function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps
         </button>
         {processOpen && (
           <div className="process-sequence process-rail ml-[7px] mt-2 border-l border-line2 pb-1 pl-5 pt-2">
-            <RenderSequence blocks={process} sessionId={sessionId} processing />
+            <RenderSequence blocks={process} sessionId={sessionId} processing={false} />
           </div>
         )}
         {turnElapsed > 0 && <div className="turn-elapsed"><span>{language === "zh-CN" ? `已处理 ${turnElapsed < 1000 ? `${turnElapsed}ms` : `${(turnElapsed / 1000).toFixed(turnElapsed < 10_000 ? 1 : 0)}s`}` : `Processed in ${(turnElapsed / 1000).toFixed(1)}s`}</span><i /></div>}
@@ -453,7 +467,7 @@ export function Timeline({ session }: { session: Session }) {
         itemContent={(index, turn) => {
           const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
           return (
-            <div className="mx-auto max-w-[980px] px-10">
+            <div className="timeline-content mx-auto">
               <MemoTurnGroup turn={turn} sessionId={session.id} status={session.status} active={index === turns.length - 1} workflow={matchingResearchRun(workflows, user)} />
             </div>
           );

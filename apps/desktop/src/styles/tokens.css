@@ -76,13 +76,47 @@
    shared offset keeps their hierarchy while making every existing tier
    respond to the appearance setting. */
 html {
-  --grox-font-increase: 3.5px;
+  --grox-font-increase: 0px;
   --grox-font-weight: 500;
-  --grox-component-font-size: 11.5px;
+  --grox-component-font-size: 11px;
+  /* Content density (narrow / medium / wide) */
+  --grox-content-max: 980px;
+  --grox-composer-max: 920px;
+  --grox-content-px: 2.5rem;
+  --grox-prose-max: 72ch;
+  --grox-assistant-max: 740px;
+  --grox-turn-gap: 1.75rem;
+}
+
+html[data-density="narrow"] {
+  --grox-content-max: 760px;
+  --grox-composer-max: 720px;
+  --grox-content-px: 1.5rem;
+  --grox-prose-max: 58ch;
+  --grox-assistant-max: 620px;
+  --grox-turn-gap: 1.25rem;
+}
+
+html[data-density="medium"] {
+  --grox-content-max: 980px;
+  --grox-composer-max: 920px;
+  --grox-content-px: 2.5rem;
+  --grox-prose-max: 72ch;
+  --grox-assistant-max: 740px;
+  --grox-turn-gap: 1.75rem;
+}
+
+html[data-density="wide"] {
+  --grox-content-max: 1360px;
+  --grox-composer-max: 1280px;
+  --grox-content-px: 1.25rem;
+  --grox-prose-max: 96ch;
+  --grox-assistant-max: 980px;
+  --grox-turn-gap: 1.35rem;
 }
 
 body {
-  font-size: calc(15px + var(--grox-font-increase));
+  font-size: calc(13.5px + var(--grox-font-increase));
   font-weight: var(--grox-font-weight);
 }
 .font-mono {
@@ -217,6 +251,19 @@ html:not([data-theme="light"]) {
   content-visibility: auto;
   contain-intrinsic-block-size: auto 180px;
   contain: layout paint style;
+  margin-bottom: var(--grox-turn-gap, 1.75rem);
+}
+
+.timeline-content {
+  width: 100%;
+  max-width: var(--grox-content-max, 980px);
+  padding-left: var(--grox-content-px, 2.5rem);
+  padding-right: var(--grox-content-px, 2.5rem);
+}
+
+.composer-shell {
+  width: 100%;
+  max-width: var(--grox-composer-max, 920px);
 }
 
 .animate-orbit,
@@ -746,7 +793,7 @@ html[data-reduce-motion="1"] .plan-spinner {
     margin-bottom: 0;
   }
   .md p {
-    max-width: 72ch;
+    max-width: var(--grox-prose-max, 72ch);
     margin: 0 0 0.85em;
   }
   .md h1,
@@ -929,7 +976,7 @@ html[data-reduce-motion="1"] .plan-spinner {
 
   .md ul,
   .md ol {
-    max-width: 72ch;
+    max-width: var(--grox-prose-max, 72ch);
     margin: 0.35em 0 0.9em;
     padding-left: 1.5em;
     list-style: outside disc;
@@ -980,7 +1027,7 @@ html[data-reduce-motion="1"] .plan-spinner {
   }
 
   .md blockquote {
-    max-width: 72ch;
+    max-width: var(--grox-prose-max, 72ch);
     margin: 0.9em 0;
     padding: 0.1em 0 0.1em 1em;
     border-left: 2px solid var(--color-line3);
@@ -1063,10 +1110,11 @@ html[data-reduce-motion="1"] .plan-spinner {
   }
 
   .assistant-message__content {
-    max-width: min(100%, 740px);
+    max-width: min(100%, var(--grox-assistant-max, 740px));
   }
   .assistant-prose {
     letter-spacing: -0.008em;
+    max-width: min(100%, var(--grox-prose-max, 72ch));
   }
   .md-streaming {
     color: var(--color-fg2);

@@ -319,7 +319,7 @@ export function Composer() {
 
   return (
     <div className="shrink-0 px-6 pb-4 pt-1">
-      <div className="relative mx-auto max-w-[920px]">
+      <div className="composer-shell relative mx-auto">
         {/* slash menu */}
         {slashOpen && matches.length > 0 && (
           <div

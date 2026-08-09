@@ -2,12 +2,15 @@ import { create } from "zustand";
 
 export type Language = "zh-CN" | "en-US";
 export type Theme = "dark" | "light";
+/** Content column density: narrow (compact read), medium, wide (more on-screen). */
+export type ContentDensity = "narrow" | "medium" | "wide";
 
 interface PreferencesState {
   language: Language;
   theme: Theme;
   fontSize: number;
   fontWeight: number;
+  contentDensity: ContentDensity;
   sidebarWidth: number;
   inspectorWidth: number;
   previewWidth: number;
@@ -15,6 +18,7 @@ interface PreferencesState {
   setTheme(theme: Theme): void;
   setFontSize(fontSize: number): void;
   setFontWeight(fontWeight: number): void;
+  setContentDensity(density: ContentDensity): void;
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setPreviewWidth(width: number): void;
@@ -40,15 +44,27 @@ const persistDimension = (key: string, value: number) => {
 const initialLanguage: Language =
   localStorage.getItem("grox.language") === "en-US" ? "en-US" : "zh-CN";
 const initialTheme: Theme = localStorage.getItem("grox.theme") === "light" ? "light" : "dark";
-const clampFontSize = (value: number) => Math.min(6, Math.max(0, Math.round(value * 4) / 4));
+// Allow slightly-below-baseline sizes so dense screens can show more content.
+const clampFontSize = (value: number) => Math.min(6, Math.max(-2, Math.round(value * 4) / 4));
 const clampFontWeight = (value: number) => Math.min(700, Math.max(400, Math.round(value / 25) * 25));
+const parseContentDensity = (value: string | null): ContentDensity => {
+  if (value === "narrow" || value === "wide" || value === "medium") return value;
+  return "medium";
+};
 const initialFontSize = (() => {
   const value = localStorage.getItem("grox.fontSize");
-  if (value === "compact") return 0;
-  if (value === "large") return 4.5;
-  if (value === "comfortable") return 2.5;
+  if (value === "compact") return -1;
+  if (value === "large") return 2.5;
+  if (value === "comfortable") return 0.5;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? clampFontSize(parsed) : 3.5;
+  // New default is 0 (was +3.5). One-shot migrate only the old factory default.
+  if (!Number.isFinite(parsed)) return 0;
+  if (value === "3.5" && localStorage.getItem("grox.fontSize.v2") !== "1") {
+    localStorage.setItem("grox.fontSize.v2", "1");
+    localStorage.setItem("grox.fontSize", "0");
+    return 0;
+  }
+  return clampFontSize(parsed);
 })();
 const initialFontWeight = (() => {
   const value = localStorage.getItem("grox.fontWeight");
@@ -58,8 +74,10 @@ const initialFontWeight = (() => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? clampFontWeight(parsed) : 500;
 })();
+const initialContentDensity = parseContentDensity(localStorage.getItem("grox.contentDensity"));
 
 document.documentElement.dataset.theme = initialTheme;
+document.documentElement.dataset.density = initialContentDensity;
 document.documentElement.lang = initialLanguage;
 document.documentElement.style.setProperty("--grox-font-increase", `${initialFontSize}px`);
 document.documentElement.style.setProperty("--grox-font-weight", String(initialFontWeight));
@@ -69,6 +87,7 @@ export const usePreferences = create<PreferencesState>((set) => ({
   theme: initialTheme,
   fontSize: initialFontSize,
   fontWeight: initialFontWeight,
+  contentDensity: initialContentDensity,
   sidebarWidth: Math.min(380, Math.max(210, numberPreference("grox.sidebarWidth", 252))),
   inspectorWidth: Math.min(540, Math.max(260, numberPreference("grox.inspectorWidth", 312))),
   previewWidth: Math.min(760, Math.max(340, numberPreference("grox.previewWidth", 460))),
@@ -93,6 +112,12 @@ export const usePreferences = create<PreferencesState>((set) => ({
     localStorage.setItem("grox.fontWeight", String(value));
     document.documentElement.style.setProperty("--grox-font-weight", String(value));
     set({ fontWeight: value });
+  },
+  setContentDensity(density) {
+    const value = parseContentDensity(density);
+    localStorage.setItem("grox.contentDensity", value);
+    document.documentElement.dataset.density = value;
+    set({ contentDensity: value });
   },
   setSidebarWidth(sidebarWidth) {
     const width = Math.min(380, Math.max(210, sidebarWidth));

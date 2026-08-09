@@ -482,12 +482,37 @@ function Appearance() {
   const setFontSize = usePreferences((state) => state.setFontSize);
   const fontWeight = usePreferences((state) => state.fontWeight);
   const setFontWeight = usePreferences((state) => state.setFontWeight);
+  const contentDensity = usePreferences((state) => state.contentDensity);
+  const setContentDensity = usePreferences((state) => state.setContentDensity);
   const [reduceMotion, setReduceMotion] = useState(localStorage.getItem("grok.pref.reduceMotion") === "1");
   const updateMotion = (value: boolean) => { localStorage.setItem("grok.pref.reduceMotion", value ? "1" : "0"); document.documentElement.dataset.reduceMotion = value ? "1" : "0"; window.dispatchEvent(new Event("grox-motion-change")); setReduceMotion(value); };
+  const fontDisplay = `${fontSize > 0 ? "+" : ""}${fontSize.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")} px`;
   return <div><Heading title={t("appearance")} description={uiLanguage === "zh-CN" ? "语言默认为中文，主题默认为 GrokNight 暗黑模式。" : "The default language is Chinese and the default theme is GrokNight dark."} />
     <Row label={t("language")}><div className="flex gap-1"><Choice active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>{t("chinese")}</Choice><Choice active={language === "en-US"} onClick={() => setLanguage("en-US")}>{t("english")}</Choice></div></Row>
     <Row label={t("theme")}><div className="flex gap-1"><Choice active={theme === "dark"} onClick={() => setTheme("dark")}><Icon name="moon" size={10} /> {t("dark")}</Choice><Choice active={theme === "light"} onClick={() => setTheme("light")}><Icon name="sun" size={10} /> {t("light")}</Choice></div></Row>
-    <Row label={uiLanguage === "zh-CN" ? "字体大小" : "Font size"} hint={uiLanguage === "zh-CN" ? "统一调整正文、工具信息、侧栏标签和代码字号。" : "Adjust text, tool details, sidebar labels, and code together."}><RangeControl value={fontSize} min={0} max={6} step={0.25} display={`+${fontSize.toFixed(2).replace(/\.00$/, "").replace(/0$/, "")} px`} onChange={setFontSize} label={uiLanguage === "zh-CN" ? "字体大小" : "Font size"} /></Row>
+    <Row
+      label={uiLanguage === "zh-CN" ? "内容宽度" : "Content width"}
+      hint={uiLanguage === "zh-CN" ? "窄更聚焦，宽在大屏上显示更多正文与工具摘要。" : "Narrow focuses the column; wide shows more transcript on large screens."}
+    >
+      <div className="flex gap-1">
+        <Choice active={contentDensity === "narrow"} onClick={() => setContentDensity("narrow")}>{uiLanguage === "zh-CN" ? "窄" : "Narrow"}</Choice>
+        <Choice active={contentDensity === "medium"} onClick={() => setContentDensity("medium")}>{uiLanguage === "zh-CN" ? "中" : "Medium"}</Choice>
+        <Choice active={contentDensity === "wide"} onClick={() => setContentDensity("wide")}>{uiLanguage === "zh-CN" ? "宽" : "Wide"}</Choice>
+      </div>
+    </Row>
+    <Row
+      label={uiLanguage === "zh-CN" ? "字体大小" : "Font size"}
+      hint={uiLanguage === "zh-CN" ? "默认更紧凑；可下调到 -2px 以在一屏内看到更多内容。" : "Default is compact; go down to -2px to fit more content on screen."}
+    >
+      <div className="space-y-2">
+        <div className="flex gap-1">
+          <Choice active={fontSize === -1} onClick={() => setFontSize(-1)}>{uiLanguage === "zh-CN" ? "更小" : "Smaller"}</Choice>
+          <Choice active={fontSize === 0} onClick={() => setFontSize(0)}>{uiLanguage === "zh-CN" ? "默认" : "Default"}</Choice>
+          <Choice active={fontSize === 1.5} onClick={() => setFontSize(1.5)}>{uiLanguage === "zh-CN" ? "稍大" : "Larger"}</Choice>
+        </div>
+        <RangeControl value={fontSize} min={-2} max={6} step={0.25} display={fontDisplay} onChange={setFontSize} label={uiLanguage === "zh-CN" ? "字体大小" : "Font size"} />
+      </div>
+    </Row>
     <Row label={uiLanguage === "zh-CN" ? "字体粗细" : "Font weight"}><RangeControl value={fontWeight} min={400} max={700} step={25} display={String(fontWeight)} onChange={setFontWeight} label={uiLanguage === "zh-CN" ? "字体粗细" : "Font weight"} /></Row>
     <Row label={uiLanguage === "zh-CN" ? "减少动态效果" : "Reduce motion"} hint={uiLanguage === "zh-CN" ? "停用轨道动画和进入过渡。" : "Disable orbital animations and entrance transitions."}><Toggle on={reduceMotion} onChange={updateMotion} /></Row>
   </div>;

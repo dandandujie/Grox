@@ -37,7 +37,7 @@ export function UserMsg({ block, rewindPromptIndex }: { block: UserBlock; rewind
         </div>
         <div className="flex items-start gap-2.5">
           <span className="mt-[3px] select-none text-acc">›</span>
-          <p ref={textRef} className={`min-w-0 flex-1 whitespace-pre-wrap text-[15px] leading-[1.7] text-fg select-text ${expanded ? "" : "line-clamp-6"}`}>
+          <p ref={textRef} className={`min-w-0 flex-1 whitespace-pre-wrap text-[13.5px] leading-[1.65] text-fg select-text ${expanded ? "" : "line-clamp-6"}`}>
             {block.text}
           </p>
         </div>
@@ -84,7 +84,7 @@ export function AssistantMsg({ block, process = false }: { block: AssistantBlock
           <span className="font-mono text-[9px] font-semibold tracking-[0.16em] text-dim">GROX</span>
           {block.streaming && <span className="text-[9.5px] text-faint">正在输出</span>}
         </div>
-        <Markdown text={block.text} streaming={block.streaming ?? false} className="assistant-prose text-[15px] leading-[1.76] text-fg2" />
+        <Markdown text={block.text} streaming={block.streaming ?? false} className="assistant-prose text-[14px] leading-[1.68] text-fg2" />
         {block.streaming && <span className="stream-caret" />}
         {!block.streaming && <div className="mt-2 flex justify-end"><MessageActions text={block.text} /></div>}
       </div>
