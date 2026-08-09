@@ -1,8 +1,12 @@
-import { memo, type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { isSessionTerminal, type Session, type SessionBlock, type WorkflowRun } from "../../bridge/types";
 import { useI18n } from "../../lib/i18n";
-import { initialProcessOpen, nextProcessOpenOnCompleteChange } from "../../lib/processFold";
+import {
+  nextProcessOpenOnCompleteChange,
+  rememberProcessOpen,
+  resolveInitialProcessOpen,
+} from "../../lib/processFold";
 import { useDesktop } from "../../state/store";
 import { Icon } from "../fx/Icon";
 import { BlackHole } from "../fx/BlackHole";
@@ -277,31 +281,46 @@ interface TurnGroupProps {
   status: Session["status"];
   active: boolean;
   workflow?: WorkflowRun;
+  /** Fired when the operator expands a completed process trail (stop auto-follow). */
+  onProcessInspect?: () => void;
 }
 
-function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps) {
+function TurnGroup({ turn, sessionId, status, active, workflow, onProcessInspect }: TurnGroupProps) {
   const { language } = useI18n();
   const complete = !active || isSessionTerminal(status);
   // Codex-style: keep the process trail open while live, then auto-collapse
   // into the one-line summary once the turn finishes. Operators can still
-  // expand the completed trail manually.
-  const [processOpen, setProcessOpen] = useState(() => initialProcessOpen(complete));
+  // expand the completed trail manually. Persist across Virtuoso remounts so
+  // expand → scroll does not re-collapse and thrash scroll position.
+  const [processOpen, setProcessOpenState] = useState(() =>
+    resolveInitialProcessOpen(sessionId, turn.id, complete),
+  );
   const wasCompleteRef = useRef(complete);
   const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
   const deepResearch = isDeepResearchRequest(user);
   const query = user ? deepResearchQuery(user.text) : undefined;
 
+  const commitProcessOpen = (next: boolean, opts?: { inspect?: boolean }) => {
+    rememberProcessOpen(sessionId, turn.id, next);
+    setProcessOpenState(next);
+    // Expanding a completed trail is an intentional inspect gesture — stop
+    // auto-follow so signature / height updates cannot yank the viewport.
+    if (opts?.inspect && next) onProcessInspect?.();
+  };
+
   useEffect(() => {
-    setProcessOpen((current) => {
+    setProcessOpenState((current) => {
       const next = nextProcessOpenOnCompleteChange({
         wasComplete: wasCompleteRef.current,
         complete,
         currentOpen: current,
       });
       wasCompleteRef.current = complete;
+      // Map write is idempotent; keeps remounts aligned with transition policy.
+      rememberProcessOpen(sessionId, turn.id, next);
       return next;
     });
-  }, [complete]);
+  }, [complete, sessionId, turn.id]);
 
   if (!complete) {
     const liveBlocks = turn.blocks.filter((block) => block !== user);
@@ -376,7 +395,7 @@ function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps
         <button
           type="button"
           className="process-summary"
-          onClick={() => setProcessOpen((open) => !open)}
+          onClick={() => commitProcessOpen(!processOpen, { inspect: true })}
           aria-expanded={processOpen}
         >
           <Icon name={processOpen ? "chevronDown" : "chevronRight"} size={9} className="shrink-0 text-dim" />
@@ -400,6 +419,7 @@ function TurnGroup({ turn, sessionId, status, active, workflow }: TurnGroupProps
 
 const MemoTurnGroup = memo(TurnGroup, (previous, next) => {
   if (previous.active !== next.active || previous.sessionId !== next.sessionId || previous.workflow !== next.workflow) return false;
+  if (previous.onProcessInspect !== next.onProcessInspect) return false;
   if (next.active && previous.status !== next.status) return false;
   if (previous.turn.blocks.length !== next.turn.blocks.length) return false;
   if (previous.turn.promptIndex !== next.turn.promptIndex) return false;
@@ -411,9 +431,14 @@ export function Timeline({ session }: { session: Session }) {
   const workflows = useDesktop((state) => state.workflows[session.id] ?? EMPTY_WORKFLOWS);
   const listRef = useRef<VirtuosoHandle>(null);
   const followRef = useRef(true);
+  // After the operator expands a process trail or jumps the request rail,
+  // ignore spurious atBottom=true flaps caused by large item height changes
+  // until they actually land at the bottom again from a real scroll.
+  const inspectHoldRef = useRef(false);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
   const lastBlock = session.blocks.at(-1);
   const signature = `${session.blocks.length}:${lastBlock?.type === "assistant" || lastBlock?.type === "thinking" ? lastBlock.text.length : lastBlock?.id ?? ""}:${session.status}`;
+  const sessionRunning = !isSessionTerminal(session.status);
 
   const markers = useMemo<RequestMarker[]>(() => {
     const requests = turns
@@ -428,21 +453,30 @@ export function Timeline({ session }: { session: Session }) {
     }));
   }, [language, turns]);
 
+  const stopFollowForInspect = useCallback(() => {
+    followRef.current = false;
+    inspectHoldRef.current = true;
+  }, []);
+
+  // Streaming auto-scroll only while the session is live and the operator is
+  // still pinned to the bottom. Terminal turns (and process-inspect gestures)
+  // must not re-fire scrollToIndex on every signature tick — that is what
+  // yanks the viewport back when the process trail is expanded.
   useEffect(() => {
+    if (!sessionRunning || !followRef.current || inspectHoldRef.current || turns.length === 0) return;
     const frame = requestAnimationFrame(() => {
-      if (followRef.current && turns.length > 0) {
-        listRef.current?.scrollToIndex({ index: turns.length - 1, align: "end" });
-      }
+      if (!followRef.current || inspectHoldRef.current) return;
+      listRef.current?.scrollToIndex({ index: turns.length - 1, align: "end" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [signature, turns.length]);
+  }, [signature, turns.length, sessionRunning]);
 
   if (session.blocks.length === 0) return <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-24"><BlackHole size={44} spin="slow" /><div className="text-center"><p className="text-[14px] text-mute">{language === "zh-CN" ? "任务通道已打开。" : "Mission channel open."}</p><p className="lbl mt-1.5 !text-[10px]">{language === "zh-CN" ? "输入你的第一个请求" : "TRANSMIT YOUR FIRST DIRECTIVE"}</p></div></div>;
 
   const jumpToTurn = (id: string) => {
     const index = turns.findIndex((turn) => turn.id === id);
     if (index < 0) return;
-    followRef.current = false;
+    stopFollowForInspect();
     listRef.current?.scrollToIndex({ index, align: "start", behavior: "smooth" });
   };
 
@@ -454,9 +488,18 @@ export function Timeline({ session }: { session: Session }) {
         data={turns}
         computeItemKey={(_, turn) => turn.id}
         initialTopMostItemIndex={turns.length - 1}
-        followOutput={(atBottom) => (atBottom ? "auto" : false)}
+        followOutput={(atBottom) => {
+          if (inspectHoldRef.current) return false;
+          return atBottom && sessionRunning ? "auto" : false;
+        }}
         atBottomStateChange={(atBottom) => {
-          followRef.current = atBottom;
+          if (atBottom) {
+            // Real bottom contact clears inspect hold (user scrolled back).
+            inspectHoldRef.current = false;
+            followRef.current = true;
+            return;
+          }
+          followRef.current = false;
         }}
         increaseViewportBy={{ top: 700, bottom: 1_000 }}
         className="h-full min-w-0 flex-1 overflow-y-auto"
@@ -468,7 +511,14 @@ export function Timeline({ session }: { session: Session }) {
           const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
           return (
             <div className="timeline-content mx-auto">
-              <MemoTurnGroup turn={turn} sessionId={session.id} status={session.status} active={index === turns.length - 1} workflow={matchingResearchRun(workflows, user)} />
+              <MemoTurnGroup
+                turn={turn}
+                sessionId={session.id}
+                status={session.status}
+                active={index === turns.length - 1}
+                workflow={matchingResearchRun(workflows, user)}
+                onProcessInspect={stopFollowForInspect}
+              />
             </div>
           );
         }}
