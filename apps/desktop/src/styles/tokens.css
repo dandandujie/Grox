@@ -84,12 +84,16 @@
 html {
   --grox-font-weight: 400;
   --grox-component-font-size: 11px;
-  /* Transcript-only integer tiers (default = md) */
-  --grox-prose-size: 14px;
-  --grox-prose-leading: 1.65;
-  --grox-user-size: 13px;
-  --grox-process-size: 12px;
-  --grox-code-size: 12px;
+  /*
+   * Transcript-only integer tiers (default = md).
+   * Tuned compact: ~1px smaller than the previous ladder + tighter leading
+   * so long Chinese replies read denser without shrinking chrome.
+   */
+  --grox-prose-size: 13px;
+  --grox-prose-leading: 1.55;
+  --grox-user-size: 12px;
+  --grox-process-size: 11px;
+  --grox-code-size: 11px;
   /*
    * Reading column (narrow / medium / wide)
    * ---------------------------------------
@@ -100,35 +104,35 @@ html {
    */
   --grox-content-max: 920px;
   --grox-composer-max: 920px;
-  --grox-content-px: 2rem; /* fixed — never density-coupled */
-  --grox-turn-gap: 1.75rem; /* fixed — never density-coupled */
+  --grox-content-px: 1.5rem; /* fixed — never density-coupled */
+  --grox-turn-gap: 1.15rem; /* fixed — never density-coupled */
 }
 
 html[data-font="sm"] {
+  --grox-prose-size: 12px;
+  --grox-prose-leading: 1.5;
+  --grox-user-size: 11px;
+  --grox-process-size: 10px;
+  --grox-code-size: 10px;
+}
+html[data-font="md"] {
   --grox-prose-size: 13px;
-  --grox-prose-leading: 1.62;
+  --grox-prose-leading: 1.55;
   --grox-user-size: 12px;
   --grox-process-size: 11px;
   --grox-code-size: 11px;
 }
-html[data-font="md"] {
+html[data-font="lg"] {
   --grox-prose-size: 14px;
-  --grox-prose-leading: 1.65;
+  --grox-prose-leading: 1.6;
   --grox-user-size: 13px;
   --grox-process-size: 12px;
   --grox-code-size: 12px;
 }
-html[data-font="lg"] {
-  --grox-prose-size: 15px;
-  --grox-prose-leading: 1.68;
-  --grox-user-size: 14px;
-  --grox-process-size: 13px;
-  --grox-code-size: 13px;
-}
 html[data-font="xl"] {
-  --grox-prose-size: 16px;
-  --grox-prose-leading: 1.7;
-  --grox-user-size: 15px;
+  --grox-prose-size: 15px;
+  --grox-prose-leading: 1.65;
+  --grox-user-size: 14px;
   --grox-process-size: 13px;
   --grox-code-size: 13px;
 }
@@ -1252,19 +1256,19 @@ html[data-reduce-motion="1"] .plan-spinner {
   .process-text {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 10px;
   }
   .process-text .process-node {
-    margin-top: 8px;
+    margin-top: 6px;
   }
   .process-tool-toggle {
     display: flex;
     width: 100%;
     min-width: 0;
-    min-height: 29px;
+    min-height: 26px;
     align-items: center;
-    gap: 7px;
-    padding: 2px 4px 2px 0;
+    gap: 6px;
+    padding: 1px 4px 1px 0;
     border-radius: 5px;
     text-align: left;
   }
@@ -1275,12 +1279,12 @@ html[data-reduce-motion="1"] .plan-spinner {
     display: flex;
     width: 100%;
     min-width: 0;
-    min-height: 34px;
+    min-height: 28px;
     align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
+    gap: 7px;
+    padding: 2px 8px;
     border: 1px solid var(--color-line);
-    border-radius: 7px;
+    border-radius: 6px;
     background: color-mix(in srgb, var(--color-panel) 55%, transparent);
     text-align: left;
   }
@@ -1291,8 +1295,8 @@ html[data-reduce-motion="1"] .plan-spinner {
   .turn-elapsed {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-top: 12px;
+    gap: 10px;
+    margin-top: 8px;
     color: var(--color-faint);
     font-family: var(--font-mono);
     font-size: 9px;
@@ -1304,7 +1308,7 @@ html[data-reduce-motion="1"] .plan-spinner {
     background: linear-gradient(90deg, var(--color-line2), transparent);
   }
   .process-sequence .assistant-message {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
   .process-sequence .assistant-prose {
     color: var(--color-mute);

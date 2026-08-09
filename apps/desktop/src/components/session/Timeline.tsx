@@ -446,8 +446,8 @@ function TurnGroup({ turn, sessionId, status, active, workflow, onProcessInspect
       <section className="timeline-turn">
         {user && <UserMsg block={user} />}
         {deepResearch && <DeepResearchToolCard run={workflow} query={query} />}
-        {!deepResearch && <div className="process-live mb-5">
-          <div className="mb-3 flex min-h-8 items-center gap-2">
+        {!deepResearch && <div className="process-live mb-3">
+          <div className="mb-2 flex min-h-7 items-center gap-2">
             <BlackHole size={15} spin />
             <span className="text-[10.5px] font-medium text-fg2">{status === "awaiting_permission" ? (language === "zh-CN" ? "等待批准" : "Awaiting approval") : status === "awaiting_input" ? (language === "zh-CN" ? "等待你的回答" : "Awaiting input") : (language === "zh-CN" ? "Grok 正在处理" : "Grok is working")}</span>
             <span className="h-1 w-1 animate-pulse-dot rounded-full bg-acc" />
@@ -506,7 +506,7 @@ function TurnGroup({ turn, sessionId, status, active, workflow, onProcessInspect
        * invocation, nor evidence that a provider hid one. Keep the transcript
        * quiet in that case instead of manufacturing a "process" row.
        */}
-      {!deepResearch && process.length > 0 && <div className="process-complete mb-5">
+      {!deepResearch && process.length > 0 && <div className="process-complete mb-3">
         <button
           type="button"
           className="process-summary"
@@ -514,12 +514,12 @@ function TurnGroup({ turn, sessionId, status, active, workflow, onProcessInspect
           aria-expanded={processOpen}
         >
           <Icon name={processOpen ? "chevronDown" : "chevronRight"} size={9} className="shrink-0 text-dim" />
-          <span className="shrink-0 text-[10.5px] font-medium text-fg2">{language === "zh-CN" ? "已处理" : "Processed"}</span>
-          <span className="min-w-0 flex-1 truncate text-[10px] text-dim" title={processSummary}>{processSummary}{elapsed ? ` · ${(elapsed / 1000).toFixed(1)}s` : ""}</span>
+          <span className="shrink-0 text-[10px] font-medium text-fg2">{language === "zh-CN" ? "已处理" : "Processed"}</span>
+          <span className="min-w-0 flex-1 truncate text-[9.5px] text-dim" title={processSummary}>{processSummary}{elapsed ? ` · ${(elapsed / 1000).toFixed(1)}s` : ""}</span>
           <Icon name="check" size={9} className="text-green" />
         </button>
         {processOpen && (
-          <div className="process-sequence process-rail ml-[7px] mt-2 border-l border-line2 pb-1 pl-5 pt-2">
+          <div className="process-sequence process-rail ml-[7px] mt-1.5 border-l border-line2 pb-1 pl-4 pt-1.5">
             <RenderSequence blocks={process} sessionId={sessionId} processing={false} />
           </div>
         )}

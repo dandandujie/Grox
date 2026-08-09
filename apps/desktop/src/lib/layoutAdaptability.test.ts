@@ -61,14 +61,23 @@ describe("layout adaptability — density isolation", () => {
   });
 
   it("timeline and composer share fixed horizontal padding variable", () => {
-    expect(tokens).toMatch(/--grox-content-px\s*:\s*2rem/);
-    expect(tokens).toMatch(/--grox-turn-gap\s*:\s*1\.75rem/);
+    expect(tokens).toMatch(/--grox-content-px\s*:\s*1\.5rem/);
+    expect(tokens).toMatch(/--grox-turn-gap\s*:\s*1\.15rem/);
     const timeline = blockFor(".timeline-content");
     const dock = blockFor(".composer-dock");
     expect(timeline).toMatch(/max-width:\s*var\(--grox-content-max/);
     expect(timeline).toMatch(/padding-left:\s*var\(--grox-content-px/);
     expect(dock).toMatch(/max-width:\s*var\(--grox-content-max/);
     expect(dock).toMatch(/padding-left:\s*var\(--grox-content-px/);
+  });
+
+  it("default transcript type is compact (md ≤ 13px prose)", () => {
+    expect(tokens).toMatch(/html\s*\{[\s\S]*?--grox-prose-size\s*:\s*13px/);
+    const md = blockFor(`html[data-font="md"]`);
+    expect(md).toMatch(/--grox-prose-size\s*:\s*13px/);
+    expect(md).toMatch(/--grox-prose-leading\s*:\s*1\.55/);
+    const sm = blockFor(`html[data-font="sm"]`);
+    expect(sm).toMatch(/--grox-prose-size\s*:\s*12px/);
   });
 
   it("timeline uses native scroller (Virtuoso yanks scroll on process expand)", () => {

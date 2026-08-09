@@ -28,16 +28,16 @@ export function UserMsg({ block, rewindPromptIndex }: { block: UserBlock; rewind
     if (element && !expanded) setOverflowing(element.scrollHeight > element.clientHeight + 1);
   }, [block.text, expanded]);
   return (
-    <div className="group mb-5 flex animate-fade-up justify-end">
-      <div className="w-fit max-w-[90%] rounded-[10px] rounded-tr-[3px] border border-line2 bg-raise px-4 py-3 shadow-[0_8px_28px_rgba(0,0,0,0.08)]">
-        <div className="mb-1.5 flex items-center gap-2 font-mono text-[9px] tracking-[0.08em] text-faint">
+    <div className="group mb-3 flex animate-fade-up justify-end">
+      <div className="w-fit max-w-[90%] rounded-[8px] rounded-tr-[3px] border border-line2 bg-raise px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.08)]">
+        <div className="mb-1 flex items-center gap-2 font-mono text-[9px] tracking-[0.08em] text-faint">
           <span>{zh ? "你" : "YOU"}</span>
           <span className="h-px w-3 bg-line2" />
           <span className="tnum">{fmtClock(block.ts)}</span>
         </div>
-        <div className="flex items-start gap-2.5">
-          <span className="mt-[3px] select-none text-acc">›</span>
-          <p ref={textRef} className={`user-msg-text min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-[1.65] text-fg select-text ${expanded ? "" : "line-clamp-6"}`}>
+        <div className="flex items-start gap-2">
+          <span className="mt-[2px] select-none text-acc">›</span>
+          <p ref={textRef} className={`user-msg-text min-w-0 flex-1 whitespace-pre-wrap text-fg select-text ${expanded ? "" : "line-clamp-6"}`}>
             {block.text}
           </p>
         </div>
@@ -62,13 +62,13 @@ export function UserMsg({ block, rewindPromptIndex }: { block: UserBlock; rewind
 export function AssistantMsg({ block, process = false }: { block: AssistantBlock; process?: boolean }) {
   if (process) {
     return (
-      <div className="process-text mb-3 animate-fade-up">
+      <div className="process-text mb-2 animate-fade-up">
         <span className="process-node" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <Markdown
             text={block.text}
             streaming={block.streaming ?? false}
-            className="process-prose text-[12px] leading-[1.65] text-mute"
+            className="process-prose text-mute"
           />
           {block.streaming && <span className="stream-caret" />}
         </div>
@@ -77,16 +77,16 @@ export function AssistantMsg({ block, process = false }: { block: AssistantBlock
   }
 
   return (
-    <article className="assistant-message mb-7 animate-fade-up">
+    <article className="assistant-message mb-4 animate-fade-up">
       <div className="assistant-message__content min-w-0 flex-1">
-        <div className="mb-3 flex items-center gap-2.5">
-          <BlackHole size={17} spin={block.streaming ?? false} />
+        <div className="mb-2 flex items-center gap-2">
+          <BlackHole size={15} spin={block.streaming ?? false} />
           <span className="font-mono text-[9px] font-semibold tracking-[0.16em] text-dim">GROX</span>
           {block.streaming && <span className="text-[9px] text-faint">正在输出</span>}
         </div>
-        <Markdown text={block.text} streaming={block.streaming ?? false} className="assistant-prose text-[14px] leading-[1.65] text-fg2" />
+        <Markdown text={block.text} streaming={block.streaming ?? false} className="assistant-prose text-fg2" />
         {block.streaming && <span className="stream-caret" />}
-        {!block.streaming && <div className="mt-2 flex justify-end"><MessageActions text={block.text} /></div>}
+        {!block.streaming && <div className="mt-1.5 flex justify-end"><MessageActions text={block.text} /></div>}
       </div>
     </article>
   );
