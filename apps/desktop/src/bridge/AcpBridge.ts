@@ -1111,17 +1111,34 @@ export class AcpBridge implements GrokBridge {
   // the parent session. Its report is stale by definition, so remember the
   // cancelled run across live updates and transcript replay.
   private cancelledWorkflowRuns = new Map<string, Set<string>>();
-  private ready: Promise<void>;
+  /**
+   * Shared connect/initialize promise. Starts only on first ensureReady() so
+   * module import + first React paint are not blocked by spawning `grok agent`.
+   */
+  private boot: Promise<void> | null = null;
 
   constructor() {
-    this.ready = this.connect();
-    void this.ready.then(() => {
-      if (localStorage.getItem("grox.pendingOAuth") !== "1") return;
-      localStorage.removeItem("grox.pendingOAuth");
-      void this.authenticate().catch(() => {
-        // authenticate() already publishes the actionable error through auth_state.
-      });
-    });
+    // Lazy connect — see ensureReady(). Constructor must stay free of IPC.
+  }
+
+  /** Idempotent boot. All RPC paths await this instead of connecting at import. */
+  ensureReady(): Promise<void> {
+    if (!this.boot) {
+      this.boot = this.connect()
+        .then(() => {
+          if (localStorage.getItem("grox.pendingOAuth") !== "1") return;
+          localStorage.removeItem("grox.pendingOAuth");
+          void this.authenticate().catch(() => {
+            // authenticate() already publishes the actionable error through auth_state.
+          });
+        })
+        .catch((error) => {
+          // Allow a later caller to retry after a failed first boot.
+          this.boot = null;
+          throw error;
+        });
+    }
+    return this.boot;
   }
 
   subscribe(callback: (event: BridgeEvent) => void) {
@@ -1306,7 +1323,7 @@ export class AcpBridge implements GrokBridge {
     this.runtimeCommands = [];
     this.runtimeCommandTags.clear();
     const next = this.initializeAgent();
-    this.ready = next;
+    this.boot = next;
     await next;
   }
 
@@ -1433,7 +1450,7 @@ export class AcpBridge implements GrokBridge {
       throw new Error(lastError);
     })();
     this.reconnecting = reconnect.finally(() => { this.reconnecting = null; });
-    this.ready = this.reconnecting;
+    this.boot = this.reconnecting;
     void this.reconnecting.catch(() => {});
   }
 
@@ -2352,12 +2369,12 @@ export class AcpBridge implements GrokBridge {
   }
 
   private async request(method: string, params: unknown, timeoutMs = 30_000): Promise<unknown> {
-    await this.ready;
+    await this.ensureReady();
     return this.requestRaw(method, params, timeoutMs);
   }
 
   private async notify(method: string, params: unknown): Promise<void> {
-    await this.ready;
+    await this.ensureReady();
     await this.sendRaw({ jsonrpc: "2.0", method: wireMethod(method), params });
   }
 
@@ -2432,12 +2449,12 @@ export class AcpBridge implements GrokBridge {
   }
 
   async getAuthState(): Promise<AuthState> {
-    await this.ready;
+    await this.ensureReady();
     return { ...this.authState };
   }
 
   async getModelState(): Promise<ModelState> {
-    await this.ready;
+    await this.ensureReady();
     return { ...this.modelState, models: [...this.modelState.models] };
   }
 
@@ -2579,7 +2596,7 @@ export class AcpBridge implements GrokBridge {
   }
 
   async authenticate(): Promise<void> {
-    await this.ready;
+    await this.ensureReady();
     // A click on "Sign in to Grok" is an explicit choice of the subscription
     // path. Make that choice durable before opening the browser, otherwise a
     // previously selected API gateway can keep owning the next ACP child.
@@ -2627,7 +2644,7 @@ export class AcpBridge implements GrokBridge {
   }
 
   async getAccountInfo(): Promise<AccountInfo> {
-    await this.ready;
+    await this.ensureReady();
     let authInfo: JsonObject = {};
     let subscription: JsonObject = {};
     try {
@@ -2751,12 +2768,12 @@ export class AcpBridge implements GrokBridge {
   }
 
   async getWorkspace(): Promise<string> {
-    await this.ready;
+    await this.ensureReady();
     return this.workspace;
   }
 
   async setWorkspace(cwd: string): Promise<void> {
-    await this.ready;
+    await this.ensureReady();
     const validated = await invoke<string>("validate_workspace", { cwd });
     this.workspace = validated;
     localStorage.setItem("grok.workspace", validated);
@@ -3265,7 +3282,7 @@ export class AcpBridge implements GrokBridge {
     this.activePromptSessions.add(sessionId);
     let terminalStatus: SessionStatus = "idle";
     try {
-      await this.ready;
+      await this.ensureReady();
       if (!this.knownSessions.has(sessionId)) {
         await this.loadSession(sessionId, { background: true });
       }
@@ -3416,7 +3433,7 @@ export class AcpBridge implements GrokBridge {
   }
 
   async interject(sessionId: string, text: string, options: PromptOptions): Promise<boolean> {
-    await this.ready;
+    await this.ensureReady();
     const trimmed = text.trim();
     if (!trimmed && (options.attachments?.length ?? 0) === 0) return false;
     const id = uid();

@@ -6556,13 +6556,17 @@ fn main() {
                 window.set_icon(icon)?;
             }
             register_computer_emergency_shortcut(app.handle().clone());
-            if let Err(error) = provision_grox_deep_research_workflow() {
-                eprintln!("grox: 无法安装完整 deep-research 工作流：{error}");
-            }
-            // Crash / BSOD leftovers: thousands of .tmp files have been observed
-            // under session-cache after hard kills. Scrub on boot so the next
-            // write path stays healthy.
-            scrub_session_cache_dir(app.handle());
+            // Never block setup (window interactivity) on disk / provisioning.
+            // These can take seconds with large session-cache dirs and freeze
+            // the first 2–3s of operator input.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Err(error) = provision_grox_deep_research_workflow() {
+                    eprintln!("grox: 无法安装完整 deep-research 工作流：{error}");
+                }
+                // Crash / BSOD leftovers: orphan .tmp/.bak under session-cache.
+                scrub_session_cache_dir(&handle);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

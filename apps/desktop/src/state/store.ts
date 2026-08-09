@@ -1225,8 +1225,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
       bridgeSubscribed = true;
       bridge.subscribe(applyEvent);
 
-      // Paint the shell immediately from local cache. Waiting on CLI connect
-      // (2–3s) for ready:true freezes the whole window before any click works.
+      // ── Phase 0: paint the shell from local cache only ─────────────────
+      // Critical: do NOT await CLI spawn / initialize in this turn. An
+      // await here keeps the microtask queue busy for 2–3s and starves
+      // React paint + pointer events even after ready:true is set.
       const sessionIndex = decorateSessions(loadJson<SessionMeta[]>("grox.sessionCatalog", []));
       const cachedWorkspace = (() => {
         try {
@@ -1248,99 +1250,113 @@ export const useDesktop = create<DesktopState>((set, get) => {
         set({ sessionIndex, ready: true });
       }
 
-      try {
-        const feCu = localStorage.getItem("grox.computerUseEnabled") !== "0";
-        // Host-attested CU migrate is fire-and-forget — never serialize startup.
-        void invoke("host_prefs_migrate_computer_use", { feEnabled: feCu }).catch(() => {});
-
-        const runtimeP = bridge.kind === "acp"
-          ? invoke<GrokRuntimeInfo>("grok_runtime_info").catch(() => null)
-          : Promise.resolve(null);
-        const hostPrefsP = invoke<{ computerUseEnabled?: boolean }>("host_prefs_get").catch(() => null);
-        const envOnP = invoke<boolean>("computer_use_env_enabled").catch(() => false);
-        const envP = invoke<{ appVersion?: string }>("desktop_environment").catch(() => null);
-        // These await CLI connect internally; run them in parallel with host IPC.
-        const workspaceP = bridge.getWorkspace().catch(() => get().workspace);
-        const authP = bridge.getAuthState().catch(() => get().auth);
-        const modelP = bridge.getModelState().catch(() => ({
-          models: get().models,
-          currentId: get().model,
-        }));
-        const providerP = bridge.getProviderStatus().catch(() => get().provider);
-
-        const [runtime, hostPrefs, envOn, env, workspace, auth, modelState, provider] = await Promise.all([
-          runtimeP,
-          hostPrefsP,
-          envOnP,
-          envP,
-          workspaceP,
-          authP,
-          modelP,
-          providerP,
-        ]);
-
-        if (hostPrefs && typeof hostPrefs.computerUseEnabled === "boolean") {
-          setComputerUseHostPrefsEnabled(hostPrefs.computerUseEnabled);
-        }
-        setComputerUseHostEnvEnabled(Boolean(envOn));
-        if (env?.appVersion && consumeShellUpgradeRescan(env.appVersion)) {
-          upgradeForceOfflineRescan = true;
-          upgradeForceRescanned.clear();
-        }
-
-        const projects = ensureProject(get().projects, workspace);
-        set({
-          runtime: runtime ?? null,
-          computerUseEnabled: isComputerUseOperatorEnabled(),
-          accountSetupOpen: get().accountSetupOpen || Boolean(runtime?.selectionRequired),
-          workspace,
-          projects,
-          activeProjectId: projectId(workspace),
-          auth,
-          ...resolveModelState(modelState),
-          provider,
-          ready: true,
-          startupError: null,
-        });
-        window.setTimeout(() => {
-          if (get().auth.inProgress) return;
-          void get().refreshWorkspaceFiles();
-          void get().refreshProjectPreview(false);
-          if (get().view === "session") void get().refreshWorkspaceDiffs();
-        }, 750);
-        if (!auth.required) void get().refreshAccount();
-        void get().refreshProviderProfiles();
-        void scrubSessionCacheOrphans();
-        window.setTimeout(() => {
-          if (!get().auth.inProgress && get().historySyncedAt === 0) void get().refreshHistory();
-        }, 500);
-        if (workspaceWatchTimer === undefined) {
-          workspaceWatchTimer = window.setInterval(() => {
-            if (document.visibilityState !== "visible" || get().auth.inProgress || get().view !== "session") return;
-            workspaceWatchTick += 1;
-            void get().refreshWorkspaceDiffs();
-            if (workspaceWatchTick % 3 === 0) void get().refreshWorkspaceFiles();
-            if (get().projectPreview.status === "starting") void get().refreshProjectPreview();
-          }, 2_000);
-        }
-      } catch (error) {
-        set({
-          ready: true,
-          startupError: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
-
-      // Dev deep links: ?open=<sessionId> opens a mission,
-      // ?prompt=<text> launches a fresh one. Runs once (guard above).
+      // Deep links after first paint (macrotask).
       const params = new URLSearchParams(window.location.search);
       const open = params.get("open");
       const prompt = params.get("prompt");
-      if (open) void get().openSession(open);
-      else if (prompt) {
-        // Create the ACP session only when there is an actual first message.
-        await get().newSession({ text: prompt });
-      }
+
+      // ── Phase 1: yield so React can commit ready:true and the browser
+      // can handle clicks, then hydrate agent + host state in background.
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            // Two frames: layout + paint of the interactive shell.
+            await new Promise<void>((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            });
+
+            const feCu = localStorage.getItem("grox.computerUseEnabled") !== "0";
+            void invoke("host_prefs_migrate_computer_use", { feEnabled: feCu }).catch(() => {});
+
+            // Warm CLI only after paint (lazy ensureReady inside bridge methods).
+            void bridge.ensureReady?.();
+
+            const runtimeP = bridge.kind === "acp"
+              ? invoke<GrokRuntimeInfo>("grok_runtime_info").catch(() => null)
+              : Promise.resolve(null);
+            const hostPrefsP = invoke<{ computerUseEnabled?: boolean }>("host_prefs_get").catch(() => null);
+            const envOnP = invoke<boolean>("computer_use_env_enabled").catch(() => false);
+            const envP = invoke<{ appVersion?: string }>("desktop_environment").catch(() => null);
+            const workspaceP = bridge.getWorkspace().catch(() => get().workspace);
+            const authP = bridge.getAuthState().catch(() => get().auth);
+            const modelP = bridge.getModelState().catch(() => ({
+              models: get().models,
+              currentId: get().model,
+            }));
+            const providerP = bridge.getProviderStatus().catch(() => get().provider);
+
+            const [runtime, hostPrefs, envOn, env, workspace, auth, modelState, provider] = await Promise.all([
+              runtimeP,
+              hostPrefsP,
+              envOnP,
+              envP,
+              workspaceP,
+              authP,
+              modelP,
+              providerP,
+            ]);
+
+            if (hostPrefs && typeof hostPrefs.computerUseEnabled === "boolean") {
+              setComputerUseHostPrefsEnabled(hostPrefs.computerUseEnabled);
+            }
+            setComputerUseHostEnvEnabled(Boolean(envOn));
+            if (env?.appVersion && consumeShellUpgradeRescan(env.appVersion)) {
+              upgradeForceOfflineRescan = true;
+              upgradeForceRescanned.clear();
+            }
+
+            const projects = ensureProject(get().projects, workspace);
+            set({
+              runtime: runtime ?? null,
+              computerUseEnabled: isComputerUseOperatorEnabled(),
+              accountSetupOpen: get().accountSetupOpen || Boolean(runtime?.selectionRequired),
+              workspace,
+              projects,
+              activeProjectId: projectId(workspace),
+              auth,
+              ...resolveModelState(modelState),
+              provider,
+              startupError: null,
+            });
+
+            if (!auth.required) void get().refreshAccount();
+            void get().refreshProviderProfiles();
+
+            window.setTimeout(() => {
+              if (get().auth.inProgress) return;
+              void get().refreshWorkspaceFiles();
+              void get().refreshProjectPreview(false);
+              if (get().view === "session") void get().refreshWorkspaceDiffs();
+            }, 1_200);
+
+            // Heavy disk / history work much later — never compete with first interaction.
+            window.setTimeout(() => {
+              void scrubSessionCacheOrphans();
+            }, 2_500);
+            window.setTimeout(() => {
+              if (!get().auth.inProgress && get().historySyncedAt === 0) void get().refreshHistory();
+            }, 2_000);
+
+            if (workspaceWatchTimer === undefined) {
+              workspaceWatchTimer = window.setInterval(() => {
+                if (document.visibilityState !== "visible" || get().auth.inProgress || get().view !== "session") return;
+                workspaceWatchTick += 1;
+                void get().refreshWorkspaceDiffs();
+                if (workspaceWatchTick % 3 === 0) void get().refreshWorkspaceFiles();
+                if (get().projectPreview.status === "starting") void get().refreshProjectPreview();
+              }, 2_000);
+            }
+
+            if (open) void get().openSession(open);
+            else if (prompt) void get().newSession({ text: prompt });
+          } catch (error) {
+            set({
+              ready: true,
+              startupError: error instanceof Error ? error.message : String(error),
+            });
+          }
+        })();
+      }, 0);
     },
 
     dismissRuntimeNotice: (id) => set((state) => ({
