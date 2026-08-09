@@ -878,8 +878,13 @@ fn replace_file_atomic(from: &Path, to: &Path) -> Result<(), String> {
         use windows::Win32::Storage::FileSystem::{
             MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
         };
+        // Wide, NUL-terminated paths kept alive for the duration of the call.
         let from_wide: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
         let to_wide: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `from_wide` / `to_wide` are valid NUL-terminated UTF-16 for the
+        // whole call; `MoveFileExW` only reads those pointers and does not retain
+        // them. Same-directory replace keeps the operation on one volume so
+        // MOVEFILE_REPLACE_EXISTING is an in-place metadata replace, not a copy.
         unsafe {
             MoveFileExW(
                 PCWSTR(from_wide.as_ptr()),
@@ -923,6 +928,18 @@ fn atomic_orphan_final_name(orphan_name: &str) -> Option<&str> {
         return None;
     }
     Some(file_name)
+}
+
+/// Parse writer pid from `.name.grox-{pid}-{nonce}.tmp|.bak`.
+fn atomic_orphan_writer_pid(orphan_name: &str) -> Option<u32> {
+    let stem = orphan_name
+        .strip_suffix(".bak")
+        .or_else(|| orphan_name.strip_suffix(".tmp"))?;
+    let rest = stem.strip_prefix('.')?;
+    let marker = rest.rfind(".grox-")?;
+    let after = &rest[marker + ".grox-".len()..];
+    let pid = after.split('-').next()?;
+    pid.parse().ok()
 }
 
 fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
@@ -969,13 +986,19 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Drop orphan atomic-write temps; restore `.bak` when final is missing.
-/// Never deletes a `.bak` recovery copy while its final path is absent.
+/// Drop orphan atomic-write temps; restore recovery copies when final is missing.
+///
+/// Rules:
+/// - Never touch `.tmp` still owned by **this** process (may be mid-write).
+/// - Final missing + `.bak`/aged foreign `.tmp` → promote to final (do not delete
+///   the only copy if promote fails).
+/// - Final present + aged leftover → delete.
 fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
     let Ok(entries) = fs::read_dir(dir) else {
         return 0;
     };
     let now = std::time::SystemTime::now();
+    let self_pid = std::process::id();
     let mut removed = 0u32;
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
@@ -987,6 +1010,15 @@ fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
             && name.contains(".grox-");
         if !is_orphan {
             continue;
+        }
+        // Live writer temps use our pid in the name — age-0 scrub must not
+        // steal them between sync_all and replace.
+        if name.ends_with(".tmp") {
+            if let Some(pid) = atomic_orphan_writer_pid(name) {
+                if pid == self_pid {
+                    continue;
+                }
+            }
         }
         let Ok(meta) = entry.metadata() else {
             continue;
@@ -1005,18 +1037,29 @@ fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
                     if fs::rename(&path, &final_path).is_ok() {
                         removed += 1;
                     }
+                    // Rename failed: leave bak (only copy). Never delete.
                     continue;
                 }
             }
-            // Final exists: only drop aged bak leftovers, never a live recovery copy.
+            // Final exists: only drop aged bak leftovers.
             if aged && fs::remove_file(&path).is_ok() {
                 removed += 1;
             }
             continue;
         }
 
-        // .tmp leftovers are never the recovery copy; drop when aged (or always
-        // when max_age is zero, as used by explicit scrub commands).
+        // .tmp from a dead writer.
+        if let Some(final_name) = atomic_orphan_final_name(name) {
+            let final_path = dir.join(final_name);
+            if !final_path.exists() {
+                // First-write crash: promote complete temp instead of deleting
+                // the only snapshot.
+                if aged && fs::rename(&path, &final_path).is_ok() {
+                    removed += 1;
+                }
+                continue;
+            }
+        }
         if aged && fs::remove_file(&path).is_ok() {
             removed += 1;
         }
@@ -6783,6 +6826,7 @@ mod tests {
             CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
+        // Foreign pid so age-0 scrub is allowed to touch the temp.
         let tmp = root.join(".x.json.grox-1-2.tmp");
         let bak = root.join(".x.json.grox-1-3.bak");
         let keep = root.join("x.json");
@@ -6819,20 +6863,48 @@ mod tests {
     }
 
     #[test]
-    fn scrub_does_not_delete_fresh_bak_while_final_missing_even_if_not_restored() {
-        // If rename restore fails we still must not delete the only copy.
-        // Here final is missing but bak name is malformed → leave it alone when
-        // we cannot map to a final; aged policy still applies only after mapping.
+    fn scrub_promotes_foreign_tmp_when_final_missing_first_write_crash() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-scrub-promote-tmp-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let final_path = root.join("session.json");
+        // Dead writer pid (not this process).
+        let tmp = root.join(".session.json.grox-4242-7.tmp");
+        fs::write(&tmp, b"{\"first\":true}").unwrap();
+        assert!(!final_path.exists());
+        let touched = scrub_atomic_write_orphans(&root, std::time::Duration::from_secs(0));
+        assert!(touched >= 1);
+        assert!(final_path.exists());
+        assert!(!tmp.exists());
+        assert_eq!(fs::read_to_string(&final_path).unwrap(), "{\"first\":true}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scrub_skips_live_process_tmp_even_with_max_age_zero() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-scrub-live-tmp-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let pid = std::process::id();
+        let tmp = root.join(format!(".session.json.grox-{pid}-99.tmp"));
+        fs::write(&tmp, b"in-flight").unwrap();
+        let removed = scrub_atomic_write_orphans(&root, std::time::Duration::from_secs(0));
+        assert_eq!(removed, 0);
+        assert!(tmp.exists(), "live writer temp must survive concurrent scrub");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scrub_keeps_fresh_bak_when_final_present_until_aged() {
         let root = std::env::temp_dir().join(format!(
             "grox-scrub-keep-{}",
             CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).unwrap();
-        let bak = root.join(".payload.json.grox-1-1.bak");
-        fs::write(&bak, b"only-copy").unwrap();
-        // max_age huge: not aged → bak kept even if final missing (restore path
-        // should still run; after restore bak is gone). Re-create bak with
-        // final present and not aged → bak kept.
         let final_path = root.join("payload.json");
         fs::write(&final_path, b"live").unwrap();
         let bak2 = root.join(".payload.json.grox-1-2.bak");
@@ -6846,7 +6918,6 @@ mod tests {
         assert!(removed2 >= 1);
         assert!(!bak2.exists());
         assert!(final_path.exists());
-        let _ = bak;
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -6862,6 +6933,7 @@ mod tests {
         );
         assert_eq!(atomic_orphan_final_name("payload.json"), None);
         assert_eq!(atomic_orphan_final_name(".nope.bak"), None);
+        assert_eq!(atomic_orphan_writer_pid(".x.json.grox-42-9.tmp"), Some(42));
     }
 
     #[test]
