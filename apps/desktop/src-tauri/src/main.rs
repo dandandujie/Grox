@@ -3940,7 +3940,7 @@ fn desktop_command_for_file(path: &Path, file: &Path) -> Result<(String, Vec<Str
 
 /// Enumerate installed editor and terminal applications on the host.
 #[tauri::command]
-fn list_open_applications() -> Result<Vec<OpenApplicationOption>, String> {
+fn list_open_applications_sync() -> Result<Vec<OpenApplicationOption>, String> {
     #[cfg(target_os = "macos")]
     {
         let mut applications = discovered_application_paths()
@@ -3964,6 +3964,16 @@ fn list_open_applications() -> Result<Vec<OpenApplicationOption>, String> {
     {
         Ok(Vec::new())
     }
+}
+
+/// Enumerate installable "Open with" targets. Must be async: on Windows this
+/// shells out to PowerShell and extracts icons — a sync command freezes the
+/// WebView for 2–3s on cold open (UI painted, clicks dead).
+#[tauri::command]
+async fn list_open_applications() -> Result<Vec<OpenApplicationOption>, String> {
+    tauri::async_runtime::spawn_blocking(list_open_applications_sync)
+        .await
+        .map_err(|error| format!("应用发现任务失败：{error}"))?
 }
 
 #[cfg(target_os = "macos")]
@@ -6802,7 +6812,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn discovers_installed_open_applications_from_host() {
-        let applications = list_open_applications().unwrap();
+        let applications = list_open_applications_sync().unwrap();
         assert!(applications.iter().any(|item| item.id == "com.apple.finder"));
         assert!(applications.iter().all(|item| {
             !item.id.trim().is_empty()

@@ -81,6 +81,14 @@
  * Only the mission transcript / composer read surface uses discrete integer
  * tiers via html[data-font=sm|md|lg|xl].
  */
+/* Frameless window: interactive chrome inside drag regions must opt out. */
+.titlebar-actions,
+.titlebar-actions *,
+[data-tauri-drag-region="false"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 html {
   --grox-font-weight: 400;
   --grox-component-font-size: 11px;
