@@ -328,9 +328,8 @@ html:not([data-theme="light"]) {
  * Turn spacing only. Do NOT use content-visibility / contain-intrinsic-size:
  * expanded process trails are thousands of px; fake intrinsic height breaks
  * scrollHeight (missing scrollbar) and yanks the viewport on reflow.
- * Timeline uses Virtuoso for a bounded DOM window. Expanded process trails
- * are height-capped (process-sequence--bounded) so a single item cannot
- * explode the virtualizer range.
+ * Timeline uses a native scroller + hard turn window (not Virtuoso) so expand
+ * and free scroll stay stable. Expanded process trails are also height-capped.
  */
 .timeline-scroller {
   overflow-anchor: none;
@@ -339,7 +338,7 @@ html:not([data-theme="light"]) {
   padding-right: 28px;
 }
 
-/* Bound expanded process DOM height inside a virtualized row. */
+/* Bound expanded process height so a single open trail cannot dominate scroll. */
 .process-sequence--bounded {
   max-height: min(48vh, 560px);
   overflow-y: auto;

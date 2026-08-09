@@ -1,6 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { isSessionTerminal, type Session, type SessionBlock, type WorkflowRun } from "../../bridge/types";
 import { useI18n } from "../../lib/i18n";
 import {
@@ -8,6 +7,12 @@ import {
   rememberProcessOpen,
   resolveInitialProcessOpen,
 } from "../../lib/processFold";
+import {
+  TIMELINE_TURN_WINDOW_INITIAL,
+  TIMELINE_TURN_WINDOW_STEP,
+  visibleCountToIncludeIndex,
+  visibleTurnSlice,
+} from "../../lib/timelineWindow";
 import { useDesktop } from "../../state/store";
 import { Icon } from "../fx/Icon";
 import { BlackHole } from "../fx/BlackHole";
@@ -18,6 +23,9 @@ import { PlanCard } from "./PlanCard";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./QuestionCard";
 import { TurnChangeCard } from "./TurnChangeCard";
+
+/** Near-bottom slack for stick-to-bottom while streaming. */
+const FOLLOW_BOTTOM_PX = 96;
 
 interface Turn {
   id: string;
@@ -155,7 +163,7 @@ function RequestNodeRail({
 }: {
   markers: RequestMarker[];
   language: string;
-  scrollerRef: RefObject<HTMLElement | null>;
+  scrollerRef: RefObject<HTMLDivElement | null>;
   onJump(id: string): void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -539,21 +547,43 @@ const MemoTurnGroup = memo(TurnGroup, (previous, next) => {
   return previous.turn.blocks.every((block, index) => block === next.turn.blocks[index]);
 });
 
+function isNearBottom(el: HTMLElement, slack = FOLLOW_BOTTOM_PX): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= slack;
+}
+
 export function Timeline({ session }: { session: Session }) {
   const { language } = useI18n();
   const workflows = useDesktop((state) => state.workflows[session.id] ?? EMPTY_WORKFLOWS);
-  const listRef = useRef<VirtuosoHandle>(null);
-  const scrollerRef = useRef<HTMLElement | null>(null);
-  // Sticky inspect: expand process / request-rail jump must not fight the user.
-  // Cleared only after the operator leaves the bottom and returns (or a new
-  // live turn starts) — NOT on the expand-at-bottom height reflow.
-  // Expanded process trails use max-height + internal scroll so Virtuoso item
-  // height stays bounded (long sessions keep a finite DOM window).
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // Native scroller + turn window (not Virtuoso): expanding process used to make
+  // Virtuoso re-range and yank scrollTop to 0 / stick-to-bottom thrash so the
+  // operator could not freely scroll. DOM stays bounded via a hard mount cap.
+  const followRef = useRef(true);
   const inspectHoldRef = useRef(false);
   const leftBottomRef = useRef(false);
+  const pendingJumpIdRef = useRef<string | null>(null);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
+  const [visibleCount, setVisibleCount] = useState(TIMELINE_TURN_WINDOW_INITIAL);
   const sessionRunning = !isSessionTerminal(session.status);
   const wasRunningRef = useRef(sessionRunning);
+  const lastBlock = session.blocks.at(-1);
+  const liveSignature = sessionRunning
+    ? `${session.blocks.length}:${lastBlock?.type === "assistant" || lastBlock?.type === "thinking" ? lastBlock.text.length : lastBlock?.id ?? ""}:${session.status}`
+    : "";
+
+  useEffect(() => {
+    setVisibleCount(TIMELINE_TURN_WINDOW_INITIAL);
+    pendingJumpIdRef.current = null;
+  }, [session.id]);
+
+  // Window is "last N turns" — as new turns stream in, the newest stay mounted
+  // without growing N. Older ones roll out of the window unless the operator
+  // loads earlier history.
+
+  const { hiddenCount, visibleTurns } = useMemo(
+    () => visibleTurnSlice(turns, visibleCount),
+    [turns, visibleCount],
+  );
 
   const markers = useMemo<RequestMarker[]>(() => {
     const requests = turns
@@ -563,18 +593,74 @@ export function Timeline({ session }: { session: Session }) {
   }, [language, turns]);
 
   const stopFollowForInspect = useCallback(() => {
+    followRef.current = false;
     inspectHoldRef.current = true;
     leftBottomRef.current = false;
   }, []);
 
-  // New live turn: allow follow again so streaming sticks to the bottom.
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
+  // Open / switch session: land on the latest answer once.
+  useLayoutEffect(() => {
+    followRef.current = true;
+    inspectHoldRef.current = false;
+    leftBottomRef.current = false;
+    scrollToBottom("auto");
+  }, [session.id, scrollToBottom]);
+
+  // New live turn after idle: resume stick-to-bottom for streaming.
   useEffect(() => {
     if (sessionRunning && !wasRunningRef.current) {
       inspectHoldRef.current = false;
       leftBottomRef.current = false;
+      followRef.current = true;
+      scrollToBottom("auto");
     }
     wasRunningRef.current = sessionRunning;
-  }, [sessionRunning]);
+  }, [sessionRunning, scrollToBottom]);
+
+  // Streaming stick-to-bottom — only while live and operator has not scrolled away.
+  useLayoutEffect(() => {
+    if (!sessionRunning || !liveSignature) return;
+    if (inspectHoldRef.current || !followRef.current) return;
+    scrollToBottom("auto");
+  }, [liveSignature, sessionRunning, scrollToBottom]);
+
+  // After expanding the window for a rail jump, scroll to the target once mounted.
+  useLayoutEffect(() => {
+    const id = pendingJumpIdRef.current;
+    if (!id) return;
+    const node = scrollerRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(id)}"]`);
+    if (!node) return;
+    pendingJumpIdRef.current = null;
+    node.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [visibleTurns, visibleCount]);
+
+  const onScrollerScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    if (!isNearBottom(el)) {
+      followRef.current = false;
+      leftBottomRef.current = true;
+      return;
+    }
+    // At bottom: clear inspect only after the user left first (expand-at-bottom
+    // must not immediately re-enable follow).
+    if (inspectHoldRef.current) {
+      if (leftBottomRef.current) {
+        inspectHoldRef.current = false;
+        leftBottomRef.current = false;
+        followRef.current = true;
+      }
+      return;
+    }
+    leftBottomRef.current = false;
+    followRef.current = true;
+  };
 
   if (session.blocks.length === 0) return <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-24"><BlackHole size={44} spin="slow" /><div className="text-center"><p className="text-[14px] text-mute">{language === "zh-CN" ? "任务通道已打开。" : "Mission channel open."}</p><p className="lbl mt-1.5 !text-[10px]">{language === "zh-CN" ? "输入你的第一个请求" : "TRANSMIT YOUR FIRST DIRECTIVE"}</p></div></div>;
 
@@ -582,64 +668,60 @@ export function Timeline({ session }: { session: Session }) {
     const index = turns.findIndex((turn) => turn.id === id);
     if (index < 0) return;
     stopFollowForInspect();
-    listRef.current?.scrollToIndex({ index, align: "start", behavior: "smooth" });
+    const nextVisible = visibleCountToIncludeIndex(turns.length, index, visibleCount);
+    if (nextVisible > visibleCount) {
+      pendingJumpIdRef.current = id;
+      setVisibleCount(nextVisible);
+      return;
+    }
+    const node = scrollerRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(id)}"]`);
+    node?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
+  const loadEarlier = () => {
+    stopFollowForInspect();
+    setVisibleCount((current) => Math.min(turns.length, current + TIMELINE_TURN_WINDOW_STEP));
   };
 
   return (
     <div className="relative flex min-h-0 flex-1">
-      <Virtuoso
-        key={session.id}
-        ref={listRef}
-        data={turns}
-        computeItemKey={(_, turn) => turn.id}
-        initialTopMostItemIndex={Math.max(0, turns.length - 1)}
-        // Only Virtuoso's own followOutput — no signature scrollToIndex dual path.
-        // Dual auto-scroll was yanking the viewport when process height changed.
-        followOutput={(atBottom) => {
-          if (!sessionRunning || inspectHoldRef.current) return false;
-          return atBottom ? "auto" : false;
-        }}
-        atBottomStateChange={(atBottom) => {
-          if (!atBottom) {
-            leftBottomRef.current = true;
-            return;
-          }
-          // Reached bottom: clear inspect hold only if the user actually left
-          // first. Expand-at-bottom keeps atBottom=true and must stay held.
-          if (inspectHoldRef.current) {
-            if (leftBottomRef.current) {
-              inspectHoldRef.current = false;
-              leftBottomRef.current = false;
-            }
-            return;
-          }
-          leftBottomRef.current = false;
-        }}
-        increaseViewportBy={{ top: 900, bottom: 1_200 }}
+      <div
+        ref={scrollerRef}
         className="timeline-scroller h-full min-w-0 flex-1 overflow-y-auto"
-        scrollerRef={(ref) => {
-          scrollerRef.current = ref as HTMLElement | null;
-        }}
-        components={{
-          Header: () => <div className="h-9" />,
-          Footer: () => <div className="h-11" />,
-        }}
-        itemContent={(index, turn) => {
+        onScroll={onScrollerScroll}
+      >
+        <div className="h-9 shrink-0" />
+        {hiddenCount > 0 && (
+          <div className="timeline-content mx-auto mb-4">
+            <button
+              type="button"
+              className="w-full rounded-[5px] border border-line2 bg-raise/40 px-3 py-2 text-center font-mono text-[10px] tracking-[0.06em] text-dim transition-colors hover:border-acc/40 hover:text-fg2"
+              onClick={loadEarlier}
+            >
+              {language === "zh-CN"
+                ? `加载更早的 ${Math.min(TIMELINE_TURN_WINDOW_STEP, hiddenCount)} 轮（还有 ${hiddenCount} 轮未显示）`
+                : `Load earlier ${Math.min(TIMELINE_TURN_WINDOW_STEP, hiddenCount)} turns (${hiddenCount} hidden)`}
+            </button>
+          </div>
+        )}
+        {visibleTurns.map((turn, visibleIndex) => {
+          const absoluteIndex = hiddenCount + visibleIndex;
           const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
           return (
-            <div data-turn-id={turn.id} className="timeline-content mx-auto">
+            <div key={turn.id} data-turn-id={turn.id} className="timeline-content mx-auto">
               <MemoTurnGroup
                 turn={turn}
                 sessionId={session.id}
                 status={session.status}
-                active={index === turns.length - 1}
+                active={absoluteIndex === turns.length - 1}
                 workflow={matchingResearchRun(workflows, user)}
                 onProcessInspect={stopFollowForInspect}
               />
             </div>
           );
-        }}
-      />
+        })}
+        <div className="h-11 shrink-0" />
+      </div>
       <RequestNodeRail markers={markers} language={language} scrollerRef={scrollerRef} onJump={jumpToTurn} />
     </div>
   );

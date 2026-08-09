@@ -81,18 +81,21 @@ describe("layout adaptability — density isolation", () => {
     expect(tokens).toMatch(/\.md p\s*\{[\s\S]*?margin:\s*0 0 0\.42em/);
   });
 
-  it("timeline keeps Virtuoso windowing with bounded expanded process rows", () => {
+  it("timeline uses native scroller + turn window (no Virtuoso scroll yank)", () => {
     const timelineSrc = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), "../components/session/Timeline.tsx"),
       "utf8",
     );
-    expect(timelineSrc).toMatch(/from ["']react-virtuoso["']/);
-    expect(timelineSrc).toMatch(/<Virtuoso\b/);
+    // Virtuoso re-ranges on tall expand and forces scroll pullback.
+    expect(timelineSrc).not.toMatch(/from ["']react-virtuoso["']/);
+    expect(timelineSrc).not.toMatch(/<Virtuoso\b/);
     expect(timelineSrc).toMatch(/timeline-scroller/);
     expect(timelineSrc).toMatch(/data-turn-id/);
     expect(timelineSrc).toMatch(/process-sequence--bounded/);
-    // Must not fall back to mounting every turn in a plain .map scroller.
-    expect(timelineSrc).not.toMatch(/\{turns\.map\(\(turn/);
+    // Hybrid bounded DOM: window helpers + load-earlier, not full-history mount.
+    expect(timelineSrc).toMatch(/visibleTurnSlice/);
+    expect(timelineSrc).toMatch(/TIMELINE_TURN_WINDOW_INITIAL/);
+    expect(timelineSrc).toMatch(/loadEarlier/);
     expect(tokens).toMatch(/\.process-sequence--bounded\s*\{[\s\S]*?max-height/);
   });
 
