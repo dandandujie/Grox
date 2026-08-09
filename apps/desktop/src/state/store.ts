@@ -76,6 +76,7 @@ import {
   ensureProject as ensureProjectPure,
   isDraftSessionId,
   isEphemeralSessionId,
+  maySurfaceProject,
   mergeDiscoveredProjects as mergeDiscoveredProjectsPure,
   projectId,
   samePath,
@@ -254,7 +255,8 @@ interface DesktopState {
   continueSessionInNewChat(id: string): Promise<void>;
   continueSessionInNewWorktree(id: string): Promise<void>;
   openSessionInNewWindow(id: string): Promise<void>;
-  setWorkspace(cwd: string): Promise<void>;
+  /** `restoreProject`: explicit add (folder picker) may undismiss a removed project. */
+  setWorkspace(cwd: string, options?: { restoreProject?: boolean }): Promise<void>;
   authenticate(): Promise<void>;
   logout(): Promise<void>;
   refreshAccount(): Promise<void>;
@@ -421,11 +423,19 @@ function loadProjects(): ProjectMeta[] {
   return loaded;
 }
 
-function ensureProject(projects: ProjectMeta[], path: string): ProjectMeta[] {
-  // Operator actively opened this path — clear any prior "remove" dismissal.
+function ensureProject(
+  projects: ProjectMeta[],
+  path: string,
+  options?: { restore?: boolean },
+): ProjectMeta[] {
   const dismissed = loadDismissedProjects();
   const id = projectId(path);
-  if (id && dismissed.has(id)) {
+  // Passive open / session_ready / CLI import must NOT resurrect removed projects.
+  // Only explicit restore (new project folder picker) clears dismissal.
+  if (!maySurfaceProject({ path, dismissed, restore: options?.restore })) {
+    return dedupeProjects(projects) as ProjectMeta[];
+  }
+  if (options?.restore && id && dismissed.has(id)) {
     persistDismissedProjects(undismissProjectId(dismissed, id));
   }
   const next = ensureProjectPure(projects, path) as ProjectMeta[];
@@ -901,6 +911,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         const nextIndex = e.background && previousMeta
           ? sessionIndex.map((item) => item.id === readySession.id ? indexedMeta : item)
           : [indexedMeta, ...sessionIndex.filter((item) => item.id !== readySession.id)];
+        // Passive session bind must not resurrect a removed project row.
         const projects = ensureProject(get().projects, readySession.cwd);
         persistSessionCatalog(nextIndex);
         const state = get();
@@ -921,7 +932,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
         if (!e.background || remainsActive) bridge.setPermissionMode(composer.permissionMode);
         const nextSessions = e.background
           ? sessions
-          : Object.fromEntries(Object.entries(sessions).filter(([id]) => !id.startsWith("pending-")));
+          : Object.fromEntries(Object.entries(sessions).filter(([id]) => !id.startsWith("pending-") && !id.startsWith("draft-")));
+        const readyProjectId = projects.some((project) => samePath(project.path, readySession.cwd))
+          ? projectId(readySession.cwd)
+          : null;
         set({
           sessions: { ...nextSessions, [readySession.id]: nextSession },
           sessionIndex: nextIndex,
@@ -929,7 +943,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
           sessionComposers,
           ...(!e.background ? {
             workspace: readySession.cwd,
-            activeProjectId: projectId(readySession.cwd),
+            activeProjectId: readyProjectId,
             activeId: readySession.id,
             view: "session" as const,
             model: composer.model,
@@ -1455,7 +1469,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
       try {
         const cwd = await invoke<string | null>("pick_workspace");
         if (!cwd) return;
-        await get().setWorkspace(cwd);
+        // Explicit folder pick is the only restore path for dismissed projects.
+        await get().setWorkspace(cwd, { restoreProject: true });
         await get().newSession();
       } catch (error) {
         set({ startupError: error instanceof Error ? error.message : String(error) });
@@ -1497,6 +1512,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
 
     removeProject(id) {
       const target = get().projects.find((project) => project.id === id || samePath(project.path, id));
+      const path = target?.path ?? id;
       const dismissId = target ? projectId(target.path) : projectId(id);
       if (dismissId) {
         persistDismissedProjects(dismissProjectId(loadDismissedProjects(), dismissId));
@@ -1505,11 +1521,29 @@ export const useDesktop = create<DesktopState>((set, get) => {
         (project) => project.id !== id && project.id !== dismissId && !samePath(project.path, id),
       );
       localStorage.setItem("grox.projects", JSON.stringify(projects));
+
+      // Keep sessions durable on disk, but move them out of the live sidebar into
+      // the archive manager so "remove" does not create invisible orphans.
+      const flags = loadJson<Record<string, SessionFlags>>("grox.sessionFlags", {});
+      const sessionIndex = get().sessionIndex.map((meta) => {
+        if (!samePath(meta.cwd, path)) return meta;
+        flags[meta.id] = { ...flags[meta.id], archived: true };
+        return { ...meta, archived: true };
+      });
+      localStorage.setItem("grox.sessionFlags", JSON.stringify(flags));
+      persistSessionCatalog(sessionIndex);
+
+      const activeId = get().activeId;
+      const activeSession = activeId ? get().sessions[activeId] : undefined;
+      const leaveActive = Boolean(activeSession && samePath(activeSession.cwd, path));
+
       set({
         projects,
+        sessionIndex,
         ...(get().activeProjectId === id || get().activeProjectId === dismissId
           ? { activeProjectId: null }
           : {}),
+        ...(leaveActive ? { activeId: null, view: "home" as View } : {}),
       });
     },
 
@@ -1533,16 +1567,21 @@ export const useDesktop = create<DesktopState>((set, get) => {
       }
     },
 
-    async setWorkspace(cwd) {
+    async setWorkspace(cwd, options) {
       await bridge.setWorkspace(cwd);
       const workspace = await bridge.getWorkspace();
       const fetchedSessions = await bridge.listSessions(workspace);
       const sessionIndex = mergeSessions(get().sessionIndex, fetchedSessions, workspace);
-      const projects = ensureProject(get().projects, workspace);
+      const projects = ensureProject(get().projects, workspace, {
+        restore: Boolean(options?.restoreProject),
+      });
+      const activeProjectId = projects.some((project) => samePath(project.path, workspace))
+        ? projectId(workspace)
+        : null;
       set({
         workspace,
         projects,
-        activeProjectId: projectId(workspace),
+        activeProjectId,
         sessionIndex: decorateSessions(sessionIndex),
         startupError: null,
         activeId: null,
@@ -2026,16 +2065,19 @@ export const useDesktop = create<DesktopState>((set, get) => {
       if (!trimmed && attachments.length === 0) return false;
 
       // Promote a local draft into a real ACP session on first send only.
+      // Keep global controls in sync, then hand off to newSession which replaces
+      // the draft with a pending shell — no activeId=null flash in between.
       if (isDraftSessionId(session.id)) {
         const nextComposers = { ...sessionComposers };
         delete nextComposers[session.id];
         persistSessionComposers(nextComposers);
-        set((state) => ({
+        set({
           sessionComposers: nextComposers,
-          sessions: dropEphemeralSessions(state.sessions),
-          activeId: null,
-          ...(modeOverride ? { mode: modeOverride } : {}),
-        }));
+          model: composer.model,
+          effort: composer.effort,
+          mode: modeOverride ?? composer.mode,
+          permissionMode: composer.permissionMode,
+        });
         void get().newSession({ text: trimmed, attachments });
         return true;
       }

@@ -125,13 +125,14 @@ body {
 
 /*
  * Settings chrome is independent of transcript density / font-size prefs.
- * Keep a fixed factory scale so appearance sliders only affect the mission UI.
+ * Pin the pre-density factory scale (+3.5 on a 15px body) so the panel does
+ * not shrink when operators set a compact mission transcript size.
  */
 .settings-shell {
-  --grox-font-increase: 0px;
+  --grox-font-increase: 3.5px;
   --grox-font-weight: 500;
   --grox-component-font-size: 11.5px;
-  font-size: 15px;
+  font-size: calc(15px + 3.5px);
   font-weight: 500;
 }
 .settings-shell .font-mono {

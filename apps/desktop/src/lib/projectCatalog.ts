@@ -206,3 +206,19 @@ export function isDraftSessionId(id: string | null | undefined): boolean {
 export function isEphemeralSessionId(id: string | null | undefined): boolean {
   return Boolean(id?.startsWith("draft-") || id?.startsWith("pending-"));
 }
+
+/**
+ * Whether passive discovery / open may create a project row.
+ * Dismissed paths stay hidden unless the operator explicitly restores them
+ * (folder picker / "new project").
+ */
+export function maySurfaceProject(args: {
+  path: string;
+  dismissed: ReadonlySet<string>;
+  restore?: boolean;
+}): boolean {
+  const id = projectId(args.path);
+  if (!id) return false;
+  if (args.restore) return true;
+  return !args.dismissed.has(id);
+}

@@ -5,6 +5,7 @@ import {
   ensureProject,
   isDraftSessionId,
   isEphemeralSessionId,
+  maySurfaceProject,
   mergeDiscoveredProjects,
   normalizeWorkspacePath,
   projectId,
@@ -155,5 +156,24 @@ describe("ephemeral session ids", () => {
     expect(isEphemeralSessionId("draft-abc")).toBe(true);
     expect(isEphemeralSessionId("pending-abc")).toBe(true);
     expect(isEphemeralSessionId("real-session")).toBe(false);
+  });
+});
+
+describe("maySurfaceProject", () => {
+  it("blocks passive open of dismissed paths", () => {
+    const path = "C:\\Users\\Harry\\Desktop\\Temp";
+    const dismissed = new Set(dismissProjectId([], path));
+    expect(maySurfaceProject({ path, dismissed })).toBe(false);
+    expect(maySurfaceProject({ path: "C:/Users/Harry/Desktop/Temp", dismissed })).toBe(false);
+  });
+
+  it("allows explicit restore of dismissed paths", () => {
+    const path = "C:\\work\\repo";
+    const dismissed = new Set(dismissProjectId([], path));
+    expect(maySurfaceProject({ path, dismissed, restore: true })).toBe(true);
+  });
+
+  it("allows non-dismissed paths", () => {
+    expect(maySurfaceProject({ path: "C:\\ok", dismissed: new Set() })).toBe(true);
   });
 });
