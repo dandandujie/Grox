@@ -444,38 +444,27 @@ html[data-reduce-motion="1"] * {
 }
 
 /* Hyperspace deck enter — session / restore */
+/* No blur filters — blur on large subtrees freezes main-thread hit testing
+   for hundreds of ms on cold open (case B: UI visible, clicks dead). */
 @keyframes stageDeck {
   0% {
     opacity: 0;
-    filter: blur(10px);
-    transform: translate3d(0, 18px, 0) scale(0.985);
-  }
-  55% {
-    opacity: 1;
-    filter: blur(0);
+    transform: translate3d(0, 10px, 0);
   }
   100% {
     opacity: 1;
-    filter: blur(0);
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
-/* Home enter — slight warp from deeper field */
 @keyframes stageHome {
   0% {
     opacity: 0;
-    filter: blur(14px);
-    transform: translate3d(0, 28px, 0) scale(1.03);
-  }
-  60% {
-    opacity: 1;
-    filter: blur(0);
+    transform: translate3d(0, 12px, 0);
   }
   100% {
     opacity: 1;
-    filter: blur(0);
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -493,13 +482,11 @@ html[data-reduce-motion="1"] * {
 @keyframes missionIn {
   0% {
     opacity: 0;
-    transform: translate3d(0, 22px, 0) scale(0.96);
-    filter: blur(6px);
+    transform: translate3d(0, 12px, 0);
   }
   100% {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -539,19 +526,19 @@ html[data-reduce-motion="1"] * {
 }
 
 .animate-stage-deck {
-  animation: stageDeck 0.62s var(--ease-mission) both;
-  will-change: transform, opacity, filter;
+  animation: stageDeck 0.28s var(--ease-mission) both;
+  will-change: transform, opacity;
 }
 .animate-stage-home {
-  animation: stageHome 0.78s var(--ease-warp) both;
-  will-change: transform, opacity, filter;
+  animation: stageHome 0.32s var(--ease-mission) both;
+  will-change: transform, opacity;
 }
 .animate-stage-panel {
   animation: stagePanel 0.48s var(--ease-mission) both;
 }
 .animate-mission-in {
-  animation: missionIn 0.7s var(--ease-mission) both;
-  will-change: transform, opacity, filter;
+  animation: missionIn 0.3s var(--ease-mission) both;
+  will-change: transform, opacity;
 }
 .animate-mission-card {
   animation: missionCard 0.55s var(--ease-mission) both;

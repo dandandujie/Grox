@@ -10,7 +10,6 @@ import { fmtRelTime, fmtTokens } from "../../lib/format";
 import { MAX_ATTACHMENTS, prepareAttachment, validateAttachmentSet } from "../../lib/attachments";
 import { attachExplicitPromptImages } from "../../lib/pathAttachments";
 import { BlackHole } from "../fx/BlackHole";
-import { Starfield } from "../fx/Starfield";
 import { StageTransition } from "../fx/StageTransition";
 import { Icon } from "../fx/Icon";
 import { ChipSelect } from "../common/ChipSelect";
@@ -130,7 +129,6 @@ export function Home() {
   if (workspaceMode !== "conversation") {
     return (
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-base">
-        <Starfield density={90} interactive={false} className="opacity-50" />
         <div className="home-nebula opacity-40" />
         <WorkspaceTabs mode={workspaceMode} onChange={setWorkspaceMode} />
         <StageTransition stageKey={workspaceMode} variant="panel" className="relative z-[1]">
@@ -142,7 +140,7 @@ export function Home() {
 
   return (
     <div className="relative flex-1 overflow-hidden bg-base">
-      <Starfield density={190} interactive />
+      {/* CSS nebula only — canvas starfield rAF competed with first clicks (case B). */}
       <div className="home-nebula" />
       <WorkspaceTabs mode={workspaceMode} onChange={setWorkspaceMode} />
 

@@ -1250,52 +1250,26 @@ export const useDesktop = create<DesktopState>((set, get) => {
         set({ sessionIndex, ready: true });
       }
 
-      // Deep links after first paint (macrotask).
+      // Deep links / agent boot are scheduled after a real interaction window.
       const params = new URLSearchParams(window.location.search);
       const open = params.get("open");
       const prompt = params.get("prompt");
+      const needsImmediateAgent = Boolean(open || prompt);
 
-      // ── Phase 1: yield so React can commit ready:true and the browser
-      // can handle clicks, then hydrate agent + host state in background.
+      // ── Phase 1 (macrotask): host-only prefs. Never spawn CLI here. ───
+      // Case B freeze: UI painted but unclickable for 2–3s because ensureReady
+      // + getWorkspace/getAuth pile IPC/JSON on the main thread right after paint.
       window.setTimeout(() => {
         void (async () => {
           try {
-            // Two frames: layout + paint of the interactive shell.
-            await new Promise<void>((resolve) => {
-              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            });
-
             const feCu = localStorage.getItem("grox.computerUseEnabled") !== "0";
             void invoke("host_prefs_migrate_computer_use", { feEnabled: feCu }).catch(() => {});
 
-            // Warm CLI only after paint (lazy ensureReady inside bridge methods).
-            void bridge.ensureReady?.();
-
-            const runtimeP = bridge.kind === "acp"
-              ? invoke<GrokRuntimeInfo>("grok_runtime_info").catch(() => null)
-              : Promise.resolve(null);
-            const hostPrefsP = invoke<{ computerUseEnabled?: boolean }>("host_prefs_get").catch(() => null);
-            const envOnP = invoke<boolean>("computer_use_env_enabled").catch(() => false);
-            const envP = invoke<{ appVersion?: string }>("desktop_environment").catch(() => null);
-            const workspaceP = bridge.getWorkspace().catch(() => get().workspace);
-            const authP = bridge.getAuthState().catch(() => get().auth);
-            const modelP = bridge.getModelState().catch(() => ({
-              models: get().models,
-              currentId: get().model,
-            }));
-            const providerP = bridge.getProviderStatus().catch(() => get().provider);
-
-            const [runtime, hostPrefs, envOn, env, workspace, auth, modelState, provider] = await Promise.all([
-              runtimeP,
-              hostPrefsP,
-              envOnP,
-              envP,
-              workspaceP,
-              authP,
-              modelP,
-              providerP,
+            const [hostPrefs, envOn, env] = await Promise.all([
+              invoke<{ computerUseEnabled?: boolean }>("host_prefs_get").catch(() => null),
+              invoke<boolean>("computer_use_env_enabled").catch(() => false),
+              invoke<{ appVersion?: string }>("desktop_environment").catch(() => null),
             ]);
-
             if (hostPrefs && typeof hostPrefs.computerUseEnabled === "boolean") {
               setComputerUseHostPrefsEnabled(hostPrefs.computerUseEnabled);
             }
@@ -1304,11 +1278,45 @@ export const useDesktop = create<DesktopState>((set, get) => {
               upgradeForceOfflineRescan = true;
               upgradeForceRescanned.clear();
             }
+            set({ computerUseEnabled: isComputerUseOperatorEnabled() });
+          } catch {
+            // Host prefs are non-fatal.
+          }
+        })();
+      }, 0);
+
+      // ── Phase 2: agent boot only after idle (or immediately for deep links).
+      // Keep the shell fully interactive for ~2s before any acp_spawn work.
+      const bootAgent = () => {
+        void (async () => {
+          try {
+            // Intentionally start connect here (not at import, not at ready:true).
+            void bridge.ensureReady?.();
+
+            const runtimeP = bridge.kind === "acp"
+              ? invoke<GrokRuntimeInfo>("grok_runtime_info").catch(() => null)
+              : Promise.resolve(null);
+            const workspaceP = bridge.getWorkspace().catch(() => get().workspace);
+            const authP = bridge.getAuthState().catch(() => get().auth);
+            const modelP = bridge.getModelState().catch(() => ({
+              models: get().models,
+              currentId: get().model,
+            }));
+            const providerP = bridge.getProviderStatus().catch(() => get().provider);
+
+            const [runtime, workspace, auth, modelState, provider] = await Promise.all([
+              runtimeP,
+              workspaceP,
+              authP,
+              modelP,
+              providerP,
+            ]);
 
             const projects = ensureProject(get().projects, workspace);
             set({
               runtime: runtime ?? null,
               computerUseEnabled: isComputerUseOperatorEnabled(),
+              // Never force-open setup mid-session unless runtime truly missing.
               accountSetupOpen: get().accountSetupOpen || Boolean(runtime?.selectionRequired),
               workspace,
               projects,
@@ -1327,15 +1335,14 @@ export const useDesktop = create<DesktopState>((set, get) => {
               void get().refreshWorkspaceFiles();
               void get().refreshProjectPreview(false);
               if (get().view === "session") void get().refreshWorkspaceDiffs();
-            }, 1_200);
+            }, 1_500);
 
-            // Heavy disk / history work much later — never compete with first interaction.
             window.setTimeout(() => {
               void scrubSessionCacheOrphans();
-            }, 2_500);
+            }, 4_000);
             window.setTimeout(() => {
               if (!get().auth.inProgress && get().historySyncedAt === 0) void get().refreshHistory();
-            }, 2_000);
+            }, 3_500);
 
             if (workspaceWatchTimer === undefined) {
               workspaceWatchTimer = window.setInterval(() => {
@@ -1356,7 +1363,16 @@ export const useDesktop = create<DesktopState>((set, get) => {
             });
           }
         })();
-      }, 0);
+      };
+
+      if (needsImmediateAgent) {
+        // Deep-link must talk to the agent; still yield one frame for paint.
+        window.setTimeout(bootAgent, 50);
+      } else if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(() => bootAgent(), { timeout: 2_800 });
+      } else {
+        window.setTimeout(bootAgent, 1_800);
+      }
     },
 
     dismissRuntimeNotice: (id) => set((state) => ({
