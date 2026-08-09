@@ -398,7 +398,7 @@ export function Composer() {
                 ? (language === "zh-CN" ? "Grok 正在处理 — 可以准备下一条请求…" : "Grok is working — queue the next directive…")
                 : (language === "zh-CN" ? "发送给 Grok…" : "Transmit to Grok…")
             }
-            className="block w-full resize-none bg-transparent px-5 pb-1.5 pt-3.5 text-[16px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+            className="composer-input block w-full resize-none bg-transparent px-5 pb-1.5 pt-3.5 text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
           />
 
           {queue.length > 0 && (
