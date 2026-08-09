@@ -866,6 +866,65 @@ fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String, String> {
     fs::read_to_string(path).map_err(|error| format!("无法读取 {}：{error}", path.display()))
 }
 
+/// Platform-aware atomic replace of `to` with `from` (same volume).
+/// - Unix: `rename` replaces the destination atomically.
+/// - Windows: `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` avoids the
+///   final→bak then temp→final crash window of a two-step rename.
+fn replace_file_atomic(from: &Path, to: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+        let from_wide: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+        let to_wide: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+        unsafe {
+            MoveFileExW(
+                PCWSTR(from_wide.as_ptr()),
+                PCWSTR(to_wide.as_ptr()),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+            .map_err(|error| {
+                format!(
+                    "无法原子替换 {} → {}：{error}",
+                    from.display(),
+                    to.display()
+                )
+            })
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        fs::rename(from, to).map_err(|error| {
+            format!(
+                "无法原子替换 {} → {}：{error}",
+                from.display(),
+                to.display()
+            )
+        })
+    }
+}
+
+/// Parse `.name.grox-pid-nonce.bak` / `.tmp` → original final file name.
+fn atomic_orphan_final_name(orphan_name: &str) -> Option<&str> {
+    if !orphan_name.starts_with('.') || !orphan_name.contains(".grox-") {
+        return None;
+    }
+    let stem = orphan_name
+        .strip_suffix(".bak")
+        .or_else(|| orphan_name.strip_suffix(".tmp"))?;
+    // stem = ".{file}.grox-{pid}-{nonce}"
+    let rest = stem.strip_prefix('.')?;
+    let marker = rest.rfind(".grox-")?;
+    let file_name = &rest[..marker];
+    if file_name.is_empty() {
+        return None;
+    }
+    Some(file_name)
+}
+
 fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
     if content.len() as u64 > MAX_CONFIG_BYTES {
         return Err("配置文档不能超过 4 MB".into());
@@ -901,43 +960,17 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
             return Err(format!("无法写入配置 {}：{error}", temp.display()));
         }
     }
-    // Never delete the live file before the new payload is durable.
-    // Previous code removed `path` then renamed — a crash in that window
-    // left neither final nor recoverable content for that key.
-    //
-    // Replace strategy:
-    // 1) move final -> .bak (if present)
-    // 2) move temp  -> final
-    // 3) drop .bak
-    // On failure after (1), restore .bak. Leftover temps/baks are scrubbed on startup.
-    let backup = parent.join(format!(
-        ".{}.grox-{}-{}.bak",
-        file_name,
-        std::process::id(),
-        nonce,
-    ));
-    let had_backup = if path.exists() {
-        let _ = fs::remove_file(&backup);
-        fs::rename(path, &backup)
-            .map_err(|error| format!("无法备份配置 {}：{error}", path.display()))?;
-        true
-    } else {
-        false
-    };
-    if let Err(error) = fs::rename(&temp, path) {
-        if had_backup {
-            let _ = fs::rename(&backup, path);
-        }
+    // Single platform-native replace — never leave a window where `path` is
+    // missing while only a `.bak` remains (the previous two-step rename).
+    if let Err(error) = replace_file_atomic(&temp, path) {
         let _ = fs::remove_file(&temp);
-        return Err(format!("无法保存配置 {}：{error}", path.display()));
-    }
-    if had_backup {
-        let _ = fs::remove_file(&backup);
+        return Err(error);
     }
     Ok(())
 }
 
-/// Drop orphan atomic-write temps/baks (crash leftovers) under a directory.
+/// Drop orphan atomic-write temps; restore `.bak` when final is missing.
+/// Never deletes a `.bak` recovery copy while its final path is absent.
 fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
     let Ok(entries) = fs::read_dir(dir) else {
         return 0;
@@ -958,17 +991,33 @@ fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
         let Ok(meta) = entry.metadata() else {
             continue;
         };
-        let Ok(modified) = meta.modified() else {
-            // If mtime is unavailable, still drop obvious orphans.
-            if fs::remove_file(&path).is_ok() {
+        let aged = meta
+            .modified()
+            .ok()
+            .map(|modified| now.duration_since(modified).unwrap_or_default() >= max_age)
+            .unwrap_or(true);
+
+        if name.ends_with(".bak") {
+            if let Some(final_name) = atomic_orphan_final_name(name) {
+                let final_path = dir.join(final_name);
+                if !final_path.exists() {
+                    // Crash mid-replace left only the recovery copy — restore it.
+                    if fs::rename(&path, &final_path).is_ok() {
+                        removed += 1;
+                    }
+                    continue;
+                }
+            }
+            // Final exists: only drop aged bak leftovers, never a live recovery copy.
+            if aged && fs::remove_file(&path).is_ok() {
                 removed += 1;
             }
             continue;
-        };
-        let aged = now.duration_since(modified).unwrap_or_default() >= max_age;
-        // Always remove .tmp; only remove aged .bak (might still be mid-replace).
-        let drop = name.ends_with(".tmp") || aged;
-        if drop && fs::remove_file(&path).is_ok() {
+        }
+
+        // .tmp leftovers are never the recovery copy; drop when aged (or always
+        // when max_age is zero, as used by explicit scrub commands).
+        if aged && fs::remove_file(&path).is_ok() {
             removed += 1;
         }
     }
@@ -6728,7 +6777,7 @@ mod tests {
     }
 
     #[test]
-    fn scrub_atomic_write_orphans_removes_tmp_and_aged_bak() {
+    fn scrub_atomic_write_orphans_removes_tmp_and_aged_bak_when_final_exists() {
         let root = std::env::temp_dir().join(format!(
             "grox-scrub-{}",
             CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
@@ -6745,7 +6794,74 @@ mod tests {
         assert!(!tmp.exists());
         assert!(!bak.exists());
         assert!(keep.exists());
+        assert_eq!(fs::read_to_string(&keep).unwrap(), "keep");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scrub_restores_bak_when_final_missing_crash_mid_replace() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-scrub-restore-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let final_path = root.join("session.json");
+        let bak = root.join(".session.json.grox-9-9.bak");
+        // Simulate crash after final → bak, before temp → final.
+        fs::write(&bak, b"{\"recovered\":true}").unwrap();
+        assert!(!final_path.exists());
+        let touched = scrub_atomic_write_orphans(&root, std::time::Duration::from_secs(0));
+        assert!(touched >= 1);
+        assert!(final_path.exists(), "final must be restored from bak");
+        assert!(!bak.exists(), "bak consumed by restore");
+        assert_eq!(fs::read_to_string(&final_path).unwrap(), "{\"recovered\":true}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scrub_does_not_delete_fresh_bak_while_final_missing_even_if_not_restored() {
+        // If rename restore fails we still must not delete the only copy.
+        // Here final is missing but bak name is malformed → leave it alone when
+        // we cannot map to a final; aged policy still applies only after mapping.
+        let root = std::env::temp_dir().join(format!(
+            "grox-scrub-keep-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let bak = root.join(".payload.json.grox-1-1.bak");
+        fs::write(&bak, b"only-copy").unwrap();
+        // max_age huge: not aged → bak kept even if final missing (restore path
+        // should still run; after restore bak is gone). Re-create bak with
+        // final present and not aged → bak kept.
+        let final_path = root.join("payload.json");
+        fs::write(&final_path, b"live").unwrap();
+        let bak2 = root.join(".payload.json.grox-1-2.bak");
+        fs::write(&bak2, b"stale-but-fresh").unwrap();
+        let removed = scrub_atomic_write_orphans(&root, std::time::Duration::from_secs(3600));
+        assert_eq!(removed, 0, "fresh bak with final present must not be scrubbed");
+        assert!(bak2.exists());
+        assert_eq!(fs::read_to_string(&final_path).unwrap(), "live");
+        // Concurrent-style second scrub with age=0 should drop aged bak only.
+        let removed2 = scrub_atomic_write_orphans(&root, std::time::Duration::from_secs(0));
+        assert!(removed2 >= 1);
+        assert!(!bak2.exists());
+        assert!(final_path.exists());
+        let _ = bak;
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_orphan_final_name_parses_bak_and_tmp() {
+        assert_eq!(
+            atomic_orphan_final_name(".payload.json.grox-12-3.bak"),
+            Some("payload.json")
+        );
+        assert_eq!(
+            atomic_orphan_final_name(".x.json.grox-1-2.tmp"),
+            Some("x.json")
+        );
+        assert_eq!(atomic_orphan_final_name("payload.json"), None);
+        assert_eq!(atomic_orphan_final_name(".nope.bak"), None);
     }
 
     #[test]

@@ -81,15 +81,19 @@ describe("layout adaptability — density isolation", () => {
     expect(tokens).toMatch(/\.md p\s*\{[\s\S]*?margin:\s*0 0 0\.42em/);
   });
 
-  it("timeline uses native scroller (Virtuoso yanks scroll on process expand)", () => {
+  it("timeline keeps Virtuoso windowing with bounded expanded process rows", () => {
     const timelineSrc = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), "../components/session/Timeline.tsx"),
       "utf8",
     );
-    expect(timelineSrc).not.toMatch(/from ["']react-virtuoso["']/);
-    expect(timelineSrc).not.toMatch(/<Virtuoso\b/);
+    expect(timelineSrc).toMatch(/from ["']react-virtuoso["']/);
+    expect(timelineSrc).toMatch(/<Virtuoso\b/);
     expect(timelineSrc).toMatch(/timeline-scroller/);
     expect(timelineSrc).toMatch(/data-turn-id/);
+    expect(timelineSrc).toMatch(/process-sequence--bounded/);
+    // Must not fall back to mounting every turn in a plain .map scroller.
+    expect(timelineSrc).not.toMatch(/\{turns\.map\(\(turn/);
+    expect(tokens).toMatch(/\.process-sequence--bounded\s*\{[\s\S]*?max-height/);
   });
 
   it("request navigation is a right-edge msg-rail (grok-app style), not left request-rail", () => {

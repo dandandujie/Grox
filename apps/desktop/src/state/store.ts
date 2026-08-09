@@ -92,6 +92,10 @@ import {
   samePath,
   undismissProjectId,
 } from "../lib/projectCatalog";
+import {
+  buildDraftRestoreAfterSessionNewFailure,
+  shouldRetainDraftBufferUntilSessionReady,
+} from "../lib/draftLaunchRecovery";
 
 export type View = "home" | "session";
 export type InspectorTab = "files" | "tasks" | "preview" | "usage";
@@ -977,6 +981,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
           } : {}),
         });
         if (launch) {
+          // Create path succeeded — crash buffer is no longer needed.
+          clearDraftBuffer(readySession.cwd);
           void bridge.prompt(readySession.id, launch.text, {
             model: composer.model,
             effort: composer.effort,
@@ -1560,16 +1566,37 @@ export const useDesktop = create<DesktopState>((set, get) => {
         await bridge.newSession(get().workspace);
         set({ startupError: null });
       } catch (error) {
+        // Keep the just-sent draft recoverable: session/new (CLI boot, auth,
+        // or ACP) can fail after we already left the draft shell.
+        const failedLaunch = pendingLaunch;
         pendingLaunch = undefined;
-        set((state) => {
-          const sessions = { ...state.sessions };
-          delete sessions[pendingId];
-          return {
-            sessions,
-            activeId: null,
-            view: "home",
-            startupError: error instanceof Error ? error.message : String(error),
-          };
+        const draftId = `draft-${uid()}`;
+        const workspace = get().workspace;
+        const restored = buildDraftRestoreAfterSessionNewFailure({
+          pendingId,
+          draftId,
+          workspace,
+          launch: failedLaunch,
+          sessions: get().sessions,
+          sessionComposers: get().sessionComposers,
+          controls: {
+            model: get().model,
+            effort: get().effort,
+            mode: get().mode,
+            permissionMode: get().permissionMode,
+          },
+          now: Date.now(),
+        });
+        if (restored.draftText.trim()) {
+          saveDraftBuffer(workspace, restored.draftText);
+        }
+        persistSessionComposers(restored.sessionComposers);
+        set({
+          sessions: restored.sessions,
+          sessionComposers: restored.sessionComposers,
+          activeId: restored.activeId,
+          view: restored.view,
+          startupError: error instanceof Error ? error.message : String(error),
         });
       }
     },
@@ -2172,19 +2199,21 @@ export const useDesktop = create<DesktopState>((set, get) => {
 
       const trimmed = text.trim();
       if (!trimmed && attachments.length === 0) return false;
-      // Sent text is durable via CLI; drop unsent crash buffer for this cwd.
-      clearDraftBuffer(session.cwd || get().workspace);
+      const cwd = session.cwd || get().workspace;
+      // Real sessions: text is durable via CLI. Draft first-send must keep the
+      // crash buffer (and attachments via pendingLaunch) until session_ready.
+      if (!shouldRetainDraftBufferUntilSessionReady(session.id)) {
+        clearDraftBuffer(cwd);
+      } else if (trimmed) {
+        saveDraftBuffer(cwd, trimmed);
+      }
 
       // Promote a local draft into a real ACP session on first send only.
       // Keep global controls in sync, then hand off to newSession which replaces
       // the draft with a pending shell — no activeId=null flash in between.
+      // Do NOT wipe composer/buffer yet: session/new may reject (CLI/auth/ACP).
       if (isDraftSessionId(session.id)) {
-        clearDraftBuffer(session.cwd || get().workspace);
-        const nextComposers = { ...sessionComposers };
-        delete nextComposers[session.id];
-        persistSessionComposers(nextComposers);
         set({
-          sessionComposers: nextComposers,
           model: composer.model,
           effort: composer.effort,
           mode: modeOverride ?? composer.mode,
