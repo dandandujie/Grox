@@ -71,11 +71,28 @@ describe("layout adaptability — density isolation", () => {
     expect(dock).toMatch(/padding-left:\s*var\(--grox-content-px/);
   });
 
+  it("timeline does not dual-drive scroll with signature scrollToIndex", () => {
+    const timelineSrc = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../components/session/Timeline.tsx"),
+      "utf8",
+    );
+    // followOutput alone is enough; signature effects fighting Virtuoso yank scroll.
+    expect(timelineSrc).not.toMatch(/scrollToIndex\(\{\s*index:\s*turns\.length\s*-\s*1/);
+    expect(timelineSrc).toMatch(/followOutput=/);
+  });
+
   it("assistant content fills reading column (no nested hollow max)", () => {
     expect(tokens).toMatch(/\.assistant-message__content\s*\{[\s\S]*?max-width:\s*100%/);
     expect(tokens).toMatch(/\.assistant-prose\s*\{[\s\S]*?max-width:\s*100%/);
     expect(tokens).not.toMatch(/--grox-prose-max/);
     expect(tokens).not.toMatch(/--grox-assistant-max/);
+  });
+
+  it("timeline-turn does not use content-visibility (breaks Virtuoso scroll height)", () => {
+    const body = blockFor(".timeline-turn");
+    expect(body).toBeTruthy();
+    expect(body).not.toMatch(/content-visibility/);
+    expect(body).not.toMatch(/contain-intrinsic/);
   });
 
   it("font tiers only change integer size tokens", () => {

@@ -313,12 +313,14 @@ html:not([data-theme="light"]) {
   box-shadow: 0 0 0 1px var(--color-line3);
 }
 
-/* Long restored transcripts stay mounted and searchable, while Chromium can
-   skip layout and paint work for turns far outside the scroll viewport. */
+/*
+ * Turn spacing only. Do NOT use content-visibility / contain-intrinsic-size
+ * here: Virtuoso already window-virtualizes rows. content-visibility with a
+ * ~180px intrinsic size makes expanded process trails (thousands of px) report
+ * a tiny scrollHeight — scrollbar disappears, and scrolling near the bottom
+ * reflows height and yanks the viewport to the top.
+ */
 .timeline-turn {
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 180px;
-  contain: layout paint style;
   margin-bottom: var(--grox-turn-gap, 1.75rem);
 }
 

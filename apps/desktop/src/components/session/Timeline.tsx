@@ -430,15 +430,14 @@ export function Timeline({ session }: { session: Session }) {
   const { language } = useI18n();
   const workflows = useDesktop((state) => state.workflows[session.id] ?? EMPTY_WORKFLOWS);
   const listRef = useRef<VirtuosoHandle>(null);
-  const followRef = useRef(true);
-  // After the operator expands a process trail or jumps the request rail,
-  // ignore spurious atBottom=true flaps caused by large item height changes
-  // until they actually land at the bottom again from a real scroll.
+  // Sticky inspect: expand process / request-rail jump must not fight the user.
+  // Cleared only after the operator leaves the bottom and returns (or a new
+  // live turn starts) — NOT on the expand-at-bottom height reflow.
   const inspectHoldRef = useRef(false);
+  const leftBottomRef = useRef(false);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
-  const lastBlock = session.blocks.at(-1);
-  const signature = `${session.blocks.length}:${lastBlock?.type === "assistant" || lastBlock?.type === "thinking" ? lastBlock.text.length : lastBlock?.id ?? ""}:${session.status}`;
   const sessionRunning = !isSessionTerminal(session.status);
+  const wasRunningRef = useRef(sessionRunning);
 
   const markers = useMemo<RequestMarker[]>(() => {
     const requests = turns
@@ -454,22 +453,18 @@ export function Timeline({ session }: { session: Session }) {
   }, [language, turns]);
 
   const stopFollowForInspect = useCallback(() => {
-    followRef.current = false;
     inspectHoldRef.current = true;
+    leftBottomRef.current = false;
   }, []);
 
-  // Streaming auto-scroll only while the session is live and the operator is
-  // still pinned to the bottom. Terminal turns (and process-inspect gestures)
-  // must not re-fire scrollToIndex on every signature tick — that is what
-  // yanks the viewport back when the process trail is expanded.
+  // New live turn: allow follow again so streaming sticks to the bottom.
   useEffect(() => {
-    if (!sessionRunning || !followRef.current || inspectHoldRef.current || turns.length === 0) return;
-    const frame = requestAnimationFrame(() => {
-      if (!followRef.current || inspectHoldRef.current) return;
-      listRef.current?.scrollToIndex({ index: turns.length - 1, align: "end" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [signature, turns.length, sessionRunning]);
+    if (sessionRunning && !wasRunningRef.current) {
+      inspectHoldRef.current = false;
+      leftBottomRef.current = false;
+    }
+    wasRunningRef.current = sessionRunning;
+  }, [sessionRunning]);
 
   if (session.blocks.length === 0) return <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-24"><BlackHole size={44} spin="slow" /><div className="text-center"><p className="text-[14px] text-mute">{language === "zh-CN" ? "任务通道已打开。" : "Mission channel open."}</p><p className="lbl mt-1.5 !text-[10px]">{language === "zh-CN" ? "输入你的第一个请求" : "TRANSMIT YOUR FIRST DIRECTIVE"}</p></div></div>;
 
@@ -488,20 +483,29 @@ export function Timeline({ session }: { session: Session }) {
         data={turns}
         computeItemKey={(_, turn) => turn.id}
         initialTopMostItemIndex={turns.length - 1}
+        // Only Virtuoso's own followOutput — no signature scrollToIndex dual path.
+        // Dual auto-scroll was yanking the viewport when process height changed.
         followOutput={(atBottom) => {
-          if (inspectHoldRef.current) return false;
-          return atBottom && sessionRunning ? "auto" : false;
+          if (!sessionRunning || inspectHoldRef.current) return false;
+          return atBottom ? "auto" : false;
         }}
         atBottomStateChange={(atBottom) => {
-          if (atBottom) {
-            // Real bottom contact clears inspect hold (user scrolled back).
-            inspectHoldRef.current = false;
-            followRef.current = true;
+          if (!atBottom) {
+            leftBottomRef.current = true;
             return;
           }
-          followRef.current = false;
+          // Reached bottom: clear inspect hold only if the user actually left
+          // first. Expand-at-bottom keeps atBottom=true and must stay held.
+          if (inspectHoldRef.current) {
+            if (leftBottomRef.current) {
+              inspectHoldRef.current = false;
+              leftBottomRef.current = false;
+            }
+            return;
+          }
+          leftBottomRef.current = false;
         }}
-        increaseViewportBy={{ top: 700, bottom: 1_000 }}
+        increaseViewportBy={{ top: 900, bottom: 1_200 }}
         className="h-full min-w-0 flex-1 overflow-y-auto"
         components={{
           Header: () => <div className="h-9" />,
