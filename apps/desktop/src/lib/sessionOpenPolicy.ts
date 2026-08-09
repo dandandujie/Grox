@@ -65,7 +65,9 @@ export function shouldCloseDetachedSession(args: {
 }): args is { currentId: string; nextId?: string | null; status: string } {
   return Boolean(
     args.currentId
+    // Local draft / pending shells are never ACP-attached.
     && !args.currentId.startsWith("pending-")
+    && !args.currentId.startsWith("draft-")
     && args.currentId !== args.nextId
     && (args.status === "idle" || args.status === "failed"),
   );

@@ -107,4 +107,9 @@ describe("shouldCloseDetachedSession", () => {
     expect(shouldCloseDetachedSession({ currentId: "sess-a", nextId: "sess-b", status: "running" })).toBe(false);
     expect(shouldCloseDetachedSession({ currentId: "sess-a", nextId: "sess-a", status: "idle" })).toBe(false);
   });
+
+  it("does not close local draft or pending shells", () => {
+    expect(shouldCloseDetachedSession({ currentId: "draft-abc", nextId: null, status: "idle" })).toBe(false);
+    expect(shouldCloseDetachedSession({ currentId: "pending-abc", nextId: null, status: "idle" })).toBe(false);
+  });
 });
