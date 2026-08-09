@@ -14,6 +14,7 @@ import {
   visibleTurnSlice,
 } from "../../lib/timelineWindow";
 import { isSessionHistoryPending } from "../../lib/sessionShell";
+import { deadSessionCopy, isDeadSessionView } from "../../lib/sessionUnavailable";
 import { useDesktop } from "../../state/store";
 import { Icon } from "../fx/Icon";
 import { BlackHole } from "../fx/BlackHole";
@@ -702,6 +703,36 @@ export function Timeline({ session }: { session: Session }) {
         <span className="lbl !text-[10px]">
           {language === "zh-CN" ? "正在加载会话记录…" : "LOADING MISSION LOG…"}
         </span>
+      </div>
+    );
+  }
+
+  if (isDeadSessionView(session)) {
+    const copy = deadSessionCopy(language === "zh-CN" ? "zh-CN" : "en", session.id);
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 pb-24">
+        <BlackHole size={34} />
+        <div className="max-w-[420px] text-center">
+          <p className="text-[15px] font-medium text-fg">{copy.title}</p>
+          <p className="mt-2 text-[12px] leading-relaxed text-mute">{copy.body}</p>
+          <p className="mt-3 break-all font-mono text-[9.5px] text-faint">{copy.detail}</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            className="rounded-[5px] border border-red/40 bg-red/10 px-3 py-2 font-mono text-[10px] text-red transition-colors hover:border-red hover:bg-red/15"
+            onClick={() => void useDesktop.getState().removeSessionFromSidebar(session.id)}
+          >
+            {copy.remove}
+          </button>
+          <button
+            type="button"
+            className="rounded-[5px] border border-line2 px-3 py-2 font-mono text-[10px] text-fg2 transition-colors hover:border-acc/40 hover:text-fg"
+            onClick={() => useDesktop.getState().goHome()}
+          >
+            {copy.home}
+          </button>
+        </div>
       </div>
     );
   }

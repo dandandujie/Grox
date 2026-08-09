@@ -656,6 +656,14 @@ fn parse_session_disk_preview(
     })
 }
 
+/// History file names used by current and older Grok CLI layouts.
+const SESSION_HISTORY_FILENAMES: &[&str] = &[
+    "chat_history.jsonl",
+    "history.jsonl",
+    "session.jsonl",
+    "transcript.jsonl",
+];
+
 fn session_history_path(grok: &Path, session_id: &str) -> Result<Option<PathBuf>, String> {
     let mut components = Path::new(session_id).components();
     if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
@@ -668,19 +676,106 @@ fn session_history_path(grok: &Path, session_id: &str) -> Result<Option<PathBuf>
     let sessions = sessions
         .canonicalize()
         .map_err(|error| format!("无法读取 Grok 会话目录：{error}"))?;
-    let direct = sessions.join(session_id).join("chat_history.jsonl");
-    let candidates = std::iter::once(direct).chain(
-        fs::read_dir(&sessions)
-            .map_err(|error| format!("无法扫描 Grok 会话目录：{error}"))?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().join(session_id).join("chat_history.jsonl")),
-    );
-    for candidate in candidates {
-        let Ok(candidate) = candidate.canonicalize() else {
+    let wanted = session_id.to_ascii_lowercase();
+
+    // Fast path: known layouts.
+    for name in SESSION_HISTORY_FILENAMES {
+        let direct = sessions.join(session_id).join(name);
+        if let Ok(candidate) = direct.canonicalize() {
+            if candidate.starts_with(&sessions) && candidate.is_file() {
+                return Ok(Some(candidate));
+            }
+        }
+        let Ok(entries) = fs::read_dir(&sessions) else {
+            break;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let candidate = entry.path().join(session_id).join(name);
+            if let Ok(candidate) = candidate.canonicalize() {
+                if candidate.starts_with(&sessions) && candidate.is_file() {
+                    return Ok(Some(candidate));
+                }
+            }
+        }
+    }
+
+    // Slow path: case-insensitive id match + one extra nesting level
+    // (workspace / batch / session-id / history).
+    if let Some(path) = find_session_history_by_scan(&sessions, &wanted)? {
+        return Ok(Some(path));
+    }
+    Ok(None)
+}
+
+fn history_file_in_session_dir(dir: &Path) -> Option<PathBuf> {
+    for name in SESSION_HISTORY_FILENAMES {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn dir_name_eq_ci(path: &Path, wanted_lower: &str) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.to_ascii_lowercase() == wanted_lower)
+}
+
+/// Depth-limited scan under `~/.grok/sessions` for a folder matching session id.
+fn find_session_history_by_scan(sessions: &Path, wanted_lower: &str) -> Result<Option<PathBuf>, String> {
+    let Ok(level1) = fs::read_dir(sessions) else {
+        return Ok(None);
+    };
+    for entry in level1.filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if dir_name_eq_ci(&path, wanted_lower) {
+            if let Some(file) = history_file_in_session_dir(&path) {
+                if let Ok(canonical) = file.canonicalize() {
+                    if canonical.starts_with(sessions) {
+                        return Ok(Some(canonical));
+                    }
+                }
+            }
+        }
+        // workspace-encoded / nested batch folders
+        let Ok(level2) = fs::read_dir(&path) else {
             continue;
         };
-        if candidate.starts_with(&sessions) && candidate.is_file() {
-            return Ok(Some(candidate));
+        for child in level2.filter_map(Result::ok) {
+            let child_path = child.path();
+            if !child_path.is_dir() {
+                continue;
+            }
+            if dir_name_eq_ci(&child_path, wanted_lower) {
+                if let Some(file) = history_file_in_session_dir(&child_path) {
+                    if let Ok(canonical) = file.canonicalize() {
+                        if canonical.starts_with(sessions) {
+                            return Ok(Some(canonical));
+                        }
+                    }
+                }
+            }
+            // rare: workspace / group / session-id
+            let Ok(level3) = fs::read_dir(&child_path) else {
+                continue;
+            };
+            for grand in level3.filter_map(Result::ok) {
+                let grand_path = grand.path();
+                if grand_path.is_dir() && dir_name_eq_ci(&grand_path, wanted_lower) {
+                    if let Some(file) = history_file_in_session_dir(&grand_path) {
+                        if let Ok(canonical) = file.canonicalize() {
+                            if canonical.starts_with(sessions) {
+                                return Ok(Some(canonical));
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(None)
@@ -6957,6 +7052,27 @@ mod tests {
         fs::write(&history, "").unwrap();
         assert_eq!(
             session_history_path(&root, "session-id").unwrap(),
+            Some(history.canonicalize().unwrap())
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn session_history_path_finds_nested_and_alternate_filenames() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-session-scan-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let history = root
+            .join("sessions")
+            .join("ws-a")
+            .join("batch")
+            .join("019fdc55-nested-id")
+            .join("history.jsonl");
+        fs::create_dir_all(history.parent().unwrap()).unwrap();
+        fs::write(&history, "{\"type\":\"user\",\"content\":\"hello\"}\n").unwrap();
+        assert_eq!(
+            session_history_path(&root, "019fdc55-nested-id").unwrap(),
             Some(history.canonicalize().unwrap())
         );
         fs::remove_dir_all(root).unwrap();

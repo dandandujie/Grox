@@ -449,19 +449,30 @@ function ProjectRow({ project, active, expanded, count, onToggle }: { project: P
   );
 }
 
+function missionTitle(meta: SessionMeta, language: string): string {
+  const title = meta.title?.trim();
+  if (title) return title;
+  const summary = meta.summary?.trim();
+  if (summary) return summary.slice(0, 48);
+  const shortId = meta.id.length > 12 ? `${meta.id.slice(0, 8)}…` : meta.id;
+  return language === "zh-CN" ? `无标题会话（${shortId}）` : `Untitled (${shortId})`;
+}
+
 function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: { meta: SessionMeta; status: SessionStatus; completionUnread: boolean; active: boolean; tokens: number; onOpen(): void }) {
   const { t, language } = useI18n();
   const renameSession = useDesktop((state) => state.renameSession);
   const pinSession = useDesktop((state) => state.pinSession);
   const archiveSession = useDesktop((state) => state.archiveSession);
   const markSessionUnread = useDesktop((state) => state.markSessionUnread);
+  const removeFromSidebar = useDesktop((state) => state.removeSessionFromSidebar);
   const continueInNewChat = useDesktop((state) => state.continueSessionInNewChat);
   const continueInWorktree = useDesktop((state) => state.continueSessionInNewWorktree);
   const openInNewWindow = useDesktop((state) => state.openSessionInNewWindow);
   const copySessionValue = useDesktop((state) => state.copySessionValue);
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [draft, setDraft] = useState(meta.title);
+  const displayTitle = missionTitle(meta, language);
+  const [draft, setDraft] = useState(displayTitle);
   const commit = () => {
     setEditing(false);
     const title = draft.trim();
@@ -484,7 +495,9 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
         {editing ? (
           <input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => event.key === "Enter" && commit()} onClick={(event) => event.stopPropagation()} className="min-w-0 flex-1 border border-line3 bg-void px-1 text-[11px] text-fg outline-none" />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-fg2">{meta.title}</span>
+          <span className={`min-w-0 flex-1 truncate text-[11px] ${meta.title?.trim() ? "text-fg2" : "text-faint italic"}`} title={meta.id}>
+            {displayTitle}
+          </span>
         )}
         <button
           onClick={(event) => { event.stopPropagation(); setMenu((open) => !open); }}
@@ -519,6 +532,13 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
           <MenuButton icon="branch" label={language === "zh-CN" ? "在新工作树中继续" : "Continue in new worktree"} onClick={() => void continueInWorktree(meta.id)} />
           <MenuDivider />
           <MenuButton icon="external" label={language === "zh-CN" ? "在新窗口中打开" : "Open in new window"} onClick={() => void openInNewWindow(meta.id)} />
+          <MenuDivider />
+          <MenuButton
+            icon="x"
+            label={language === "zh-CN" ? "从侧栏移除" : "Remove from sidebar"}
+            tone="text-red"
+            onClick={() => void removeFromSidebar(meta.id)}
+          />
         </ContextMenu>
       )}
     </div>

@@ -260,7 +260,10 @@ interface DesktopState {
   removeProject(id: string): void;
   openProjectInExplorer(id?: string): Promise<void>;
   createProjectWorktree(id: string): Promise<void>;
+  /** Remove from sidebar/catalog; ACP delete is best-effort (stale ids may fail). */
   deleteSession(id: string): Promise<void>;
+  /** Alias of deleteSession for dead/stale sidebar rows. */
+  removeSessionFromSidebar(id: string): Promise<void>;
   renameSession(id: string, title: string): void;
   pinSession(id: string): void;
   archiveSession(id: string): void;
@@ -1507,8 +1510,16 @@ export const useDesktop = create<DesktopState>((set, get) => {
                   sessions: { ...latest.sessions, [id]: { ...next, preview: true } },
                 };
               }
+              const unavailable = /找不到会话|session not found|unknown session|no such session/i.test(message);
+              const friendly = unavailable
+                ? (message.includes("找不到") || message.includes("会话")
+                  ? `找不到会话：${id}`
+                  : `Session not found: ${id}`)
+                : message;
               return {
-                startupError: `会话后台同步失败：${message}`,
+                startupError: unavailable
+                  ? null
+                  : `会话后台同步失败：${message}`,
                 sessions: shell
                   ? {
                       ...latest.sessions,
@@ -1519,7 +1530,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
                           : [{
                               type: "system" as const,
                               id: `open-fail-${id}`,
-                              text: message,
+                              text: friendly,
                               ts: Date.now(),
                               kind: "error" as const,
                             }],
@@ -2113,7 +2124,13 @@ export const useDesktop = create<DesktopState>((set, get) => {
     closePreview: () => set({ previewOpen: false, previewFile: null, previewError: null }),
 
     async deleteSession(id) {
-      await bridge.deleteSession(id);
+      // Stale sidebar rows often are unknown to the current CLI — never block
+      // local catalog cleanup on ACP session/delete.
+      try {
+        await bridge.deleteSession(id);
+      } catch {
+        // ignore missing CLI session
+      }
       removeSessionCache(id);
       const { sessionIndex, sessions, activeId, sessionComposers, workflows } = get();
       const rest = { ...sessions };
@@ -2134,8 +2151,13 @@ export const useDesktop = create<DesktopState>((set, get) => {
         sessionComposers: nextComposers,
         workflows: nextWorkflows,
         pendingSessionModels,
+        startupError: null,
         ...(activeId === id ? { activeId: null, view: "home" as View } : {}),
       });
+    },
+
+    async removeSessionFromSidebar(id) {
+      await get().deleteSession(id);
     },
 
     renameSession(id, title) {
