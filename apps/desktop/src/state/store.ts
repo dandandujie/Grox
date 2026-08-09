@@ -43,7 +43,17 @@ import type {
   RuntimeNotice,
 } from "../bridge/types";
 import { DEMO_CWD } from "../demo/data";
-import { loadSessionCache, removeSessionCache, scheduleSaveSessionCache } from "../lib/sessionCache";
+import {
+  clearDraftBuffer,
+  flushAllPendingSessionCaches,
+  flushSessionCache,
+  loadDraftBuffer,
+  loadSessionCache,
+  removeSessionCache,
+  saveDraftBuffer,
+  scheduleSaveSessionCache,
+  scrubSessionCacheOrphans,
+} from "../lib/sessionCache";
 import { readStoredPermissionMode } from "../lib/permissionMode";
 import { shouldDrainLocalQueue } from "../lib/queueTurnPolicy";
 import { mergeProjectSessionsPure } from "../lib/sessionCatalogMerge";
@@ -306,6 +316,8 @@ interface DesktopState {
   setComputerUseEnabled(enabled: boolean): void;
   setBrowserUseEnabled(enabled: boolean): void;
   setDraft(text: string): void;
+  /** Flush UI session cache + catalog for crash durability (visibility/pagehide). */
+  flushDurableState(): void;
   setComposerAttachments(attachments: PromptAttachment[]): void;
   setInspectorTab(tab: InspectorTab): void;
   setPlanPreviewOpen(open: boolean): void;
@@ -585,7 +597,7 @@ function scheduleSessionCatalog(metas: SessionMeta[]) {
     if (pendingCatalog) persistSessionCatalog(pendingCatalog);
     pendingCatalog = undefined;
     catalogPersistTimer = undefined;
-  }, 750);
+  }, 300);
 }
 
 if (import.meta.hot) {
@@ -726,7 +738,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
       const s = state.sessions[sessionId];
       if (!s) return;
       const next = { ...fn(s), updatedAt: Date.now() };
-      scheduleSaveSessionCache(next);
+      // Terminal turns flush cache immediately (BSOD window); live turns debounce.
+      if (isSessionTerminal(next.status)) flushSessionCache(next);
+      else scheduleSaveSessionCache(next);
       if (!touchCatalogue) {
         set({ sessions: { ...state.sessions, [sessionId]: next } });
         if (isSessionTerminal(next.status)) applyQueuedModel(sessionId);
@@ -742,7 +756,12 @@ export const useDesktop = create<DesktopState>((set, get) => {
             }
           : m,
       );
-      scheduleSessionCatalog(nextIndex);
+      if (isSessionTerminal(next.status)) {
+        // Catalogue row status should survive hard crash too.
+        persistSessionCatalog(nextIndex);
+      } else {
+        scheduleSessionCatalog(nextIndex);
+      }
       set({
         sessions: { ...state.sessions, [sessionId]: next },
         sessionIndex: nextIndex,
@@ -1255,6 +1274,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         }, 750);
         if (!auth.required) void get().refreshAccount();
         void get().refreshProviderProfiles();
+        void scrubSessionCacheOrphans();
         window.setTimeout(() => {
           if (!get().auth.inProgress && get().historySyncedAt === 0) void get().refreshHistory();
         }, 500);
@@ -1377,33 +1397,54 @@ export const useDesktop = create<DesktopState>((set, get) => {
         pendingLaunch = undefined;
         const draftId = `draft-${uid()}`;
         const now = Date.now();
-        set((state) => ({
-          view: "session",
-          activeId: draftId,
-          sessions: {
-            ...dropEphemeralSessions(state.sessions),
-            [draftId]: {
-              id: draftId,
-              title: "",
-              cwd: state.workspace,
-              createdAt: now,
-              updatedAt: now,
-              model: state.model,
-              blocks: [],
-              usage: {
-                inputTokens: 0,
-                outputTokens: 0,
-                cacheReadTokens: 0,
-                costUSD: 0,
-                contextUsed: 0,
-                contextMax: 0,
-                turns: 0,
+        const workspace = get().workspace;
+        const recovered = loadDraftBuffer(workspace);
+        const recoveredText = recovered?.text ?? "";
+        set((state) => {
+          const baseComposers = state.sessionComposers;
+          const sessionComposers = recoveredText
+            ? {
+                ...baseComposers,
+                [draftId]: {
+                  text: recoveredText,
+                  attachments: [],
+                  model: state.model,
+                  effort: state.effort,
+                  mode: state.mode,
+                  permissionMode: state.permissionMode,
+                },
+              }
+            : baseComposers;
+          if (recoveredText) persistSessionComposers(sessionComposers);
+          return {
+            view: "session" as const,
+            activeId: draftId,
+            sessionComposers,
+            sessions: {
+              ...dropEphemeralSessions(state.sessions),
+              [draftId]: {
+                id: draftId,
+                title: "",
+                cwd: workspace,
+                createdAt: now,
+                updatedAt: now,
+                model: state.model,
+                blocks: [],
+                usage: {
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  cacheReadTokens: 0,
+                  costUSD: 0,
+                  contextUsed: 0,
+                  contextMax: 0,
+                  turns: 0,
+                },
+                status: "idle" as const,
               },
-              status: "idle",
             },
-          },
-          startupError: null,
-        }));
+            startupError: null,
+          };
+        });
         return;
       }
 
@@ -2063,11 +2104,14 @@ export const useDesktop = create<DesktopState>((set, get) => {
 
       const trimmed = text.trim();
       if (!trimmed && attachments.length === 0) return false;
+      // Sent text is durable via CLI; drop unsent crash buffer for this cwd.
+      clearDraftBuffer(session.cwd || get().workspace);
 
       // Promote a local draft into a real ACP session on first send only.
       // Keep global controls in sync, then hand off to newSession which replaces
       // the draft with a pending shell — no activeId=null flash in between.
       if (isDraftSessionId(session.id)) {
+        clearDraftBuffer(session.cwd || get().workspace);
         const nextComposers = { ...sessionComposers };
         delete nextComposers[session.id];
         persistSessionComposers(nextComposers);
@@ -2439,18 +2483,56 @@ export const useDesktop = create<DesktopState>((set, get) => {
       set({ browserUseEnabled: enabled });
     },
     setDraft(text) {
-      const { activeId, sessionComposers, model, effort, mode, permissionMode } = get();
+      const { activeId, sessionComposers, model, effort, mode, permissionMode, sessions, workspace } = get();
       if (!activeId) return;
       const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
       const next = { ...sessionComposers, [activeId]: { ...current, text } };
       persistSessionComposers(next);
       set({ sessionComposers: next });
+      // Crash buffer for unsent prompts (draft or idle session composer).
+      const session = sessions[activeId];
+      const cwd = session?.cwd || workspace;
+      if (isDraftSessionId(activeId) || !session || isSessionTerminal(session.status)) {
+        saveDraftBuffer(cwd, text);
+      }
     },
     setComposerAttachments(attachments) {
       const { activeId, sessionComposers, model, effort, mode, permissionMode } = get();
       if (!activeId) return;
       const current = sessionComposers[activeId] ?? { text: "", attachments: [], model, effort, mode, permissionMode };
       set({ sessionComposers: { ...sessionComposers, [activeId]: { ...current, attachments } } });
+    },
+    flushDurableState() {
+      const state = get();
+      flushAllPendingSessionCaches(state.sessions);
+      if (catalogPersistTimer !== undefined) {
+        window.clearTimeout(catalogPersistTimer);
+        catalogPersistTimer = undefined;
+      }
+      if (pendingCatalog) {
+        persistSessionCatalog(pendingCatalog);
+        pendingCatalog = undefined;
+      }
+      if (composerPersistTimer !== undefined) {
+        window.clearTimeout(composerPersistTimer);
+        composerPersistTimer = undefined;
+      }
+      if (pendingComposerStates) {
+        const serializable = Object.fromEntries(
+          Object.entries(pendingComposerStates).map(([id, { attachments: _attachments, ...rest }]) => [id, rest]),
+        );
+        localStorage.setItem(SESSION_COMPOSERS_KEY, JSON.stringify(serializable));
+        pendingComposerStates = undefined;
+      }
+      // Active composer text crash buffer
+      const activeId = state.activeId;
+      if (activeId) {
+        const text = state.sessionComposers[activeId]?.text ?? "";
+        const cwd = state.sessions[activeId]?.cwd || state.workspace;
+        if (isDraftSessionId(activeId) || isSessionTerminal(state.sessions[activeId]?.status ?? "idle")) {
+          saveDraftBuffer(cwd, text);
+        }
+      }
     },
     setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true }),
     setPlanPreviewOpen: (planPreviewOpen) => set({ planPreviewOpen, ...(planPreviewOpen ? { previewOpen: false } : {}) }),

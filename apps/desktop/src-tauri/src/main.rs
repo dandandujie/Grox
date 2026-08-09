@@ -875,13 +875,16 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
         .ok_or_else(|| "配置路径缺少父目录".to_string())?;
     fs::create_dir_all(parent)
         .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config");
+    let nonce = CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed);
     let temp = parent.join(format!(
         ".{}.grox-{}-{}.tmp",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("config"),
+        file_name,
         std::process::id(),
-        CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed),
+        nonce,
     ));
     {
         let mut file = fs::OpenOptions::new()
@@ -898,11 +901,93 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
             return Err(format!("无法写入配置 {}：{error}", temp.display()));
         }
     }
-    if path.exists() {
-        fs::remove_file(path)
-            .map_err(|error| format!("无法替换配置 {}：{error}", path.display()))?;
+    // Never delete the live file before the new payload is durable.
+    // Previous code removed `path` then renamed — a crash in that window
+    // left neither final nor recoverable content for that key.
+    //
+    // Replace strategy:
+    // 1) move final -> .bak (if present)
+    // 2) move temp  -> final
+    // 3) drop .bak
+    // On failure after (1), restore .bak. Leftover temps/baks are scrubbed on startup.
+    let backup = parent.join(format!(
+        ".{}.grox-{}-{}.bak",
+        file_name,
+        std::process::id(),
+        nonce,
+    ));
+    let had_backup = if path.exists() {
+        let _ = fs::remove_file(&backup);
+        fs::rename(path, &backup)
+            .map_err(|error| format!("无法备份配置 {}：{error}", path.display()))?;
+        true
+    } else {
+        false
+    };
+    if let Err(error) = fs::rename(&temp, path) {
+        if had_backup {
+            let _ = fs::rename(&backup, path);
+        }
+        let _ = fs::remove_file(&temp);
+        return Err(format!("无法保存配置 {}：{error}", path.display()));
     }
-    fs::rename(&temp, path).map_err(|error| format!("无法保存配置 {}：{error}", path.display()))
+    if had_backup {
+        let _ = fs::remove_file(&backup);
+    }
+    Ok(())
+}
+
+/// Drop orphan atomic-write temps/baks (crash leftovers) under a directory.
+fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = 0u32;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let is_orphan = name.starts_with('.')
+            && (name.ends_with(".tmp") || name.ends_with(".bak"))
+            && name.contains(".grox-");
+        if !is_orphan {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = meta.modified() else {
+            // If mtime is unavailable, still drop obvious orphans.
+            if fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+            continue;
+        };
+        let aged = now.duration_since(modified).unwrap_or_default() >= max_age;
+        // Always remove .tmp; only remove aged .bak (might still be mid-replace).
+        let drop = name.ends_with(".tmp") || aged;
+        if drop && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+fn scrub_session_cache_dir(app: &tauri::AppHandle) {
+    let Ok(dir) = app.path().app_config_dir().map(|d| d.join("session-cache")) else {
+        return;
+    };
+    if !dir.is_dir() {
+        return;
+    }
+    // Temps older than 30s are safe leftovers; immediate cleanup of all .tmp
+    // is fine because live writers hold exclusive create_new names.
+    let removed = scrub_atomic_write_orphans(&dir, std::time::Duration::from_secs(30));
+    if removed > 0 {
+        eprintln!("grox: scrubbed {removed} orphan session-cache temp/bak files");
+    }
 }
 
 const SESSION_CACHE_MAX_BYTES: u64 = 4 * 1024 * 1024;
@@ -955,6 +1040,22 @@ fn delete_session_cache(app: tauri::AppHandle, id: String) -> Result<(), String>
         fs::remove_file(&path).map_err(|error| format!("无法删除会话缓存：{error}"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn scrub_session_cache_orphans(app: tauri::AppHandle) -> Result<u32, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map(|directory| directory.join("session-cache"))
+        .map_err(|error| format!("无法定位会话缓存目录：{error}"))?;
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    Ok(scrub_atomic_write_orphans(
+        &dir,
+        std::time::Duration::from_secs(0),
+    ))
 }
 
 #[cfg(unix)]
@@ -6458,6 +6559,10 @@ fn main() {
             if let Err(error) = provision_grox_deep_research_workflow() {
                 eprintln!("grox: 无法安装完整 deep-research 工作流：{error}");
             }
+            // Crash / BSOD leftovers: thousands of .tmp files have been observed
+            // under session-cache after hard kills. Scrub on boot so the next
+            // write path stays healthy.
+            scrub_session_cache_dir(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -6467,6 +6572,7 @@ fn main() {
             read_session_cache,
             write_session_cache,
             delete_session_cache,
+            scrub_session_cache_orphans,
             validate_workspace,
             pick_workspace,
             list_workspace_files,
@@ -6582,6 +6688,50 @@ mod tests {
                 truncated: true,
             }
         );
+    }
+
+    #[test]
+    fn atomic_write_replaces_without_delete_first_gap() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-atomic-write-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("payload.json");
+        atomic_write(&path, "{\"v\":1}").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"v\":1}");
+        atomic_write(&path, "{\"v\":2}").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"v\":2}");
+        // No lingering temps/baks for a clean replace.
+        let leftovers: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".grox-"))
+            .collect();
+        assert!(leftovers.is_empty(), "leftovers: {leftovers:?}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scrub_atomic_write_orphans_removes_tmp_and_aged_bak() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-scrub-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let tmp = root.join(".x.json.grox-1-2.tmp");
+        let bak = root.join(".x.json.grox-1-3.bak");
+        let keep = root.join("x.json");
+        fs::write(&tmp, b"tmp").unwrap();
+        fs::write(&bak, b"bak").unwrap();
+        fs::write(&keep, b"keep").unwrap();
+        let removed = scrub_atomic_write_orphans(&root, std::time::Duration::from_secs(0));
+        assert!(removed >= 2);
+        assert!(!tmp.exists());
+        assert!(!bak.exists());
+        assert!(keep.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

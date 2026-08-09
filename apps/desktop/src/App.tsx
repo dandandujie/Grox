@@ -65,6 +65,29 @@ export default function App() {
     void init();
   }, [init]);
 
+  // Shrink BSOD / hard-kill loss window: flush UI cache + catalog when the
+  // window is backgrounded or the page is being torn down.
+  useEffect(() => {
+    const flush = () => {
+      try {
+        useDesktop.getState().flushDurableState();
+      } catch {
+        // ignore
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
