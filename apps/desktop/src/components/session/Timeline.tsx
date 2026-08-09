@@ -1,5 +1,4 @@
-import { memo, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { memo, type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isSessionTerminal, type Session, type SessionBlock, type WorkflowRun } from "../../bridge/types";
 import { useI18n } from "../../lib/i18n";
 import {
@@ -17,6 +16,9 @@ import { PlanCard } from "./PlanCard";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./QuestionCard";
 import { TurnChangeCard } from "./TurnChangeCard";
+
+/** Near-bottom slack for stick-to-bottom while streaming. */
+const FOLLOW_BOTTOM_PX = 96;
 
 interface Turn {
   id: string;
@@ -426,18 +428,27 @@ const MemoTurnGroup = memo(TurnGroup, (previous, next) => {
   return previous.turn.blocks.every((block, index) => block === next.turn.blocks[index]);
 });
 
+function isNearBottom(el: HTMLElement, slack = FOLLOW_BOTTOM_PX): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= slack;
+}
+
 export function Timeline({ session }: { session: Session }) {
   const { language } = useI18n();
   const workflows = useDesktop((state) => state.workflows[session.id] ?? EMPTY_WORKFLOWS);
-  const listRef = useRef<VirtuosoHandle>(null);
-  // Sticky inspect: expand process / request-rail jump must not fight the user.
-  // Cleared only after the operator leaves the bottom and returns (or a new
-  // live turn starts) — NOT on the expand-at-bottom height reflow.
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // Native scroller (not Virtuoso): expanding a completed process trail can
+  // grow a single turn by tens of thousands of px. Virtuoso re-ranges on that
+  // size change and yanks scrollTop to 0 — the "expand then scroll → top" loop.
+  const followRef = useRef(true);
   const inspectHoldRef = useRef(false);
   const leftBottomRef = useRef(false);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
   const sessionRunning = !isSessionTerminal(session.status);
   const wasRunningRef = useRef(sessionRunning);
+  const lastBlock = session.blocks.at(-1);
+  const liveSignature = sessionRunning
+    ? `${session.blocks.length}:${lastBlock?.type === "assistant" || lastBlock?.type === "thinking" ? lastBlock.text.length : lastBlock?.id ?? ""}:${session.status}`
+    : "";
 
   const markers = useMemo<RequestMarker[]>(() => {
     const requests = turns
@@ -453,68 +464,87 @@ export function Timeline({ session }: { session: Session }) {
   }, [language, turns]);
 
   const stopFollowForInspect = useCallback(() => {
+    followRef.current = false;
     inspectHoldRef.current = true;
     leftBottomRef.current = false;
   }, []);
 
-  // New live turn: allow follow again so streaming sticks to the bottom.
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
+  // Open / switch session: land on the latest answer once. Never re-run on
+  // process expand (that only changes local turn state, not session.id).
+  useLayoutEffect(() => {
+    followRef.current = true;
+    inspectHoldRef.current = false;
+    leftBottomRef.current = false;
+    scrollToBottom("auto");
+  }, [session.id, scrollToBottom]);
+
+  // New live turn after idle: resume stick-to-bottom for streaming.
   useEffect(() => {
     if (sessionRunning && !wasRunningRef.current) {
       inspectHoldRef.current = false;
       leftBottomRef.current = false;
+      followRef.current = true;
+      scrollToBottom("auto");
     }
     wasRunningRef.current = sessionRunning;
-  }, [sessionRunning]);
+  }, [sessionRunning, scrollToBottom]);
+
+  // Streaming stick-to-bottom — only while the session is live and the
+  // operator has not expanded process / scrolled away.
+  useLayoutEffect(() => {
+    if (!sessionRunning || !liveSignature) return;
+    if (inspectHoldRef.current || !followRef.current) return;
+    scrollToBottom("auto");
+  }, [liveSignature, sessionRunning, scrollToBottom]);
+
+  const onScrollerScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    if (!isNearBottom(el)) {
+      followRef.current = false;
+      leftBottomRef.current = true;
+      return;
+    }
+    // At bottom: clear inspect only after the user left first (expand-at-bottom
+    // must not immediately re-enable follow).
+    if (inspectHoldRef.current) {
+      if (leftBottomRef.current) {
+        inspectHoldRef.current = false;
+        leftBottomRef.current = false;
+        followRef.current = true;
+      }
+      return;
+    }
+    leftBottomRef.current = false;
+    followRef.current = true;
+  };
 
   if (session.blocks.length === 0) return <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-24"><BlackHole size={44} spin="slow" /><div className="text-center"><p className="text-[14px] text-mute">{language === "zh-CN" ? "任务通道已打开。" : "Mission channel open."}</p><p className="lbl mt-1.5 !text-[10px]">{language === "zh-CN" ? "输入你的第一个请求" : "TRANSMIT YOUR FIRST DIRECTIVE"}</p></div></div>;
 
   const jumpToTurn = (id: string) => {
-    const index = turns.findIndex((turn) => turn.id === id);
-    if (index < 0) return;
     stopFollowForInspect();
-    listRef.current?.scrollToIndex({ index, align: "start", behavior: "smooth" });
+    const node = scrollerRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(id)}"]`);
+    node?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
 
   return (
     <div className="relative flex min-h-0 flex-1">
-      <Virtuoso
-        key={session.id}
-        ref={listRef}
-        data={turns}
-        computeItemKey={(_, turn) => turn.id}
-        initialTopMostItemIndex={turns.length - 1}
-        // Only Virtuoso's own followOutput — no signature scrollToIndex dual path.
-        // Dual auto-scroll was yanking the viewport when process height changed.
-        followOutput={(atBottom) => {
-          if (!sessionRunning || inspectHoldRef.current) return false;
-          return atBottom ? "auto" : false;
-        }}
-        atBottomStateChange={(atBottom) => {
-          if (!atBottom) {
-            leftBottomRef.current = true;
-            return;
-          }
-          // Reached bottom: clear inspect hold only if the user actually left
-          // first. Expand-at-bottom keeps atBottom=true and must stay held.
-          if (inspectHoldRef.current) {
-            if (leftBottomRef.current) {
-              inspectHoldRef.current = false;
-              leftBottomRef.current = false;
-            }
-            return;
-          }
-          leftBottomRef.current = false;
-        }}
-        increaseViewportBy={{ top: 900, bottom: 1_200 }}
-        className="h-full min-w-0 flex-1 overflow-y-auto"
-        components={{
-          Header: () => <div className="h-9" />,
-          Footer: () => <div className="h-11" />,
-        }}
-        itemContent={(index, turn) => {
+      <div
+        ref={scrollerRef}
+        className="timeline-scroller h-full min-w-0 flex-1 overflow-y-auto"
+        onScroll={onScrollerScroll}
+      >
+        <div className="h-9 shrink-0" />
+        {turns.map((turn, index) => {
           const user = turn.blocks.find((block): block is Extract<SessionBlock, { type: "user" }> => block.type === "user");
           return (
-            <div className="timeline-content mx-auto">
+            <div key={turn.id} data-turn-id={turn.id} className="timeline-content mx-auto">
               <MemoTurnGroup
                 turn={turn}
                 sessionId={session.id}
@@ -525,8 +555,9 @@ export function Timeline({ session }: { session: Session }) {
               />
             </div>
           );
-        }}
-      />
+        })}
+        <div className="h-11 shrink-0" />
+      </div>
       <RequestRail markers={markers} language={language} onJump={jumpToTurn} />
     </div>
   );

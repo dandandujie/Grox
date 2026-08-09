@@ -314,14 +314,20 @@ html:not([data-theme="light"]) {
 }
 
 /*
- * Turn spacing only. Do NOT use content-visibility / contain-intrinsic-size
- * here: Virtuoso already window-virtualizes rows. content-visibility with a
- * ~180px intrinsic size makes expanded process trails (thousands of px) report
- * a tiny scrollHeight — scrollbar disappears, and scrolling near the bottom
- * reflows height and yanks the viewport to the top.
+ * Turn spacing only. Do NOT use content-visibility / contain-intrinsic-size:
+ * expanded process trails are thousands of px; fake intrinsic height breaks
+ * scrollHeight (missing scrollbar) and yanks the viewport on reflow.
+ * Timeline uses a native scroller (not Virtuoso) so expand stays stable.
  */
+.timeline-scroller {
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+}
+
 .timeline-turn {
   margin-bottom: var(--grox-turn-gap, 1.75rem);
+  /* Prefer keeping the focused answer stable when process expands above it. */
+  overflow-anchor: auto;
 }
 
 .timeline-content {

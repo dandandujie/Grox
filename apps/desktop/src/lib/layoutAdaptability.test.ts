@@ -71,14 +71,15 @@ describe("layout adaptability — density isolation", () => {
     expect(dock).toMatch(/padding-left:\s*var\(--grox-content-px/);
   });
 
-  it("timeline does not dual-drive scroll with signature scrollToIndex", () => {
+  it("timeline uses native scroller (Virtuoso yanks scroll on process expand)", () => {
     const timelineSrc = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), "../components/session/Timeline.tsx"),
       "utf8",
     );
-    // followOutput alone is enough; signature effects fighting Virtuoso yank scroll.
-    expect(timelineSrc).not.toMatch(/scrollToIndex\(\{\s*index:\s*turns\.length\s*-\s*1/);
-    expect(timelineSrc).toMatch(/followOutput=/);
+    expect(timelineSrc).not.toMatch(/from ["']react-virtuoso["']/);
+    expect(timelineSrc).not.toMatch(/<Virtuoso\b/);
+    expect(timelineSrc).toMatch(/timeline-scroller/);
+    expect(timelineSrc).toMatch(/data-turn-id/);
   });
 
   it("assistant content fills reading column (no nested hollow max)", () => {
@@ -88,7 +89,7 @@ describe("layout adaptability — density isolation", () => {
     expect(tokens).not.toMatch(/--grox-assistant-max/);
   });
 
-  it("timeline-turn does not use content-visibility (breaks Virtuoso scroll height)", () => {
+  it("timeline-turn does not use content-visibility (breaks scroll height)", () => {
     const body = blockFor(".timeline-turn");
     expect(body).toBeTruthy();
     expect(body).not.toMatch(/content-visibility/);
