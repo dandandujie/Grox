@@ -18,7 +18,7 @@ mod process_job;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
-    io::Write as _,
+    io::{Read as _, Write as _},
     path::{Component, Path, PathBuf},
     process::Stdio,
     sync::{
@@ -2616,6 +2616,50 @@ fn optional_git_text(root: &Path, args: &[&str]) -> Option<String> {
     git_text(root, args).ok().filter(|value| !value.is_empty())
 }
 
+fn text_file_line_count(path: &Path) -> u64 {
+    let Ok(mut file) = fs::File::open(path) else {
+        return 0;
+    };
+    let mut buffer = [0_u8; 16 * 1024];
+    let mut lines = 0_u64;
+    let mut has_content = false;
+    let mut ends_with_newline = false;
+    loop {
+        let Ok(read) = file.read(&mut buffer) else {
+            return 0;
+        };
+        if read == 0 {
+            break;
+        }
+        let chunk = &buffer[..read];
+        // 与 Git numstat 一致，二进制文件不计文本增删行。
+        if chunk.contains(&0) {
+            return 0;
+        }
+        has_content = true;
+        ends_with_newline = chunk.last() == Some(&b'\n');
+        lines = lines.saturating_add(chunk.iter().filter(|byte| **byte == b'\n').count() as u64);
+    }
+    lines + u64::from(has_content && !ends_with_newline)
+}
+
+fn untracked_added_lines(root: &Path) -> u64 {
+    let Ok(output) = git_command(root, &["ls-files", "--others", "--exclude-standard", "-z"])
+    else {
+        return 0;
+    };
+    if !output.status.success() {
+        return 0;
+    }
+    output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(|path| root.join(String::from_utf8_lossy(path).as_ref()))
+        .map(|path| text_file_line_count(&path))
+        .fold(0_u64, u64::saturating_add)
+}
+
 #[tauri::command]
 fn git_summary(cwd: String) -> Result<GitSummary, String> {
     let root = checked_workspace(&cwd)?;
@@ -2640,7 +2684,8 @@ fn git_summary(cwd: String) -> Result<GitSummary, String> {
     let branches = optional_git_text(&root, &["branch", "--format=%(refname:short)"])
         .map(|value| value.lines().map(str::to_string).collect())
         .unwrap_or_default();
-    let status = optional_git_text(&root, &["status", "--porcelain=v1"]).unwrap_or_default();
+    let status = optional_git_text(&root, &["status", "--porcelain=v1", "--untracked-files=all"])
+        .unwrap_or_default();
     let changed_files = status
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -2648,7 +2693,7 @@ fn git_summary(cwd: String) -> Result<GitSummary, String> {
     let numstat = optional_git_text(&root, &["diff", "--numstat", "HEAD"])
         .or_else(|| optional_git_text(&root, &["diff", "--numstat"]))
         .unwrap_or_default();
-    let (added, removed) = numstat
+    let (tracked_added, removed) = numstat
         .lines()
         .fold((0_u64, 0_u64), |(added, removed), line| {
             let mut columns = line.split('\t');
@@ -2662,6 +2707,7 @@ fn git_summary(cwd: String) -> Result<GitSummary, String> {
                 .unwrap_or(0);
             (added + next_added, removed + next_removed)
         });
+    let added = tracked_added.saturating_add(untracked_added_lines(&root));
     let remote_url = optional_git_text(&root, &["remote", "get-url", "origin"]);
     let default_branch = optional_git_text(
         &root,
@@ -6861,6 +6907,33 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_summary_includes_untracked_text_in_diff_stats() {
+        let root = std::env::temp_dir().join(format!(
+            "grox-git-summary-{}",
+            CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        git_text(&root, &["init", "-b", "main"]).unwrap();
+        git_text(&root, &["config", "user.name", "Grox Test"]).unwrap();
+        git_text(&root, &["config", "user.email", "test@grox.local"]).unwrap();
+        fs::write(root.join("README.md"), "old\n").unwrap();
+        fs::write(root.join(".gitignore"), "ignored.txt\n").unwrap();
+        git_text(&root, &["add", "README.md", ".gitignore"]).unwrap();
+        git_text(&root, &["commit", "-m", "init"]).unwrap();
+
+        fs::write(root.join("README.md"), "new\nsecond\n").unwrap();
+        fs::write(root.join("new.txt"), "one\ntwo\nthree").unwrap();
+        fs::write(root.join("binary.dat"), [0_u8, 1, 2]).unwrap();
+        fs::write(root.join("ignored.txt"), "hidden\n").unwrap();
+
+        let summary = git_summary(path_for_webview(&root)).unwrap();
+        assert_eq!(summary.changed_files, 3);
+        assert_eq!(summary.added, 5);
+        assert_eq!(summary.removed, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn session_disk_preview_keeps_recent_visible_conversation() {
