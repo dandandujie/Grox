@@ -3,11 +3,11 @@
   "repository": "https://github.com/xai-org/grok-build",
   "branch": "main",
   "latestObserved": {
-    "commit": "8a14c91d88875a831a38b3a066b1683116bcb31c",
-    "sourceRevision": "27b3c66635e2c0bf213429a36ab916f25d59df20",
+    "commit": "75e73f3d6ac0350d211f12ae7d57c2c0aad72576",
+    "sourceRevision": "a61c32b12a2b400f212221cd8762e05f9b36828d",
     "publicVersion": null,
     "packageVersion": "1.0.0",
-    "observedAt": "2026-08-09",
+    "observedAt": "2026-08-10",
     "officialLatestPublicVersion": "1.0.0",
     "releaseStatus": "unpublished_snapshot"
   },
@@ -22,15 +22,15 @@
     "platforms": ["windows-x64", "macos-arm64", "macos-x64"]
   },
   "integrationTarget": {
-    "baseCommit": "afbc0fb710320c7add294c2106d447ecc3e3af2e",
-    "commit": "8a14c91d88875a831a38b3a066b1683116bcb31c",
-    "sourceRevision": "27b3c66635e2c0bf213429a36ab916f25d59df20",
+    "baseCommit": "8a14c91d88875a831a38b3a066b1683116bcb31c",
+    "commit": "75e73f3d6ac0350d211f12ae7d57c2c0aad72576",
+    "sourceRevision": "a61c32b12a2b400f212221cd8762e05f9b36828d",
     "publicVersion": null,
     "packageVersion": "1.0.0",
     "status": "source_adapted_waiting_release",
-    "issue": 23,
-    "groxCommit": "90dd185b46d442ab5c99823f043c2f97b0d592de",
-    "stableRegressionRun": "https://github.com/dandandujie/Grox/actions/runs/31308799109",
+    "issue": 24,
+    "groxCommit": "8deeca20bfbabffe925725fd7da14cf5e4ad024b",
+    "stableRegressionRun": "https://github.com/dandandujie/Grox/actions/runs/31352143888",
     "blockers": [
       "upstream snapshot is not published in the official changelog or installer",
       "public source snapshot uses /dev/stdout and /dev/null in xai-proto-build, blocking an unmodified Windows Cargo verification"
