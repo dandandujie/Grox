@@ -745,6 +745,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       restoring: state.restoringSessionId === sessionId,
       suppressed: suppressedQueueDrain.has(sessionId),
       queueLength: queue.length,
+      hasLiveProcess: turnHasLiveText(session.blocks),
     })) return;
 
     const drainAt = nextLocalDrainIndex(
@@ -1145,7 +1146,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
       case "block_add":
         if (isHiddenWorkflowControlPrompt(e.block)) break;
         withSession(e.sessionId, (s) => ({ ...s, blocks: [...s.blocks, e.block] }));
-        applyPostPromptContinuation(e.sessionId);
+        // Tools must not keep a post-prompt continuation alive — a leftover
+        // running LRC / cargo test would reset the settle timer forever.
+        if (e.block.type === "thinking" || e.block.type === "assistant") {
+          applyPostPromptContinuation(e.sessionId);
+        }
         if (e.block.type === "plan" && get().activeId === e.sessionId) {
           set({ planPreviewOpen: true, previewOpen: false });
         }
@@ -1162,7 +1167,6 @@ export const useDesktop = create<DesktopState>((set, get) => {
           ...s,
           blocks: patchTool(s.blocks, e.blockId, e.call),
         }), false);
-        applyPostPromptContinuation(e.sessionId);
         break;
       case "plan_patch":
         withSession(e.sessionId, (s) => ({

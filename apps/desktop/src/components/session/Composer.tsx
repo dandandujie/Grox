@@ -69,8 +69,7 @@ export function Composer() {
   const stop = useDesktop((s) => s.stop);
   const emergencyStopComputer = useDesktop((s) => s.emergencyStopComputer);
   const compact = useDesktop((s) => s.compact);
-  const session = useDesktop((s) => (s.activeId ? s.sessions[s.activeId] : undefined));
-  const status = session?.status ?? null;
+  const status = useDesktop((s) => (s.activeId ? s.sessions[s.activeId]?.status ?? null : null));
   const restoring = useDesktop((s) => Boolean(s.activeId && s.restoringSessionId === s.activeId));
   const creating = useDesktop((s) => Boolean(s.activeId?.startsWith("pending-")));
   const computerRunning = useDesktop((s) => {
@@ -105,7 +104,7 @@ export function Composer() {
     window.dispatchEvent(new CustomEvent("grox:settings-section", { detail: section }));
   };
 
-  const running = sessionLooksBusy({ status, blocks: session?.blocks ?? [] });
+  const running = sessionLooksBusy({ status });
   const deepResearchAvailable = runtimeCommands.some((command) => command.name === "deep-research");
 
   const slashCommands: SlashCmd[] = [

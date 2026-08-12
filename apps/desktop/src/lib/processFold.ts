@@ -6,11 +6,9 @@
  * final answer stays on screen. Manual expand after completion is allowed;
  * only the live→complete transition force-collapses.
  *
- * `session/prompt` returning idle is not enough: ACP can still emit thought
- * chunks and tool updates after that (background notifications). Folding on
- * status alone shows "思考中" inside a completed summary while new content
- * is still arriving. Live thinking / streaming answers / open tools keep
- * the trail unfolded.
+ * A leftover thinking.live after the session is already idle is a label
+ * bug, not an open turn. Completed conversations always fold; the last
+ * turn stays open only while session status is still running.
  *
  * Virtuoso recycles row components when they leave the viewport. Local
  * `useState(initialProcessOpen)` alone would re-collapse every remount and
