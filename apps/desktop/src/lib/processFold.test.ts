@@ -1,12 +1,46 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { SessionBlock } from "../bridge/types";
 import {
   clearProcessOpenMemory,
   initialProcessOpen,
+  isProcessFoldComplete,
   nextProcessOpenOnCompleteChange,
   readProcessOpen,
   rememberProcessOpen,
   resolveInitialProcessOpen,
+  thinkingIsLive,
+  turnHasLiveProcess,
+  turnHasLiveText,
 } from "./processFold";
+
+const thinking = (live: boolean): SessionBlock => ({
+  type: "thinking",
+  id: "th",
+  text: "working",
+  ts: 1,
+  live,
+});
+
+const assistant = (streaming = false): SessionBlock => ({
+  type: "assistant",
+  id: "a",
+  text: "done",
+  ts: 2,
+  streaming,
+});
+
+const tool = (status: "running" | "done"): SessionBlock => ({
+  type: "tool",
+  id: "tool",
+  ts: 3,
+  call: {
+    id: "c1",
+    kind: "execute",
+    title: "run",
+    status,
+    startedAt: 1,
+  },
+});
 
 afterEach(() => {
   clearProcessOpenMemory();
@@ -79,5 +113,57 @@ describe("process open memory (Virtuoso remount safety)", () => {
     expect(readProcessOpen("s2", "t1")).toBe(true);
     clearProcessOpenMemory();
     expect(readProcessOpen("s2", "t1")).toBeUndefined();
+  });
+});
+
+describe("turnHasLiveProcess", () => {
+  it("treats live thinking as still in process", () => {
+    expect(turnHasLiveProcess([thinking(true), assistant()])).toBe(true);
+    expect(turnHasLiveProcess([thinking(false), assistant()])).toBe(false);
+  });
+
+  it("treats a streaming answer or open tool as still in process", () => {
+    expect(turnHasLiveProcess([assistant(true)])).toBe(true);
+    expect(turnHasLiveProcess([tool("running"), assistant()])).toBe(true);
+    expect(turnHasLiveProcess([tool("done"), assistant()])).toBe(false);
+  });
+});
+
+describe("turnHasLiveText", () => {
+  it("ignores leftover running tools after the answer is done", () => {
+    expect(turnHasLiveText([thinking(true), assistant()])).toBe(true);
+    expect(turnHasLiveText([assistant(true)])).toBe(true);
+    expect(turnHasLiveText([tool("running"), thinking(false), assistant()])).toBe(false);
+  });
+});
+
+describe("thinkingIsLive", () => {
+  it("never looks live inside a completed process trail", () => {
+    expect(thinkingIsLive({ live: true }, false)).toBe(false);
+    expect(thinkingIsLive({ live: true }, true)).toBe(true);
+    expect(thinkingIsLive({ live: false }, true)).toBe(false);
+  });
+});
+
+describe("isProcessFoldComplete", () => {
+  it("folds a finished conversation even if a thinking block kept live=true", () => {
+    expect(isProcessFoldComplete({
+      active: true,
+      sessionTerminal: true,
+    })).toBe(true);
+  });
+
+  it("stays open while the session is still running", () => {
+    expect(isProcessFoldComplete({
+      active: true,
+      sessionTerminal: false,
+    })).toBe(false);
+  });
+
+  it("folds a previous turn even if the session is still running", () => {
+    expect(isProcessFoldComplete({
+      active: false,
+      sessionTerminal: false,
+    })).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIRST_EVENT_STALL_MS, POST_BIND_FIRST_EVENT_MS } from "./firstEventWatch";
 import {
+  PROMPT_STALL_MS,
   PROMPT_TURN_ABSOLUTE_MS,
   PROMPT_TURN_IDLE_MS,
   isLiveTurnProgressUpdate,
@@ -8,6 +9,7 @@ import {
   isPromptTurnTimeoutMessage,
   promptTurnTimeoutMessage,
   shouldExpirePromptTurn,
+  shouldFirePromptStallWatchdog,
 } from "./promptTurnTimeout";
 
 const writtenAt = 1_000_000;
@@ -224,5 +226,68 @@ describe("isLiveTurnProgressUpdate", () => {
     expect(isLiveTurnProgressUpdate("user_message_chunk")).toBe(false);
     expect(isLiveTurnProgressUpdate("current_mode_update")).toBe(false);
     expect(isLiveTurnProgressUpdate(undefined)).toBe(false);
+  });
+});
+
+describe("shouldFirePromptStallWatchdog", () => {
+  it("kills a 5-minute silent turn with no open tools (dead socket)", () => {
+    expect(
+      shouldFirePromptStallWatchdog({
+        silentForMs: PROMPT_STALL_MS + 1,
+        elapsedMs: PROMPT_STALL_MS + 1,
+        hasOpenTools: false,
+      }),
+    ).toBe("stall");
+  });
+
+  it("does not kill just under the stall budget", () => {
+    expect(
+      shouldFirePromptStallWatchdog({
+        silentForMs: PROMPT_STALL_MS,
+        elapsedMs: PROMPT_STALL_MS,
+        hasOpenTools: false,
+      }),
+    ).toBe("ok");
+  });
+
+  it("keeps a 20–40 minute sealed LRC alive while the tool is still running", () => {
+    // Screenshot 2026-08-13: tool card "执行中", agent waiting on LRC,
+    // Grox stall-cancelled the turn and painted 上游服务可能无返回.
+    expect(
+      shouldFirePromptStallWatchdog({
+        silentForMs: 20 * 60_000,
+        elapsedMs: 25 * 60_000,
+        hasOpenTools: true,
+      }),
+    ).toBe("ok");
+    expect(
+      shouldFirePromptStallWatchdog({
+        silentForMs: 40 * 60_000,
+        elapsedMs: 45 * 60_000,
+        hasOpenTools: true,
+      }),
+    ).toBe("ok");
+  });
+
+  it("open operator gates suppress stall the same way open tools do", () => {
+    expect(
+      shouldFirePromptStallWatchdog({
+        silentForMs: PROMPT_STALL_MS + 1,
+        elapsedMs: PROMPT_STALL_MS + 1,
+        hasOpenTools: false,
+        hasOpenGate: true,
+      }),
+    ).toBe("ok");
+  });
+
+  it("absolute ceiling still kills a zombie open tool", () => {
+    expect(
+      shouldFirePromptStallWatchdog({
+        silentForMs: PROMPT_TURN_ABSOLUTE_MS + 1,
+        elapsedMs: PROMPT_TURN_ABSOLUTE_MS + 1,
+        hasOpenTools: true,
+        hasOpenGate: true,
+      }),
+    ).toBe("absolute");
   });
 });

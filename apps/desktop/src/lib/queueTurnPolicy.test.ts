@@ -13,5 +13,6 @@ describe("queue turn policy", () => {
     expect(shouldDrainLocalQueue({ ...base, status: "running" })).toBe(false);
     expect(shouldDrainLocalQueue({ ...base, providerSwitching: true })).toBe(false);
     expect(shouldDrainLocalQueue({ ...base, suppressed: true })).toBe(false);
+    expect(shouldDrainLocalQueue({ ...base, hasLiveProcess: true })).toBe(false);
   });
 });

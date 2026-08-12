@@ -14,8 +14,11 @@ export function shouldDrainLocalQueue(input: {
   restoring: boolean;
   suppressed: boolean;
   queueLength: number;
+  /** Late thinking / open tools after prompt return — do not start the next turn. */
+  hasLiveProcess?: boolean;
 }): boolean {
   return classifyTurnStatus(input.status) === "idle"
+    && !input.hasLiveProcess
     && !input.providerSwitching
     && !input.restoring
     && !input.suppressed

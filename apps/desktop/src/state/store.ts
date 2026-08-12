@@ -55,6 +55,15 @@ import {
 } from "../lib/sessionCache";
 import { readStoredPermissionMode } from "../lib/permissionMode";
 import { shouldDrainLocalQueue } from "../lib/queueTurnPolicy";
+import { turnHasLiveText } from "../lib/processFold";
+import {
+  POST_PROMPT_SETTLE_MS,
+  sessionAcceptsNewPrimaryPrompt,
+  settleLiveProcessBlocks,
+  settleLiveTextBlocks,
+  shouldArmPostPromptSettle,
+  shouldPromotePostPrompt,
+} from "../lib/sessionBusy";
 import { mergeProjectSessionsPure } from "../lib/sessionCatalogMerge";
 import { isLiveBusyStatus, mergeOfflineWithLive } from "../lib/offlineMerge";
 import {
@@ -338,6 +347,9 @@ interface DesktopState {
 
 const uid = () => crypto.randomUUID();
 const suppressedQueueDrain = new Set<string>();
+/** Prompt RPC already returned; late thinking/tools are a continuation, not a new turn. */
+const promptReturnedSessions = new Set<string>();
+const continuationSettleTimers = new Map<string, number>();
 /** Upgrade generation: force background load once per session after shell bump. */
 let upgradeForceOfflineRescan = false;
 const upgradeForceRescanned = new Set<string>();
@@ -799,6 +811,69 @@ export const useDesktop = create<DesktopState>((set, get) => {
     });
   };
 
+  const clearContinuationSettle = (sessionId: string) => {
+    const timer = continuationSettleTimers.get(sessionId);
+    if (timer === undefined) return;
+    window.clearTimeout(timer);
+    continuationSettleTimers.delete(sessionId);
+  };
+
+  const markPromptInFlight = (sessionId: string) => {
+    promptReturnedSessions.delete(sessionId);
+    clearContinuationSettle(sessionId);
+  };
+
+  const applyPostPromptContinuation = (sessionId: string) => {
+    const session = get().sessions[sessionId];
+    if (!session) return;
+    const promptReturned = promptReturnedSessions.has(sessionId);
+    const hasLiveText = turnHasLiveText(session.blocks);
+    if (shouldPromotePostPrompt({
+      status: session.status,
+      promptReturned,
+      hasLiveText,
+    })) {
+      const state = get();
+      const current = state.sessions[sessionId];
+      if (current && current.status === "idle") {
+        set({
+          sessions: {
+            ...state.sessions,
+            [sessionId]: { ...current, status: "running", updatedAt: Date.now() },
+          },
+        });
+      }
+    }
+    const after = get().sessions[sessionId];
+    if (!after || !shouldArmPostPromptSettle({
+      status: after.status,
+      promptReturned,
+      hasLiveText: turnHasLiveText(after.blocks),
+    })) {
+      clearContinuationSettle(sessionId);
+      return;
+    }
+    clearContinuationSettle(sessionId);
+    continuationSettleTimers.set(sessionId, window.setTimeout(() => {
+      continuationSettleTimers.delete(sessionId);
+      const current = get().sessions[sessionId];
+      if (!current || !promptReturnedSessions.has(sessionId)) return;
+      if (current.status !== "running" && !turnHasLiveText(current.blocks)) return;
+      set({
+        sessions: {
+          ...get().sessions,
+          [sessionId]: {
+            ...current,
+            status: "idle",
+            updatedAt: Date.now(),
+            blocks: settleLiveTextBlocks(current.blocks),
+          },
+        },
+      });
+      drainPromptQueue(sessionId);
+    }, POST_PROMPT_SETTLE_MS));
+  };
+
   const applyEvent = (e: BridgeEvent) => {
     const { sessions, sessionIndex } = get();
 
@@ -1070,6 +1145,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       case "block_add":
         if (isHiddenWorkflowControlPrompt(e.block)) break;
         withSession(e.sessionId, (s) => ({ ...s, blocks: [...s.blocks, e.block] }));
+        applyPostPromptContinuation(e.sessionId);
         if (e.block.type === "plan" && get().activeId === e.sessionId) {
           set({ planPreviewOpen: true, previewOpen: false });
         }
@@ -1079,12 +1155,14 @@ export const useDesktop = create<DesktopState>((set, get) => {
           ...s,
           blocks: patchBlock(s.blocks, e.blockId, e.patch),
         }), false);
+        applyPostPromptContinuation(e.sessionId);
         break;
       case "tool_patch":
         withSession(e.sessionId, (s) => ({
           ...s,
           blocks: patchTool(s.blocks, e.blockId, e.call),
         }), false);
+        applyPostPromptContinuation(e.sessionId);
         break;
       case "plan_patch":
         withSession(e.sessionId, (s) => ({
@@ -1104,6 +1182,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
               : b,
           ),
         }), false);
+        applyPostPromptContinuation(e.sessionId);
         break;
       case "permission_request":
         withSession(e.sessionId, (s) => ({
@@ -1165,16 +1244,25 @@ export const useDesktop = create<DesktopState>((set, get) => {
         });
         break;
       case "status":
+        if (e.status === "idle") promptReturnedSessions.add(e.sessionId);
+        if (e.status === "running") markPromptInFlight(e.sessionId);
         withSession(
           e.sessionId,
-          (s) => ({
-            ...s,
-            status: reconcileIncomingStatus(s.blocks, s.status, e.status),
-          }),
+          (s) => {
+            const status = reconcileIncomingStatus(s.blocks, s.status, e.status);
+            return {
+              ...s,
+              status,
+              blocks: status === "idle" ? settleLiveTextBlocks(s.blocks) : s.blocks,
+            };
+          },
           true,
           e.status === "idle" ? get().activeId !== e.sessionId : e.status === "running" ? false : undefined,
         );
-        if (e.status === "idle") window.setTimeout(() => drainPromptQueue(e.sessionId), 0);
+        applyPostPromptContinuation(e.sessionId);
+        if (e.status === "idle") {
+          window.setTimeout(() => drainPromptQueue(e.sessionId), POST_PROMPT_SETTLE_MS);
+        }
         break;
       case "usage":
         withSession(e.sessionId, (s) => ({ ...s, usage: e.usage }), false);
@@ -2246,6 +2334,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
     closePreview: () => set({ previewOpen: false, previewFile: null, previewError: null }),
 
     async deleteSession(id) {
+      markPromptInFlight(id);
       // 先写防复活标记并清理本地索引，避免 CLI 列表刷新与删除请求竞态。
       markSessionsDeleted([id]);
       clearSessionFlags([id]);
@@ -2470,7 +2559,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         void get().newSession({ text: trimmed, attachments });
         return true;
       }
-      if (!isSessionTerminal(session.status)) {
+      if (!sessionAcceptsNewPrimaryPrompt({ status: session.status, blocks: session.blocks })) {
         const queue = get().promptQueues[session.id] ?? [];
         const duplicate = queue.some((item) => item.text.trim() === trimmed && trimmed.length > 0);
         if (duplicate) return false;
@@ -2496,6 +2585,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         return true;
       }
       suppressedQueueDrain.delete(session.id);
+      markPromptInFlight(session.id);
       if (get().queueDrainParked[session.id]) {
         set({
           queueDrainParked: nextQueueDrainParked(get().queueDrainParked, session.id, false),
@@ -2652,11 +2742,26 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     stop() {
-      const { activeId, queueDrainParked } = get();
+      const { activeId, queueDrainParked, sessions } = get();
       if (activeId) {
         suppressedQueueDrain.add(activeId);
         set({ queueDrainParked: nextQueueDrainParked(queueDrainParked, activeId, true) });
         bridge.cancel(activeId);
+        const session = sessions[activeId];
+        if (session && promptReturnedSessions.has(activeId)) {
+          set({
+            sessions: {
+              ...get().sessions,
+              [activeId]: {
+                ...session,
+                status: "idle",
+                updatedAt: Date.now(),
+                blocks: settleLiveProcessBlocks(session.blocks),
+              },
+            },
+          });
+        }
+        markPromptInFlight(activeId);
       }
     },
 

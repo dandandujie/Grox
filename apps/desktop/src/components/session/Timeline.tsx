@@ -3,10 +3,12 @@ import { createPortal } from "react-dom";
 import { isSessionTerminal, type Session, type SessionBlock, type WorkflowRun } from "../../bridge/types";
 import { useI18n } from "../../lib/i18n";
 import {
+  isProcessFoldComplete,
   nextProcessOpenOnCompleteChange,
   rememberProcessOpen,
   resolveInitialProcessOpen,
 } from "../../lib/processFold";
+import { sessionLooksBusy } from "../../lib/sessionBusy";
 import {
   TIMELINE_TURN_WINDOW_INITIAL,
   TIMELINE_TURN_WINDOW_STEP,
@@ -410,7 +412,10 @@ interface TurnGroupProps {
 
 function TurnGroup({ turn, sessionId, status, active, workflow, onProcessInspect }: TurnGroupProps) {
   const { language } = useI18n();
-  const complete = !active || isSessionTerminal(status);
+  const complete = isProcessFoldComplete({
+    active,
+    sessionTerminal: isSessionTerminal(status),
+  });
   // Codex-style: keep the process trail open while live, then auto-collapse
   // into the one-line summary once the turn finishes. Operators can still
   // expand the completed trail manually. Persist across Virtuoso remounts so
@@ -574,7 +579,7 @@ export function Timeline({ session }: { session: Session }) {
   const settleTimerRef = useRef<number | undefined>(undefined);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
   const [visibleCount, setVisibleCount] = useState(TIMELINE_TURN_WINDOW_INITIAL);
-  const sessionRunning = !isSessionTerminal(session.status);
+  const sessionRunning = sessionLooksBusy({ status: session.status, blocks: session.blocks });
   const wasRunningRef = useRef(sessionRunning);
   const lastBlock = session.blocks.at(-1);
   const liveSignature = sessionRunning

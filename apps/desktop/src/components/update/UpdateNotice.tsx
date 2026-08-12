@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../lib/i18n";
+import {
+  readSkippedUpdateVersion,
+  shouldAutoOpenUpdate,
+  shouldResetSessionDismiss,
+  writeSkippedUpdateVersion,
+} from "../../lib/updateNoticePolicy";
 import { Icon } from "../fx/Icon";
 import { Wordmark } from "../fx/Wordmark";
 
@@ -60,6 +66,8 @@ export function UpdateNotice() {
   const [error, setError] = useState("");
   const lastAutomaticCheck = useRef(0);
   const inFlight = useRef(false);
+  const sessionDismissed = useRef(false);
+  const lastLatestVersion = useRef<string | null>(null);
 
   const check = useCallback(async (openWhenCurrent: boolean) => {
     if (inFlight.current) return;
@@ -68,8 +76,22 @@ export function UpdateNotice() {
     setError("");
     try {
       const next = await invoke<UpdateStatus>("get_update_status");
+      if (shouldResetSessionDismiss(lastLatestVersion.current, next.latest.latestVersion)) {
+        sessionDismissed.current = false;
+      }
+      lastLatestVersion.current = next.latest.latestVersion;
       setStatus(next);
-      if (next.updateAvailable || openWhenCurrent) setOpen(true);
+      if (
+        openWhenCurrent
+        || shouldAutoOpenUpdate({
+          updateAvailable: next.updateAvailable,
+          latestVersion: next.latest.latestVersion,
+          skippedVersion: readSkippedUpdateVersion(),
+          sessionDismissed: sessionDismissed.current,
+        })
+      ) {
+        setOpen(true);
+      }
     } catch (cause) {
       if (openWhenCurrent) setOpen(true);
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -78,6 +100,17 @@ export function UpdateNotice() {
       setChecking(false);
     }
   }, []);
+
+  const dismissForSession = () => {
+    sessionDismissed.current = true;
+    setOpen(false);
+  };
+
+  const skipThisVersion = () => {
+    if (status?.latest.latestVersion) writeSkippedUpdateVersion(status.latest.latestVersion);
+    sessionDismissed.current = true;
+    setOpen(false);
+  };
 
   useEffect(() => {
     const automaticCheck = () => {
@@ -138,7 +171,7 @@ export function UpdateNotice() {
           <Wordmark size={11} withMark />
           <div className="flex items-center gap-3">
             {checking && <span className="flex items-center gap-1.5 font-mono text-[9px] tracking-[0.1em] text-acc"><Icon name="refresh" size={10} className="animate-orbit" />{zh ? "检查中" : "CHECKING"}</span>}
-            <button onClick={() => setOpen(false)} className="flex h-6 w-6 items-center justify-center rounded-[3px] text-faint hover:bg-high hover:text-fg" title={zh ? "关闭" : "Close"}><Icon name="x" size={10} /></button>
+            <button onClick={dismissForSession} className="flex h-6 w-6 items-center justify-center rounded-[3px] text-faint hover:bg-high hover:text-fg" title={zh ? "关闭" : "Close"}><Icon name="x" size={10} /></button>
           </div>
         </div>
 
@@ -197,6 +230,16 @@ export function UpdateNotice() {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-void px-5 py-3">
+          {status?.updateAvailable && (
+            <button
+              disabled={installing || rollingBack}
+              onClick={skipThisVersion}
+              className="mr-auto flex h-8 items-center rounded-[4px] px-3 text-[10.5px] text-mute hover:text-fg2 disabled:opacity-40"
+              title={zh ? "不再提醒这个版本，有更新的版本时再提示" : "Don't remind me about this version; newer releases will still notify"}
+            >
+              {zh ? "跳过此版本" : "Skip this version"}
+            </button>
+          )}
           <button disabled={checking || installing || rollingBack} onClick={() => void check(true)} className="flex h-8 items-center gap-2 rounded-[4px] border border-line2 px-3 text-[10.5px] text-mute hover:border-line3 hover:text-fg2 disabled:opacity-40"><Icon name="refresh" size={11} className={checking ? "animate-orbit" : ""} />{zh ? "手动检查更新" : "Check again"}</button>
           {status?.rollback && <button disabled={!status.rollback.installable || installing || rollingBack} onClick={() => void rollback()} className="flex h-8 items-center gap-2 rounded-[4px] border border-gold/35 bg-gold/5 px-3 text-[10.5px] text-gold hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-40" title={!status.rollback.installable ? (zh ? "上一版本缺少适用于当前系统的安装包" : "No installer for the previous version on this platform") : undefined}>{rollingBack ? (zh ? "正在回退…" : "Rolling back…") : (zh ? `一键回退到 v${status.rollback.version}` : `Roll back to v${status.rollback.version}`)}<Icon name={rollingBack ? "refresh" : "arrowDown"} size={11} className={rollingBack ? "animate-orbit" : ""} /></button>}
           {status?.updateAvailable && update && <>

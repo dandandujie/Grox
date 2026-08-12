@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SessionBlock } from "../../bridge/types";
+import { thinkingIsLive } from "../../lib/processFold";
 import { fmtDuration } from "../../lib/format";
 import { Icon } from "../fx/Icon";
 import { BlackHole } from "../fx/BlackHole";
@@ -12,10 +13,10 @@ import { useI18n } from "../../lib/i18n";
 
 type ThinkingBlock = Extract<SessionBlock, { type: "thinking" }>;
 
-export function ThinkingBlock({ block }: { block: ThinkingBlock; processing?: boolean }) {
+export function ThinkingBlock({ block, processing }: { block: ThinkingBlock; processing?: boolean }) {
   const { language } = useI18n();
   const [open, setOpen] = useState(false);
-  const live = block.live ?? false;
+  const live = thinkingIsLive(block, processing);
   const targetLength = useRef(block.text.length);
   const [visibleLength, setVisibleLength] = useState(live ? 0 : block.text.length);
 

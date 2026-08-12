@@ -8,10 +8,10 @@ import { useEffect, useRef, useState } from "react";
 import { useDesktop, type QueuedPrompt } from "../../state/store";
 import {
   EFFORTS,
-  isSessionTerminal,
   type PromptAttachment,
   type SlashCommand,
 } from "../../bridge/types";
+import { sessionLooksBusy } from "../../lib/sessionBusy";
 import { ChipSelect } from "../common/ChipSelect";
 import { PromptOptionsMenu, ProviderSwitcher } from "../common/PromptControls";
 import { Icon } from "../fx/Icon";
@@ -69,7 +69,8 @@ export function Composer() {
   const stop = useDesktop((s) => s.stop);
   const emergencyStopComputer = useDesktop((s) => s.emergencyStopComputer);
   const compact = useDesktop((s) => s.compact);
-  const status = useDesktop((s) => (s.activeId ? s.sessions[s.activeId]?.status : null));
+  const session = useDesktop((s) => (s.activeId ? s.sessions[s.activeId] : undefined));
+  const status = session?.status ?? null;
   const restoring = useDesktop((s) => Boolean(s.activeId && s.restoringSessionId === s.activeId));
   const creating = useDesktop((s) => Boolean(s.activeId?.startsWith("pending-")));
   const computerRunning = useDesktop((s) => {
@@ -104,7 +105,7 @@ export function Composer() {
     window.dispatchEvent(new CustomEvent("grox:settings-section", { detail: section }));
   };
 
-  const running = status ? !isSessionTerminal(status) : false;
+  const running = sessionLooksBusy({ status, blocks: session?.blocks ?? [] });
   const deepResearchAvailable = runtimeCommands.some((command) => command.name === "deep-research");
 
   const slashCommands: SlashCmd[] = [

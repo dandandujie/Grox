@@ -19,6 +19,16 @@ import { FIRST_EVENT_STALL_MS } from "./firstEventWatch";
 export const PROMPT_TURN_IDLE_MS = 45 * 60_000;
 
 /**
+ * AcpBridge mid-turn silence watchdog (dead socket / wedged gateway).
+ *
+ * Distinct from {@link PROMPT_TURN_IDLE_MS}: this is the live runtime
+ * detector. Open tools / operator gates MUST suppress it — a sealed LRC or
+ * `cargo test` can emit nothing for 20–40+ minutes while still healthy
+ * (evidence: Grox 2026-08-13, "执行中" + 5 min stall → false cancel).
+ */
+export const PROMPT_STALL_MS = 5 * 60_000;
+
+/**
  * Hard wall-clock ceiling from session/prompt write.
  * Long enough for multi-hour agent work; not infinite.
  */
@@ -156,4 +166,29 @@ export const LIVE_TURN_PROGRESS_UPDATES = new Set([
 export function isLiveTurnProgressUpdate(sessionUpdate: string | undefined): boolean {
   if (!sessionUpdate) return false;
   return LIVE_TURN_PROGRESS_UPDATES.has(sessionUpdate);
+}
+
+export type PromptStallWatchdogReason = "ok" | "stall" | "absolute";
+
+/**
+ * Runtime AcpBridge silence watchdog.
+ *
+ * Keep the 5-minute dead-socket kill when nothing is in flight, but never
+ * cancel a turn that still has an open tool or operator gate. Absolute
+ * ceiling still wins (zombie tools).
+ */
+export function shouldFirePromptStallWatchdog(args: {
+  silentForMs: number;
+  elapsedMs: number;
+  hasOpenTools: boolean;
+  hasOpenGate?: boolean;
+  stallMs?: number;
+  absoluteMs?: number;
+}): PromptStallWatchdogReason {
+  const stallMs = args.stallMs ?? PROMPT_STALL_MS;
+  const absoluteMs = args.absoluteMs ?? effectivePromptTurnAbsoluteMs();
+  if (args.elapsedMs >= absoluteMs) return "absolute";
+  if (args.hasOpenTools || args.hasOpenGate) return "ok";
+  if (args.silentForMs > stallMs) return "stall";
+  return "ok";
 }

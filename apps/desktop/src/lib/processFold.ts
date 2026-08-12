@@ -6,12 +6,21 @@
  * final answer stays on screen. Manual expand after completion is allowed;
  * only the live→complete transition force-collapses.
  *
+ * `session/prompt` returning idle is not enough: ACP can still emit thought
+ * chunks and tool updates after that (background notifications). Folding on
+ * status alone shows "思考中" inside a completed summary while new content
+ * is still arriving. Live thinking / streaming answers / open tools keep
+ * the trail unfolded.
+ *
  * Virtuoso recycles row components when they leave the viewport. Local
  * `useState(initialProcessOpen)` alone would re-collapse every remount and
  * thrash scroll (expand → scroll → remount → collapse → jump). Remember the
  * operator's last open/closed choice per turn for the lifetime of this
  * renderer process.
  */
+
+import type { SessionBlock } from "../bridge/types";
+import { isOpenToolStatus } from "./promptTurnTimeout";
 
 const processOpenByTurn = new Map<string, boolean>();
 
@@ -71,4 +80,44 @@ export function nextProcessOpenOnCompleteChange(args: {
   if (!args.complete) return true;
   if (!args.wasComplete && args.complete) return false;
   return args.currentOpen;
+}
+
+export function blockIsLiveProcess(block: SessionBlock): boolean {
+  if (block.type === "thinking") return Boolean(block.live);
+  if (block.type === "assistant") return Boolean(block.streaming);
+  if (block.type === "tool") return isOpenToolStatus(block.call.status);
+  return false;
+}
+
+export function turnHasLiveProcess(blocks: readonly SessionBlock[]): boolean {
+  return blocks.some(blockIsLiveProcess);
+}
+
+/** Thinking / streaming only — leftover running tools must not reopen a finished turn. */
+export function turnHasLiveText(blocks: readonly SessionBlock[]): boolean {
+  return blocks.some((block) =>
+    (block.type === "thinking" && Boolean(block.live))
+    || (block.type === "assistant" && Boolean(block.streaming)),
+  );
+}
+
+/** Completed process trails must never keep the "思考中" spinner. */
+export function thinkingIsLive(
+  block: Pick<Extract<SessionBlock, { type: "thinking" }>, "live">,
+  processing?: boolean,
+): boolean {
+  if (processing === false) return false;
+  return Boolean(block.live);
+}
+
+/**
+ * Completed conversations always fold, even if a thinking block still has
+ * leftover live=true. The last turn stays open only while the session is
+ * still running.
+ */
+export function isProcessFoldComplete(args: {
+  active: boolean;
+  sessionTerminal: boolean;
+}): boolean {
+  return !args.active || args.sessionTerminal;
 }

@@ -49,6 +49,11 @@ import type {
 } from "./types";
 import { readStoredPermissionMode } from "../lib/permissionMode";
 import { cleanApiError, toolCanonicalKind, toolReadOnly, versionMismatchNotice } from "../lib/runtimeNotice";
+import {
+  isOpenToolStatus,
+  promptTurnTimeoutMessage,
+  shouldFirePromptStallWatchdog,
+} from "../lib/promptTurnTimeout";
 
 export const ACP_METHODS = {
   initialize: "initialize",
@@ -74,8 +79,6 @@ export const ACP_METHODS = {
   promptHistory: "x.ai/prompt_history",
 } as const;
 
-/** No session-scoped traffic for this long during a turn = wedged upstream. */
-const PROMPT_STALL_MS = 5 * 60_000;
 // Grox hosts the official `grok agent stdio` process. Keep ACP metadata
 // aligned with a terminal `grok` invocation so subscription eligibility is
 // evaluated as Grok Build CLI rather than as an unreleased desktop client.
@@ -1081,6 +1084,10 @@ export class AcpBridge implements GrokBridge {
   private loadPromises = new Map<string, Promise<void>>();
   private sessionMetaCache = new Map<string, { expiresAt: number; systemPromptOverride?: string }>();
   private lastActivity = new Map<string, number>();
+  /** Wall clock when the current session/prompt was written. */
+  private promptWrittenAt = new Map<string, number>();
+  /** toolCallIds still pending/running/awaiting_permission for the stall watchdog. */
+  private openToolCalls = new Map<string, Set<string>>();
   private unlisten: UnlistenFn[] = [];
   private streamAppends = new Map<string, Extract<BridgeEvent, { type: "assistant_append" | "thinking_append" }>>();
   private repeatedDeltas = new Map<string, { value: string; count: number }>();
@@ -1323,6 +1330,9 @@ export class AcpBridge implements GrokBridge {
     this.pending.clear();
     this.interactions.clear();
     this.cursors.clear();
+    this.openToolCalls.clear();
+    this.promptWrittenAt.clear();
+    this.lastActivity.clear();
     this.sessionOptions.clear();
     this.sessionSetModelUnsupported = false;
     this.knownSessions.clear();
@@ -1914,6 +1924,7 @@ export class AcpBridge implements GrokBridge {
       ),
       locations: extractLocations(update.locations, update.rawInput, update.rawOutput, content),
     };
+    this.markOpenTool(sessionId, toolCallId, call.status);
     if (kind === "computer" && call.status === "running") {
       this.activeComputerToolCalls.add(`${sessionId}:${toolCallId}`);
       this.activeComputerSessions.add(sessionId);
@@ -1936,6 +1947,7 @@ export class AcpBridge implements GrokBridge {
       if (!blockId) return;
     }
     const status = mapToolStatus(update.status);
+    this.markOpenTool(sessionId, toolCallId, status);
     const content = array(update.content);
     const canonicalKind = toolCanonicalKind(update);
     const terminal = extractTerminal(
@@ -2132,8 +2144,36 @@ export class AcpBridge implements GrokBridge {
     this.closeThinking(sessionId);
     this.closeAssistant(sessionId);
     this.flushToolPatches(sessionId);
+    this.openToolCalls.delete(sessionId);
+    this.promptWrittenAt.delete(sessionId);
     if (usageValue) this.emitUsage(sessionId, usageValue);
     this.emit({ type: "status", sessionId, status });
+  }
+
+  private markOpenTool(sessionId: string, toolCallId: string, status: ToolStatus): void {
+    let open = this.openToolCalls.get(sessionId);
+    if (isOpenToolStatus(status)) {
+      if (!open) {
+        open = new Set();
+        this.openToolCalls.set(sessionId, open);
+      }
+      open.add(toolCallId);
+      return;
+    }
+    if (!open) return;
+    open.delete(toolCallId);
+    if (open.size === 0) this.openToolCalls.delete(sessionId);
+  }
+
+  private sessionHasOpenTools(sessionId: string): boolean {
+    return (this.openToolCalls.get(sessionId)?.size ?? 0) > 0;
+  }
+
+  private sessionHasOpenGate(sessionId: string): boolean {
+    for (const interaction of this.interactions.values()) {
+      if (interaction.sessionId === sessionId) return true;
+    }
+    return false;
   }
 
   /**
@@ -3304,6 +3344,7 @@ export class AcpBridge implements GrokBridge {
       const sessionCwd = this.catalogue.get(sessionId)?.cwd;
       if (sessionCwd) this.sessionWorkspaces.set(sessionId, sessionCwd);
       this.closeUser(sessionId);
+      this.openToolCalls.delete(sessionId);
       this.emit({ type: "status", sessionId, status: "running" });
 
       const preferredEffort = normalizeEffort(options.effort);
@@ -3343,20 +3384,33 @@ export class AcpBridge implements GrokBridge {
           promptRpcId = id;
           this.promptRpcBySession.set(sessionId, id);
         });
-        // session/prompt intentionally has no fixed timeout (long turns stream
-        // for many minutes), but a completely silent agent means a wedged
-        // upstream gateway or a dead socket — surface that instead of leaving
-        // the session spinning forever.
-        this.lastActivity.set(sessionId, Date.now());
+        // session/prompt has no fixed RPC timeout (long turns stream for
+        // many minutes). A completely silent agent with no open tools/gates
+        // is a wedged gateway or dead socket. Open tools (sealed LRC,
+        // cargo test) emit nothing for 20–40+ minutes and must not cancel.
+        const writtenAt = Date.now();
+        this.promptWrittenAt.set(sessionId, writtenAt);
+        this.lastActivity.set(sessionId, writtenAt);
         const watchdog = window.setInterval(() => {
-          const silentFor = Date.now() - (this.lastActivity.get(sessionId) ?? 0);
-          if (silentFor <= PROMPT_STALL_MS || promptRpcId === undefined) return;
+          if (promptRpcId === undefined) return;
+          const now = Date.now();
+          const reason = shouldFirePromptStallWatchdog({
+            silentForMs: now - (this.lastActivity.get(sessionId) ?? 0),
+            elapsedMs: now - (this.promptWrittenAt.get(sessionId) ?? writtenAt),
+            hasOpenTools: this.sessionHasOpenTools(sessionId),
+            hasOpenGate: this.sessionHasOpenGate(sessionId),
+          });
+          if (reason === "ok") return;
           const pending = this.pending.get(promptRpcId);
           if (!pending) return;
           this.pending.delete(promptRpcId);
           this.promptRpcBySession.delete(sessionId);
           pending.reject(
-            new Error("Grok Agent 长时间没有任何响应：上游服务可能无返回。请检查网络、模型或供应商配置后重试。"),
+            new Error(
+              reason === "absolute"
+                ? promptTurnTimeoutMessage("absolute")
+                : "Grok Agent 长时间没有任何响应：上游服务可能无返回。请检查网络、模型或供应商配置后重试。",
+            ),
           );
           this.cancel(sessionId);
         }, 15_000);
@@ -3622,6 +3676,9 @@ export class AcpBridge implements GrokBridge {
     this.catalogue.delete(id);
     this.computerLeases.delete(id);
     this.activeComputerSessions.delete(id);
+    this.openToolCalls.delete(id);
+    this.promptWrittenAt.delete(id);
+    this.lastActivity.delete(id);
     for (const key of this.activeComputerToolCalls) {
       if (key.startsWith(`${id}:`)) this.activeComputerToolCalls.delete(key);
     }
