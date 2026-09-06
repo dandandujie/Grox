@@ -6,7 +6,11 @@
 use serde_json::{json, Value};
 
 use crate::{
-    acp_host::AcpHostError, request_acp_json, AcpState, McpLeaseStore, UPSTREAM_CLI_CLIENT_NAME,
+    acp_host::AcpHostError,
+    host_core::request_acp_json,
+    host_core::AcpState,
+    mcp_leases::McpLeaseStore,
+    host_core::UPSTREAM_CLI_CLIENT_NAME,
 };
 
 // 冷启动需要加载本地会话索引和 MCP 配置；15 秒会在较大历史库上误判

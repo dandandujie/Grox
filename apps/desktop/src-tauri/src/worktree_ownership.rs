@@ -16,9 +16,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::host_core::{atomic_write_bounded_private, git_text, read_bounded_text};
 use serde::{Deserialize, Serialize};
 
-use crate::{atomic_write_bounded_private, git_text, read_bounded_text};
+
 
 pub(crate) const WORKTREE_BINDINGS_MAX_BYTES: u64 = 4 * 1024 * 1024;
 const WORKTREE_BINDINGS_VERSION: u32 = 1;

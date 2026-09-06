@@ -10,7 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{browser_mcp, computer_mcp};
+use crate::{
+    browser_mcp,
+    computer_mcp,
+};
 
 const MAX_LEASES_PER_KIND: usize = 32;
 const LEASE_TTL: Duration = Duration::from_secs(6 * 60 * 60);

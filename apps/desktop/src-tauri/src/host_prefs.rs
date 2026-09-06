@@ -12,7 +12,10 @@ use std::{
 
 use serde::{de, Deserialize, Deserializer, Serialize};
 
-use crate::{atomic_write_bounded_private, permission_policy::PermissionMode};
+use crate::{
+    host_core::atomic_write_bounded_private,
+    permission_policy::PermissionMode,
+};
 
 const PREFS_FILE: &str = "host_prefs.json";
 const MAX_PREFS_BYTES: u64 = 64 * 1024;

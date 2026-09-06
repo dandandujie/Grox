@@ -15,20 +15,42 @@ use std::{
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
+pub(crate) fn automation_claim_error(message: String) -> AcpHostError {
+    if message.contains("token 无效")
+        || message.contains("无效会话 ID")
+        || message.contains("错误详情不能超过")
+    {
+        AcpHostError::protocol("AUTOMATION_INVALID_RESULT", message)
+    } else if message.contains("认领")
+        || message.contains("正在执行")
+        || message.contains("不存在")
+        || message.contains("id 无效")
+    {
+        AcpHostError::operation("AUTOMATION_CLAIM_STALE", message)
+    } else {
+        storage_error(message)
+    }
+}
+
 use crate::{
     acp_host::AcpHostError,
     automation_store::{AutomationCompletion, AutomationDispatch, AutomationStore},
-    automations_path, ensure_agent_runtime_ready,
+    host_core::automations_path,
+    runtime_lifecycle::ensure_agent_runtime_ready,
     foreground_turn::SessionProjectionTurn,
-    host_prefs, host_prefs_dir_for_app,
+    host_prefs,
+    host_core::host_prefs_dir_for_app,
     mcp_leases::McpLeaseStore,
-    request_acp_json,
+    host_core::request_acp_json,
     session_runtime::{open_agent_session_inner, OpenAgentSessionRequest},
     turn_runtime::{
         bind_mode, bind_model, complete_deep_research_prompt, effort_fallback_chain,
         is_invalid_reasoning_effort, prompt_result_invalid_effort,
     },
-    AcpState, RuntimePhase, AUTOMATIONS_MAX_BYTES, UPSTREAM_CLI_CLIENT_NAME,
+    host_core::AcpState,
+    host_core::RuntimePhase,
+    host_core::AUTOMATIONS_MAX_BYTES,
+    host_core::UPSTREAM_CLI_CLIENT_NAME,
 };
 
 const BOOT_DELAY_MS: u64 = 2_000;
@@ -338,7 +360,7 @@ async fn execute_claimed_automation(
     ) {
         Ok(claimed) => claimed,
         Err(error) => {
-            settled.error = Some(crate::automation_claim_error(error));
+            settled.error = Some(automation_claim_error(error));
             return settled;
         }
     };
@@ -482,7 +504,7 @@ async fn execute_claimed_automation(
             &dispatch,
             settled,
             Some(&session_id),
-            Some(crate::automation_claim_error(error)),
+            Some(automation_claim_error(error)),
         );
     }
     let started = AutomationSessionStarted {
@@ -599,7 +621,7 @@ fn complete_execution(
             settled.error = execution_error;
         }
         Err(error) => {
-            let mut settlement_error = crate::automation_claim_error(error);
+            let mut settlement_error = automation_claim_error(error);
             if let Some(execution_error) = execution_error {
                 settlement_error.message = format!(
                     "{}；自动化结算也失败：{}",
@@ -825,7 +847,7 @@ fn renew_execution_claim(
 ) -> Result<u64, AcpHostError> {
     store
         .renew_claim(path, id, token, unix_time_ms(), AUTOMATIONS_MAX_BYTES)
-        .map_err(crate::automation_claim_error)
+        .map_err(automation_claim_error)
 }
 
 fn automation_string(automation: &Value, key: &str) -> Result<String, AcpHostError> {

@@ -1065,6 +1065,96 @@ fn unix_time_ms() -> u64 {
 mod tests {
     use super::*;
 
+    /// 协议合同测试：`fixtures/acp/` 下的原始 ACP 行经真实解码路径产出的
+    /// HostSessionEvent JSON，就是 Rust↔TS 的协议边界。易变字段（streamId、
+    /// 时间戳）归一化后与夹具中的黄金逐字节比对；TS 侧 `hostEventContract.test.ts`
+    /// 消费同一份夹具做键集白名单。任一侧漂移（serde 字段改名、新增投影 kind、
+    /// null 序列化策略变化）都会让对应测试变红。
+    /// 重新生成黄金：`GROX_PROTOCOL_FIXTURE_REGEN=1 cargo test protocol_contract`
+    fn normalized_host_event(event: &HostSessionEvent) -> serde_json::Value {
+        let mut value = serde_json::to_value(event).expect("HostSessionEvent 必须可序列化");
+        value["streamId"] = serde_json::Value::String("stream".into());
+        value["generation"] = serde_json::Value::from(1);
+        value["receivedAt"] = serde_json::Value::from(0);
+        let block_ops = value
+            .get_mut("projection")
+            .and_then(|projection| projection.get_mut("blockOps"))
+            .and_then(serde_json::Value::as_array_mut);
+        if let Some(block_ops) = block_ops {
+            for op in block_ops {
+                if op.get("startedAt").is_some() {
+                    op["startedAt"] = serde_json::Value::from(0);
+                }
+                // 块 id 内嵌随机 stream_id（new_block：host-block-{stream}-{seq}-{suffix}），
+                // 归一化为固定前缀，保留序号与块类型。
+                if let Some(id) = op.get("blockId").and_then(serde_json::Value::as_str) {
+                    let parts: Vec<&str> = id.split('-').collect();
+                    if parts.len() == 5 && parts[0] == "host" && parts[1] == "block" {
+                        op["blockId"] = serde_json::Value::String(format!(
+                            "host-block-stream-{}-{}",
+                            parts[3], parts[4]
+                        ));
+                    }
+                }
+            }
+        }
+        value
+    }
+
+    #[test]
+    fn protocol_contract_fixtures_match_host_event_shape() {
+        let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/acp");
+        let regen = std::env::var("GROX_PROTOCOL_FIXTURE_REGEN").is_ok();
+        let mut entries: Vec<std::fs::DirEntry> = std::fs::read_dir(&fixture_dir)
+            .expect("fixtures/acp 目录必须存在")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+            .collect();
+        entries.sort_by_key(|entry| entry.file_name());
+        assert!(!entries.is_empty(), "fixtures/acp 至少要有一个合同夹具");
+        let mut checked = 0_usize;
+        for entry in entries {
+            let raw = std::fs::read_to_string(entry.path()).expect("夹具必须可读");
+            let mut fixture: serde_json::Value = serde_json::from_str(&raw).expect("夹具必须是合法 JSON");
+            let journal = SessionEventJournal::default();
+            let mut events = Vec::new();
+            for line in fixture["lines"].as_array().expect("夹具 lines 必须是数组") {
+                events.push(journal.append(1, line.as_str().expect("夹具行必须是字符串").to_string()));
+            }
+            if let Some(lifecycle) = fixture.get("lifecycle").and_then(serde_json::Value::as_array) {
+                for phase in lifecycle {
+                    match phase.as_str().expect("lifecycle 条目必须是字符串") {
+                        "turn_started" => events.push(journal.begin_turn(1, "s1")),
+                        "turn_finished" => events.push(journal.finish_turn(1, "s1")),
+                        other => panic!("未知 lifecycle 阶段：{other}"),
+                    }
+                }
+            }
+            let actual: Vec<serde_json::Value> = events.iter().map(normalized_host_event).collect();
+            checked += actual.len();
+            if regen {
+                fixture["expected"] = serde_json::Value::Array(actual.clone());
+                std::fs::write(
+                    entry.path(),
+                    format!("{}\n", serde_json::to_string_pretty(&fixture).unwrap()),
+                )
+                .expect("夹具必须可写");
+                continue;
+            }
+            let expected = fixture["expected"].as_array().expect("夹具 expected 必须是数组");
+            assert_eq!(
+                actual.as_slice(),
+                expected.as_slice(),
+                "协议夹具 {} 的 Host 事件形状漂移；如为有意变更，请同步 TS 侧 hostEventContract.test.ts 的白名单后用 GROX_PROTOCOL_FIXTURE_REGEN=1 重新生成",
+                entry.file_name().to_string_lossy()
+            );
+        }
+        assert!(
+            checked >= 12,
+            "合同夹具应覆盖全部投影 kind 与核心 updateType（当前只断言了 {checked} 个事件）"
+        );
+    }
+
     fn block_ops(event: &HostSessionEvent) -> &[HostBlockOperation] {
         match &event.projection {
             HostSessionProjection::SessionUpdate { block_ops, .. }

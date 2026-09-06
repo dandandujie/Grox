@@ -1,0 +1,47 @@
+{
+  "description": "工具调用完成：文本输出内容。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "session/update",
+      "projection": {
+        "blockOps": [
+          {
+            "action": "open",
+            "blockId": "host-block-stream-1-tool",
+            "blockType": "tool",
+            "sourceId": "tc-1",
+            "startedAt": 0
+          }
+        ],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "content": [
+            {
+              "text": "中间件已写入，diff +14 -1。",
+              "type": "text"
+            }
+          ],
+          "kind": "edit",
+          "sessionUpdate": "tool_call_update",
+          "status": "completed",
+          "title": "编辑 crates/xai-grok-http/src/middleware.rs",
+          "toolCallId": "tc-1"
+        },
+        "updateType": "tool_call_update"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "tool_call_update"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"tc-1\",\"kind\":\"edit\",\"title\":\"编辑 crates/xai-grok-http/src/middleware.rs\",\"status\":\"completed\",\"content\":[{\"type\":\"text\",\"text\":\"中间件已写入，diff +14 -1。\"}]}}}"
+  ]
+}

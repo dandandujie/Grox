@@ -1,0 +1,24 @@
+{
+  "description": "session/update 缺少 sessionId：ProtocolError 隔离。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": false,
+      "method": "session/update",
+      "projection": {
+        "code": "ACP_MISSING_SESSION_ID",
+        "kind": "protocol_error",
+        "message": "session/update 缺少 sessionId，事件已被隔离"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": null,
+      "streamId": "stream",
+      "updateType": null
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"孤儿\"}}}}"
+  ]
+}

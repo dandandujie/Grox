@@ -18,7 +18,10 @@ use serde_json::{json, Value};
 
 use crate::{
     acp_inbound::AcpInbound,
-    acp_read_file, acp_read_text_file, acp_write_text_file, path_sandbox::path_for_webview,
+    host_core::acp_read_file,
+    host_core::acp_read_text_file,
+    host_core::acp_write_text_file,
+    path_sandbox::path_for_webview,
     terminal_host::{TerminalHost, TerminalMethod},
 };
 

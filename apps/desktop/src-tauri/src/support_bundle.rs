@@ -164,7 +164,7 @@ pub fn write_session_support_bundle(input: SessionSupportBundle<'_>) -> Result<P
         .open(&path)
         .map_err(|error| format!("无法创建会话支持包 {}：{error}", path.display()))?;
     #[cfg(not(unix))]
-    crate::restrict_private_file(&path)?;
+    crate::host_core::restrict_private_file(&path)?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 

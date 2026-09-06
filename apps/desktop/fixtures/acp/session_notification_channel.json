@@ -1,0 +1,30 @@
+{
+  "description": "session_notification 通道的 turn_completed。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "x.ai/session_notification",
+      "projection": {
+        "blockOps": [],
+        "channel": "notification",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "sessionUpdate": "turn_completed",
+          "stopReason": "end_turn"
+        },
+        "updateType": "turn_completed"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "turn_completed"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"x.ai/session_notification\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"turn_completed\",\"stopReason\":\"end_turn\"}}}"
+  ]
+}

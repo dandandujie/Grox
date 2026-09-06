@@ -15,10 +15,14 @@ use tokio::sync::{oneshot, watch};
 use crate::{
     acp_host::AcpHostError,
     agent_runtime::{self, AgentAuthenticationState},
-    ensure_main_acp_owner, parse_browser_url, request_acp_json, request_acp_json_tracked,
-    spawn_system_browser,
+    host_core::ensure_main_acp_owner,
+    host_core::parse_browser_url,
+    host_core::request_acp_json,
+    host_core::request_acp_json_tracked,
+    host_core::spawn_system_browser,
     turn_runtime::AcpRequestTracker,
-    AcpState, McpLeaseStore,
+    host_core::AcpState,
+    McpLeaseStore,
 };
 
 const INTERACTIVE_AUTH_TIMEOUT_MS: u64 = 5 * 60 * 1_000;

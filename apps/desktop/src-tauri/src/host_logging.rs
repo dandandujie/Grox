@@ -221,7 +221,7 @@ fn install_panic_hook(log_dir: PathBuf) {
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
             let _ = file.write_all(line.as_bytes());
             let _ = file.flush();
-            let _ = crate::restrict_private_file(&path);
+            let _ = crate::host_core::restrict_private_file(&path);
         }
         previous(info);
     }));

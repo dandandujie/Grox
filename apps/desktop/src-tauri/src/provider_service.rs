@@ -12,6 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use tokio::process::Command;
 use crate::{
     provider_profiles::{
         checked_model_ids, provider_profile_secret_ref, ProviderApiBackend, ProviderProfileSummary,
@@ -1341,4 +1342,54 @@ mod tests {
         assert!(!persisted.contains("must-not-persist"), "{persisted}");
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// 用 provider_overrides 域的 host 操作装配当前 ProviderService。
+/// main.rs / runtime_lifecycle / media_service 统一经此获取实例。
+pub(crate) fn open_current(home: PathBuf) -> Result<ProviderService, String> {
+    Ok(ProviderService::new(
+        home,
+        ProviderServiceHostOps {
+            read_text: crate::provider_overrides::read_provider_service_text,
+            atomic_write_private: crate::host_core::atomic_write_private,
+            atomic_create_private: crate::host_core::atomic_create_private,
+            normalize_endpoint: normalize_provider_endpoint,
+            restore_auth_overrides: crate::provider_overrides::restore_grox_provider_auth_overrides,
+            restore_backend_overrides: crate::provider_overrides::restore_grox_provider_backend_overrides,
+            apply_backend_overrides: crate::provider_overrides::apply_grox_provider_sections,
+            compatible_route_active: crate::provider_overrides::active_provider_route_is_relay,
+            legacy_active_profile_id: crate::provider_overrides::legacy_active_provider_profile_id,
+            legacy_account_mode: crate::provider_overrides::legacy_grox_account_mode,
+            clear_legacy_metadata: crate::provider_overrides::clear_legacy_grox_metadata,
+        },
+    ))
+}
+
+/// 让每个 CLI 子进程从干净的 provider 环境启动，再注入当前选中的凭据。
+///
+/// 路由完全由 config.toml 的 `[model.*]` 段和 `[models] default` 表达；
+/// `GROK_MODELS_BASE_URL` 是另一套全局路由机制，两套并存意味着同一件事有
+/// 两个真相源、会互相矛盾；这里只保留前者，环境里仅注入凭据。
+pub(crate) fn apply_provider_environment(
+    command: &mut Command,
+    service: &ProviderService,
+) -> Result<(), String> {
+    for key in [
+        "XAI_API_KEY",
+        "OPENAI_API_KEY",
+        GROK_MODELS_BASE_URL_KEY,
+        "GROK_MODELS_LIST_URL",
+    ] {
+        command.env_remove(key);
+    }
+    let runtime = service
+        .runtime_environment()
+        .map_err(|error| error.message)?;
+    if let Some(secret) = runtime.api_key {
+        command.env(
+            if runtime.compatible { "OPENAI_API_KEY" } else { "XAI_API_KEY" },
+            secret,
+        );
+    }
+    Ok(())
 }

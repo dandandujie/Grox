@@ -1,0 +1,53 @@
+{
+  "description": "计划更新：entries 三元组（content/priority/status）。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "session/update",
+      "projection": {
+        "blockOps": [
+          {
+            "action": "open",
+            "blockId": "host-block-stream-1-plan",
+            "blockType": "plan",
+            "startedAt": 0
+          }
+        ],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "entries": [
+            {
+              "content": "Trace request flow through the middleware stack",
+              "priority": "high",
+              "status": "completed"
+            },
+            {
+              "content": "Add token-bucket rate limiter middleware",
+              "priority": "high",
+              "status": "in_progress"
+            },
+            {
+              "content": "Wire config defaults and verify with cargo test",
+              "priority": "medium",
+              "status": "pending"
+            }
+          ],
+          "sessionUpdate": "plan"
+        },
+        "updateType": "plan"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "plan"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"plan\",\"entries\":[{\"content\":\"Trace request flow through the middleware stack\",\"priority\":\"high\",\"status\":\"completed\"},{\"content\":\"Add token-bucket rate limiter middleware\",\"priority\":\"high\",\"status\":\"in_progress\"},{\"content\":\"Wire config defaults and verify with cargo test\",\"priority\":\"medium\",\"status\":\"pending\"}]}}}"
+  ]
+}

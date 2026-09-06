@@ -1,0 +1,44 @@
+{
+  "description": "Host 主动发出的回合生命周期事件（block_lifecycle）。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": null,
+      "projection": {
+        "blockOps": [],
+        "kind": "block_lifecycle",
+        "phase": "turn_started",
+        "sessionId": "s1"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": null
+    },
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": null,
+      "projection": {
+        "blockOps": [],
+        "kind": "block_lifecycle",
+        "phase": "turn_finished",
+        "sessionId": "s1"
+      },
+      "receivedAt": 0,
+      "sequence": 2,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": null
+    }
+  ],
+  "lifecycle": [
+    "turn_started",
+    "turn_finished"
+  ],
+  "lines": []
+}

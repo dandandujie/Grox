@@ -34,6 +34,7 @@ mod permission_policy;
 mod process_job;
 mod prompt_queue_store;
 mod process_env;
+mod provider_overrides;
 mod provider_profiles;
 mod provider_service;
 mod session_coordinator;
@@ -47,6 +48,30 @@ mod terminal_host;
 mod tray;
 mod turn_runtime;
 mod worktree_ownership;
+mod host_core;
+mod runtime_lifecycle;
+
+use host_core::{
+    acp_request_inner,
+    atomic_create_private, atomic_write, atomic_write_private,
+    automations_path,
+    configured_grok_command, config_path, default_workspace, ensure_main_acp_owner, grok_home,
+    host_prefs_dir_for_app, parse_browser_url, prepare_acp_line, prompt_image_mime,
+    read_bounded_text, restrict_private_file, scrub_atomic_write_orphans, spawn_system_browser,
+    replace_file_atomic, git_command, git_text, optional_git_text, prompt_queues_path, user_home,
+    worktree_bindings_path, write_acp_line, AcpState, AUTOMATIONS_MAX_BYTES,
+    CONFIG_WRITE_NONCE, emit_host_session_event, GrokRuntimeInfo, MAX_CONFIG_BYTES,
+    MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROVIDER_MODELS_BODY_BYTES,
+    MAX_SESSION_PREVIEW_MESSAGES, MAX_SESSION_PREVIEW_TEXT_CHARS, MAX_SESSION_PREVIEW_TOOL_INPUT_CHARS,
+    MAX_SESSION_SEARCH_FILE_BYTES, MAX_SESSION_SEARCH_HITS, MAX_SESSION_SEARCH_IDS,
+    MAX_SESSION_SEARCH_TOTAL_BYTES, PROMPT_QUEUES_MAX_BYTES, RuntimePhase,
+};
+use automation_runner::automation_claim_error;
+use provider_overrides::parse_grok_config_document;
+use runtime_lifecycle::{
+    AcpExitPayload, AppShutdown, ensure_agent_runtime_ready,
+    terminate_process,
+};
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -55,23 +80,20 @@ use std::{
     path::{Component, Path, PathBuf},
     process::Stdio,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
-        Arc, RwLock,
+        atomic::Ordering,
+        Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use acp_host::{AcpHostError, AcpRequestBroker};
-use acp_inbound::AcpInbound;
+use acp_host::AcpHostError;
 use agent_auth::{
     agent_runtime_auth_cancel, agent_runtime_auth_status, agent_runtime_authenticate,
-    AgentAuthenticationLifecycle,
 };
-use agent_runtime::{AgentAuthenticationState, AgentRuntimeConnection};
+use agent_runtime::AgentRuntimeConnection;
 use automation_runner::{storage_error as automation_storage_error, AutomationRunner};
 use automation_store::AutomationStore;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use client_callbacks::{ClientCallbackInbound, ClientCallbackRegistry};
 use draft_store::{
     DraftAttachment, DraftSnapshot, DraftStore, DraftStoreError, DRAFTS_MAX_BYTES,
 };
@@ -79,10 +101,9 @@ use file_commands::{open_file_with_default, reveal_in_explorer};
 use git_confirm::GitConfirmStore;
 use foreground_turn::{
     cancel_foreground_turn, execute_foreground_turn, foreground_turn_status,
-    ForegroundTurnRegistry,
 };
 use host_error::HostError;
-use interaction_service::{InteractionInbound, InteractionProjection, InteractionRegistry};
+use interaction_service::InteractionProjection;
 use mcp_leases::McpLeaseStore;
 use media_service::{
     cancel_media_generation, is_media_https_host_allowed, media_generation_capabilities,
@@ -91,7 +112,7 @@ use media_service::{
     MediaService,
 };
 use path_sandbox::{
-    checked_workspace, checked_workspace_file, checked_workspace_target, path_for_webview,
+    checked_workspace, checked_workspace_file, path_for_webview,
 };
 use percent_encoding::percent_decode_str;
 use prompt_queue_store::PromptQueueStore;
@@ -105,9 +126,9 @@ use provider_service::{
     ProviderSummary as ProviderProfileSummary, SaveProviderProfileInput,
 };
 use serde::{Deserialize, Serialize};
-use session_coordinator::{SessionCoordinator, SessionRuntimeOccupancy};
+use session_coordinator::SessionRuntimeOccupancy;
 use session_event_journal::{
-    HostSessionEvent, HostSessionEventReplay, HostSessionEventStatus, SessionEventJournal,
+    HostSessionEventReplay, HostSessionEventStatus,
 };
 use session_journal_store::{SessionJournalStore, SessionJournalWriteError};
 use session_runtime::{
@@ -120,16 +141,15 @@ use session_storage::SessionStorageState;
 use secret_store::SecretBackendKind;
 use tauri::{Emitter, Manager};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    process::{Child, ChildStdin, Command},
+    process::{Child, Command},
     sync::Mutex,
 };
 use toml_edit::{value as toml_value, Document, Item, Table, TableLike};
 use worktree_ownership::WorktreeOwnershipStore;
 
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const GROX_BUILD_COMMIT: &str = env!("GROX_BUILD_COMMIT");
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/dandandujie/Grox/releases/latest";
 const RELEASES_URL: &str = "https://api.github.com/repos/dandandujie/Grox/releases";
 const GROK_INSTALL_PS1_URL: &str = "https://x.ai/cli/install.ps1";
@@ -139,351 +159,12 @@ const GROK_INSTALL_SH_URL: &str = "https://x.ai/cli/install.sh";
 // user-scoped compatibility workflow so every research run reaches Verify and
 // Report, including a useful audit/report for partial evidence.
 const GROX_DEEP_RESEARCH_WORKFLOW: &str = include_str!("../resources/grox-deep-research.rhai");
-// Grok Build decides OAuth eligibility from the official CLI client mode.
-// Grox is an ACP host around that CLI, not a separate xAI desktop client, so
-// preserve the identity used by `grok` in a terminal. In particular, never
-// advertise the unreleased `grok-desktop` client mode to the upstream service.
-const UPSTREAM_CLI_CLIENT_NAME: &str = "grok-shell";
-const GROX_PROVIDER_AUTH_OVERRIDES_FILE: &str = "grox-provider-auth-overrides.json";
-const GROX_PROVIDER_BACKEND_OVERRIDES_FILE: &str = "grox-provider-backend-overrides.json";
-const MAX_PROMPT_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_PROMPT_IMAGE_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
-const MAX_PROVIDER_MODELS_BODY_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SESSION_PREVIEW_MESSAGES: usize = 200;
-const MAX_SESSION_PREVIEW_TEXT_CHARS: usize = 64 * 1024;
-const MAX_SESSION_PREVIEW_TOOL_INPUT_CHARS: usize = 16 * 1024;
-const MAX_SESSION_SEARCH_IDS: usize = 2_000;
-const MAX_SESSION_SEARCH_HITS: usize = 500;
-const MAX_SESSION_SEARCH_FILE_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_SESSION_SEARCH_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
 
-struct AgentProcess {
-    child: Child,
-    stdin: ChildStdin,
-    generation: u64,
-    /// Windows Job Object so cancel kills nested tool trees (cargo test, shells).
-    #[cfg(windows)]
-    job: Option<process_job::ProcessJob>,
-}
 
-#[derive(Default)]
-struct AcpState {
-    process: Mutex<Option<AgentProcess>>,
-    connect_lock: Mutex<()>,
-    connection: RwLock<Option<AgentRuntimeConnection>>,
-    next_generation: AtomicU64,
-    next_host_request_id: AtomicU64,
-    ready_generation: AtomicU64,
-    paused_generation: AtomicU64,
-    runtime_phase: AtomicU8,
-    last_connect: RwLock<Option<RuntimeConnectSpec>>,
-    automatic_reconnect_owner: AtomicU64,
-    next_reconnect_owner: AtomicU64,
-    reconnect_epoch: AtomicU64,
-    requests: AcpRequestBroker,
-    authentication: AgentAuthenticationLifecycle,
-    sessions: Arc<SessionCoordinator>,
-    foreground_turns: Arc<ForegroundTurnRegistry>,
-    interactions: Arc<InteractionRegistry>,
-    client_callbacks: Arc<ClientCallbackRegistry>,
-    session_events: SessionEventJournal,
-}
 
-#[derive(Clone)]
-struct RuntimeConnectSpec {
-    cwd: String,
-    reasoning_effort: Option<String>,
-}
 
-#[derive(Clone, Copy)]
-struct RuntimeReconnectClaim {
-    owner: u64,
-    epoch: u64,
-}
 
-impl AcpState {
-    fn issue_host_request_id(&self) -> u64 {
-        // Grok Build 的 ACP 适配器可能由 JavaScript 实现；请求 id 必须保持
-        // Number-safe，同时与从 1 递增的 WebView 请求留出不可实际跨越的空间。
-        const HOST_REQUEST_NAMESPACE: u64 = 1 << 52;
-        const HOST_REQUEST_SEQUENCE_MASK: u64 = HOST_REQUEST_NAMESPACE - 1;
-        let sequence = self
-            .next_host_request_id
-            .fetch_add(1, Ordering::Relaxed)
-            .wrapping_add(1)
-            & HOST_REQUEST_SEQUENCE_MASK;
-        HOST_REQUEST_NAMESPACE | sequence.max(1)
-    }
 
-    fn set_runtime_phase(&self, phase: RuntimePhase) {
-        self.runtime_phase.store(phase as u8, Ordering::Release);
-    }
-
-    fn remember_connect(&self, spec: RuntimeConnectSpec) {
-        *self
-            .last_connect
-            .write()
-            .unwrap_or_else(|error| error.into_inner()) = Some(spec);
-    }
-
-    fn last_connect(&self) -> Option<RuntimeConnectSpec> {
-        self.last_connect
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone()
-    }
-
-    fn claim_automatic_reconnect(&self) -> Option<RuntimeReconnectClaim> {
-        let owner = self.next_reconnect_owner.fetch_add(1, Ordering::Relaxed) + 1;
-        let claim = RuntimeReconnectClaim {
-            owner,
-            epoch: self.reconnect_epoch.load(Ordering::Acquire),
-        };
-        self.automatic_reconnect_owner
-            .compare_exchange(0, owner, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| claim)
-    }
-
-    fn automatic_reconnect_cancelled(&self, claim: RuntimeReconnectClaim) -> bool {
-        self.reconnect_epoch.load(Ordering::Acquire) != claim.epoch
-            || self.automatic_reconnect_owner.load(Ordering::Acquire) != claim.owner
-    }
-
-    fn finish_automatic_reconnect(&self, claim: RuntimeReconnectClaim) {
-        let _ = self.automatic_reconnect_owner.compare_exchange(
-            claim.owner,
-            0,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
-    }
-
-    fn cancel_automatic_reconnect(&self) {
-        self.reconnect_epoch.fetch_add(1, Ordering::AcqRel);
-        self.automatic_reconnect_owner.store(0, Ordering::Release);
-    }
-
-    fn cached_connection(&self, generation: u64) -> Option<AgentRuntimeConnection> {
-        self.connection
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            .filter(|connection| connection.generation == generation)
-            .cloned()
-    }
-
-    fn clear_cached_connection(&self, generation: Option<u64>) {
-        let mut connection = self
-            .connection
-            .write()
-            .unwrap_or_else(|error| error.into_inner());
-        let should_clear = match generation {
-            None => true,
-            Some(generation) => connection
-                .as_ref()
-                .is_some_and(|connection| connection.generation == generation),
-        };
-        if should_clear {
-            *connection = None;
-        }
-    }
-
-    async fn ready_connection(&self) -> Option<AgentRuntimeConnection> {
-        let generation = self.ready_generation.load(Ordering::Acquire);
-        if generation == 0
-            || !self
-                .process
-                .lock()
-                .await
-                .as_ref()
-                .is_some_and(|process| process.generation == generation)
-        {
-            return None;
-        }
-        self.cached_connection(generation)
-    }
-
-    fn set_authentication_state(
-        &self,
-        generation: u64,
-        auth: AgentAuthenticationState,
-    ) -> bool {
-        let mut cached = self
-            .connection
-            .write()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(connection) = cached
-            .as_mut()
-            .filter(|connection| connection.generation == generation)
-        else {
-            return false;
-        };
-        connection.auth = auth;
-        true
-    }
-
-    async fn pause_runtime(&self) -> Result<(), AcpHostError> {
-        let generation = self.ready_generation.load(Ordering::Acquire);
-        let process = self.process.lock().await;
-        if generation == 0
-            || !process
-                .as_ref()
-                .is_some_and(|process| process.generation == generation)
-        {
-            return Err(AcpHostError::operation(
-                "ACP_RUNTIME_NOT_READY",
-                "只有已完成握手的运行时才能暂停",
-            ));
-        }
-        self.paused_generation.store(generation, Ordering::Release);
-        if self
-            .ready_generation
-            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            self.paused_generation.store(0, Ordering::Release);
-            return Err(AcpHostError::operation(
-                "ACP_RUNTIME_STATE_CHANGED",
-                "运行时状态已变化，请重新执行当前操作",
-            ));
-        }
-        self.set_runtime_phase(RuntimePhase::Paused);
-        drop(process);
-        Ok(())
-    }
-
-    async fn mark_runtime_ready(
-        &self,
-        connection: &AgentRuntimeConnection,
-    ) -> Result<(), AcpHostError> {
-        let generation = connection.generation;
-        let process = self.process.lock().await;
-        if !process
-            .as_ref()
-            .is_some_and(|process| process.generation == generation)
-        {
-            return Err(AcpHostError::environment(
-                "ACP_RUNTIME_GENERATION_STALE",
-                "运行时就绪信号属于已替换的 ACP 通道",
-                false,
-                false,
-                "等待 Agent 重连完成后重试",
-            ));
-        }
-        *self
-            .connection
-            .write()
-            .unwrap_or_else(|error| error.into_inner()) = Some(connection.clone());
-        self.paused_generation.store(0, Ordering::Release);
-        self.ready_generation.store(generation, Ordering::Release);
-        self.set_runtime_phase(RuntimePhase::Ready);
-        drop(process);
-        Ok(())
-    }
-
-    async fn resume_runtime(&self, generation: u64) -> Result<(), AcpHostError> {
-        if self.paused_generation.load(Ordering::Acquire) != generation {
-            return Err(AcpHostError::operation(
-                "ACP_RUNTIME_RESUME_NOT_ALLOWED",
-                "运行时没有可恢复的已就绪代次",
-            ));
-        }
-        let process = self.process.lock().await;
-        if !process
-            .as_ref()
-            .is_some_and(|process| process.generation == generation)
-        {
-            self.paused_generation.store(0, Ordering::Release);
-            self.set_runtime_phase(RuntimePhase::Offline);
-            return Err(AcpHostError::environment(
-                "ACP_RUNTIME_GENERATION_STALE",
-                "待恢复的 ACP 通道已退出或被替换",
-                false,
-                false,
-                "等待 Agent 重连完成后重试",
-            ));
-        }
-        if self
-            .paused_generation
-            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Err(AcpHostError::operation(
-                "ACP_RUNTIME_RESUME_NOT_ALLOWED",
-                "运行时恢复凭据已被消费",
-            ));
-        }
-        self.ready_generation.store(generation, Ordering::Release);
-        self.set_runtime_phase(RuntimePhase::Ready);
-        drop(process);
-        Ok(())
-    }
-
-    fn mark_generation_unready(&self, generation: u64, phase: RuntimePhase) {
-        let was_ready = self
-            .ready_generation
-            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok();
-        let was_paused = self
-            .paused_generation
-            .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok();
-        if was_ready
-            || was_paused
-            || (self.ready_generation.load(Ordering::Acquire) == 0
-                && self.paused_generation.load(Ordering::Acquire) == 0)
-        {
-            self.authentication.reset(AcpHostError::environment(
-                "AUTH_RUNTIME_CHANGED",
-                "认证期间 Agent 运行时已退出或被替换",
-                false,
-                false,
-                "重新连接 Agent 后再次登录",
-            ));
-            self.clear_cached_connection(Some(generation));
-            self.set_runtime_phase(phase);
-        }
-    }
-}
-
-#[repr(u8)]
-#[derive(Clone, Copy)]
-enum RuntimePhase {
-    Stopped = 0,
-    Starting = 1,
-    Initializing = 2,
-    Authenticating = 3,
-    Ready = 4,
-    Paused = 5,
-    Offline = 6,
-}
-
-impl RuntimePhase {
-    fn from_raw(value: u8) -> Self {
-        match value {
-            1 => Self::Starting,
-            2 => Self::Initializing,
-            3 => Self::Authenticating,
-            4 => Self::Ready,
-            5 => Self::Paused,
-            6 => Self::Offline,
-            _ => Self::Stopped,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Stopped => "stopped",
-            Self::Starting => "starting",
-            Self::Initializing => "initializing",
-            Self::Authenticating => "authenticating",
-            Self::Ready => "ready",
-            Self::Paused => "paused",
-            Self::Offline => "offline",
-        }
-    }
-}
 
 struct PreviewProcess {
     child: Child,
@@ -501,32 +182,6 @@ struct FilePreviewState {
     roots: Arc<Mutex<BTreeMap<String, PathBuf>>>,
 }
 
-#[derive(Default)]
-struct AppShutdown {
-    started: AtomicBool,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AcpExitPayload {
-    code: Option<i32>,
-    reason: &'static str,
-    affected_session_ids: Vec<String>,
-    interrupted_session_ids: Vec<String>,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RuntimeReconnectPayload {
-    state: &'static str,
-    attempt: u8,
-    affected_session_ids: Vec<String>,
-    interrupted_session_ids: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    connection: Option<AgentRuntimeConnection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<AcpHostError>,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -599,11 +254,6 @@ fn host_session_bindings(
         .collect())
 }
 
-pub(crate) fn emit_host_session_event(app: &tauri::AppHandle, event: HostSessionEvent) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("host-session-event", event);
-    }
-}
 
 #[tauri::command]
 async fn agent_runtime_status(
@@ -709,22 +359,6 @@ struct PreviewFile {
     content: String,
 }
 
-/// Binary-safe response used by Grok's TUI-style `x.ai/fs/read_file`
-/// extension.  The standard ACP `fs/read_text_file` method is intentionally
-/// text-only; the extension adds the same `contentBase64`/`type` fields that
-/// the upstream CLI uses for images and other binary files.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AcpReadFile {
-    content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content_base64: Option<String>,
-    size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    line_count: Option<u64>,
-    #[serde(rename = "type")]
-    content_type: String,
-}
 
 /// An image that the operator explicitly referenced in the outgoing prompt.
 ///
@@ -764,16 +398,6 @@ struct GitSummary {
     behind: u64,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GrokRuntimeInfo {
-    path: String,
-    source: &'static str,
-    system_path: Option<String>,
-    selection_required: bool,
-    version: Option<String>,
-    grox_commit: &'static str,
-}
 
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -895,55 +519,6 @@ struct ProviderStatus {
     secret_backend: SecretBackendKind,
 }
 
-/// Grox changes only the endpoint, credential source, and request protocol
-/// for an active compatible provider. Keep the exact prior TOML items so
-/// switching back to OAuth or the official API restores user configuration.
-#[derive(Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderAuthOverridesFile {
-    #[serde(default)]
-    models: BTreeMap<String, ProviderModelAuthBackup>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderModelAuthBackup {
-    model_existed: bool,
-    /// The original TOML representation (for example `"OPENAI_API_KEY"` or
-    /// `["FIRST", "SECOND"]`). It is a variable name, never a secret.
-    env_key: Option<String>,
-    /// An inline key outranks `env_key` in Grok Build, so it must be restored
-    /// after a profile switch rather than left pointing at the old provider.
-    #[serde(default)]
-    api_key: Option<String>,
-    /// Per-model endpoints outrank the global endpoint configuration.
-    #[serde(default)]
-    base_url: Option<String>,
-    /// The original TOML representation (for example `"responses"`).
-    #[serde(default)]
-    api_backend: Option<String>,
-}
-
-/// Grok Build's built-in aliases do not inherit a dynamic endpoint's
-/// credential route consistently. For the active gateway, add the documented
-/// per-model route (never a literal key), then restore every prior field when
-/// the user leaves that provider.
-#[derive(Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderBackendOverridesFile {
-    models: BTreeMap<String, ProviderBackendBackup>,
-}
-
-#[derive(Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderBackendBackup {
-    model_existed: bool,
-    env_key: Option<String>,
-    base_url: Option<String>,
-    api_backend: Option<String>,
-    model: Option<String>,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderProfilesResponse {
@@ -976,37 +551,12 @@ struct OpenAiModelsResponse {
     data: Vec<OpenAiModel>,
 }
 
-const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_IMAGE_PREVIEW_BYTES: u64 = 40 * 1024 * 1024;
 const MAX_STREAMABLE_PREVIEW_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-const MAX_ACP_TEXT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_WORKSPACE_ENTRIES: usize = 2_000;
-static CONFIG_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
 
-fn default_workspace() -> PathBuf {
-    if let Some(path) = std::env::var_os("GROK_DESKTOP_CWD").filter(|v| !v.is_empty()) {
-        return PathBuf::from(path);
-    }
 
-    #[cfg(debug_assertions)]
-    {
-        // `src-tauri` lives at `<repo>/apps/desktop/src-tauri` in development.
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        if let Some(repo) = manifest.ancestors().nth(3) {
-            return repo.to_path_buf();
-        }
-    }
-
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-}
-
-fn grok_home() -> Result<PathBuf, String> {
-    if let Some(path) = std::env::var_os("GROK_HOME").filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(path));
-    }
-    Ok(user_home()?.join(".grok"))
-}
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -1686,15 +1236,6 @@ fn search_session_history(query: String, session_ids: Vec<String>) -> Result<Vec
         .collect())
 }
 
-/// Resolve the actual user home independently of `GROK_HOME`. The latter may
-/// point to a portable or test-specific Grok configuration directory, but
-/// `~/…` in a prompt must always mean the operator's home directory.
-fn user_home() -> Result<PathBuf, String> {
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .ok_or_else(|| "无法定位用户目录，请设置 GROK_HOME".to_string())?;
-    Ok(PathBuf::from(home))
-}
 
 fn provision_grox_deep_research_workflow() -> Result<(), String> {
     let path = grok_home()?.join("workflows").join("grox-deep-research.rhai");
@@ -1722,319 +1263,17 @@ fn provision_grox_deep_research_workflow() -> Result<(), String> {
     atomic_write(&path, GROX_DEEP_RESEARCH_WORKFLOW)
 }
 
-fn read_bounded_text(path: &Path, max_bytes: u64) -> Result<String, String> {
-    if !path.exists() {
-        return Ok(String::new());
-    }
-    let metadata =
-        fs::metadata(path).map_err(|error| format!("无法读取 {}：{error}", path.display()))?;
-    if !metadata.is_file() {
-        return Err(format!("不是文件：{}", path.display()));
-    }
-    if metadata.len() > max_bytes {
-        return Err(format!("文件过大：{}", path.display()));
-    }
-    fs::read_to_string(path).map_err(|error| format!("无法读取 {}：{error}", path.display()))
-}
 
-/// Platform-aware atomic replace of `to` with `from` (same volume).
-/// - Unix: `rename` replaces the destination atomically.
-/// - Windows: `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` avoids the
-///   final→bak then temp→final crash window of a two-step rename.
-fn replace_file_atomic(from: &Path, to: &Path) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows::core::PCWSTR;
-        use windows::Win32::Storage::FileSystem::{
-            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-        };
-        // Wide, NUL-terminated paths kept alive for the duration of the call.
-        let from_wide: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-        let to_wide: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-        // SAFETY: `from_wide` / `to_wide` are valid NUL-terminated UTF-16 for the
-        // whole call; `MoveFileExW` only reads those pointers and does not retain
-        // them. Same-directory replace keeps the operation on one volume so
-        // MOVEFILE_REPLACE_EXISTING is an in-place metadata replace, not a copy.
-        unsafe {
-            MoveFileExW(
-                PCWSTR(from_wide.as_ptr()),
-                PCWSTR(to_wide.as_ptr()),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-            .map_err(|error| {
-                format!(
-                    "无法原子替换 {} → {}：{error}",
-                    from.display(),
-                    to.display()
-                )
-            })
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        fs::rename(from, to).map_err(|error| {
-            format!(
-                "无法原子替换 {} → {}：{error}",
-                from.display(),
-                to.display()
-            )
-        })
-    }
-}
 
-/// Parse `.name.grox-pid-nonce.bak` / `.tmp` → original final file name.
-fn atomic_orphan_final_name(orphan_name: &str) -> Option<&str> {
-    if !orphan_name.starts_with('.') || !orphan_name.contains(".grox-") {
-        return None;
-    }
-    let stem = orphan_name
-        .strip_suffix(".bak")
-        .or_else(|| orphan_name.strip_suffix(".tmp"))?;
-    // stem = ".{file}.grox-{pid}-{nonce}"
-    let rest = stem.strip_prefix('.')?;
-    let marker = rest.rfind(".grox-")?;
-    let file_name = &rest[..marker];
-    if file_name.is_empty() {
-        return None;
-    }
-    Some(file_name)
-}
 
-/// Parse writer pid from `.name.grox-{pid}-{nonce}.tmp|.bak`.
-fn atomic_orphan_writer_pid(orphan_name: &str) -> Option<u32> {
-    let stem = orphan_name
-        .strip_suffix(".bak")
-        .or_else(|| orphan_name.strip_suffix(".tmp"))?;
-    let rest = stem.strip_prefix('.')?;
-    let marker = rest.rfind(".grox-")?;
-    let after = &rest[marker + ".grox-".len()..];
-    let pid = after.split('-').next()?;
-    pid.parse().ok()
-}
 
-fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
-    atomic_write_bounded_with_privacy(path, content, MAX_CONFIG_BYTES, false)
-}
 
-fn atomic_write_private(path: &Path, content: &str) -> Result<(), String> {
-    atomic_write_bounded_private(path, content, MAX_CONFIG_BYTES)
-}
 
-/// Atomically publish a new private file without replacing an existing path.
-/// A same-directory hard link gives the final name all at once and fails with
-/// AlreadyExists if another caller won the recovery race.
-fn atomic_create_private(path: &Path, content: &str) -> Result<bool, String> {
-    if content.len() as u64 > MAX_CONFIG_BYTES {
-        return Err(format!(
-            "文档不能超过 {} MB",
-            MAX_CONFIG_BYTES / 1024 / 1024
-        ));
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| "配置路径缺少父目录".to_string())?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("config");
-    let nonce = CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed);
-    let temp = parent.join(format!(
-        ".{}.grox-{}-{}.recovering",
-        file_name,
-        std::process::id(),
-        nonce,
-    ));
-    {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(&temp)
-            .map_err(|error| format!("无法创建临时配置 {}：{error}", temp.display()))?;
-        if let Err(error) = file
-            .write_all(content.as_bytes())
-            .and_then(|_| file.sync_all())
-        {
-            drop(file);
-            let _ = fs::remove_file(&temp);
-            return Err(format!("无法写入配置 {}：{error}", temp.display()));
-        }
-    }
-    #[cfg(not(unix))]
-    if let Err(error) = restrict_private_file(&temp) {
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
-    let result = match fs::hard_link(&temp, path) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(error) => Err(format!(
-            "无法恢复私有配置 {}：{error}",
-            path.display()
-        )),
-    };
-    let _ = fs::remove_file(&temp);
-    result
-}
 
-fn atomic_write_bounded_private(
-    path: &Path,
-    content: &str,
-    max_bytes: u64,
-) -> Result<(), String> {
-    atomic_write_bounded_with_privacy(path, content, max_bytes, true)?;
-    #[cfg(not(unix))]
-    restrict_private_file(path)?;
-    Ok(())
-}
 
-fn atomic_write_bounded_with_privacy(
-    path: &Path,
-    content: &str,
-    max_bytes: u64,
-    private: bool,
-) -> Result<(), String> {
-    #[cfg(not(unix))]
-    let _ = private;
-    if content.len() as u64 > max_bytes {
-        return Err(format!("文档不能超过 {} MB", max_bytes / 1024 / 1024));
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| "配置路径缺少父目录".to_string())?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("无法创建 {}：{error}", parent.display()))?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("config");
-    let nonce = CONFIG_WRITE_NONCE.fetch_add(1, Ordering::Relaxed);
-    let temp = parent.join(format!(
-        ".{}.grox-{}-{}.tmp",
-        file_name,
-        std::process::id(),
-        nonce,
-    ));
-    {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        if private {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(&temp)
-            .map_err(|error| format!("无法创建临时配置 {}：{error}", temp.display()))?;
-        if let Err(error) = file
-            .write_all(content.as_bytes())
-            .and_then(|_| file.sync_all())
-        {
-            drop(file);
-            let _ = fs::remove_file(&temp);
-            return Err(format!("无法写入配置 {}：{error}", temp.display()));
-        }
-    }
-    // Single platform-native replace — never leave a window where `path` is
-    // missing while only a `.bak` remains (the previous two-step rename).
-    if let Err(error) = replace_file_atomic(&temp, path) {
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
-    Ok(())
-}
 
-/// Drop orphan atomic-write temps; restore recovery copies when final is missing.
-///
-/// Rules:
-/// - Never touch `.tmp` still owned by **this** process (may be mid-write).
-/// - Final missing + `.bak`/aged foreign `.tmp` → promote to final (do not delete
-///   the only copy if promote fails).
-/// - Final present + aged leftover → delete.
-fn scrub_atomic_write_orphans(dir: &Path, max_age: std::time::Duration) -> u32 {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    let now = std::time::SystemTime::now();
-    let self_pid = std::process::id();
-    let mut removed = 0u32;
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let is_orphan = name.starts_with('.')
-            && (name.ends_with(".tmp") || name.ends_with(".bak"))
-            && name.contains(".grox-");
-        if !is_orphan {
-            continue;
-        }
-        // Live writer temps use our pid in the name — age-0 scrub must not
-        // steal them between sync_all and replace.
-        if name.ends_with(".tmp") {
-            if let Some(pid) = atomic_orphan_writer_pid(name) {
-                if pid == self_pid {
-                    continue;
-                }
-            }
-        }
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        let aged = meta
-            .modified()
-            .ok()
-            .map(|modified| now.duration_since(modified).unwrap_or_default() >= max_age)
-            .unwrap_or(true);
-
-        if name.ends_with(".bak") {
-            if let Some(final_name) = atomic_orphan_final_name(name) {
-                let final_path = dir.join(final_name);
-                if !final_path.exists() {
-                    // Crash mid-replace left only the recovery copy — restore it.
-                    if fs::rename(&path, &final_path).is_ok() {
-                        removed += 1;
-                    }
-                    // Rename failed: leave bak (only copy). Never delete.
-                    continue;
-                }
-            }
-            // Final exists: only drop aged bak leftovers.
-            if aged && fs::remove_file(&path).is_ok() {
-                removed += 1;
-            }
-            continue;
-        }
-
-        // .tmp from a dead writer.
-        if let Some(final_name) = atomic_orphan_final_name(name) {
-            let final_path = dir.join(final_name);
-            if !final_path.exists() {
-                // First-write crash: promote complete temp instead of deleting
-                // the only snapshot.
-                if aged && fs::rename(&path, &final_path).is_ok() {
-                    removed += 1;
-                }
-                continue;
-            }
-        }
-        if aged && fs::remove_file(&path).is_ok() {
-            removed += 1;
-        }
-    }
-    removed
-}
 
 const SESSION_JOURNAL_MAX_BYTES: u64 = 16 * 1024 * 1024;
-const PROMPT_QUEUES_MAX_BYTES: u64 = 64 * 1024 * 1024;
-const AUTOMATIONS_MAX_BYTES: u64 = 4 * 1024 * 1024;
 const TOOL_IMAGE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const TOOL_IMAGES_MAX_BYTES: usize = 16 * 1024 * 1024;
 
@@ -2398,12 +1637,6 @@ fn session_journal_status(app: tauri::AppHandle) -> Result<SessionJournalStatus,
         .map_err(|error| session_persistence_error("SESSION_JOURNAL_STATUS_FAILED", error))
 }
 
-fn prompt_queues_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|directory| directory.join("prompt-queues.json"))
-        .map_err(|error| format!("无法定位提示队列文件：{error}"))
-}
 
 fn drafts_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
@@ -2543,19 +1776,7 @@ fn patch_prompt_queues(
         .map_err(|error| session_persistence_error("PROMPT_QUEUE_WRITE_FAILED", error))
 }
 
-fn automations_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|directory| directory.join("automations.json"))
-        .map_err(|error| format!("无法定位自动化文件：{error}"))
-}
 
-fn worktree_bindings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|directory| directory.join("worktree-bindings.json"))
-        .map_err(|error| format!("无法定位 worktree 会话索引：{error}"))
-}
 
 #[tauri::command]
 fn read_automations(
@@ -2587,22 +1808,6 @@ fn patch_automations(
         .map_err(|error| session_persistence_error("AUTOMATION_WRITE_FAILED", error))
 }
 
-fn automation_claim_error(message: String) -> AcpHostError {
-    if message.contains("token 无效")
-        || message.contains("无效会话 ID")
-        || message.contains("错误详情不能超过")
-    {
-        AcpHostError::protocol("AUTOMATION_INVALID_RESULT", message)
-    } else if message.contains("认领")
-        || message.contains("正在执行")
-        || message.contains("不存在")
-        || message.contains("id 无效")
-    {
-        AcpHostError::operation("AUTOMATION_CLAIM_STALE", message)
-    } else {
-        automation_storage_error(message)
-    }
-}
 
 #[tauri::command]
 async fn agent_runtime_resume(
@@ -2800,70 +2005,12 @@ fn scrub_session_journal_orphans(app: tauri::AppHandle) -> Result<u32, String> {
     scrub_session_journal_dirs(&app, Duration::from_secs(0))
 }
 
-#[cfg(unix)]
-fn restrict_private_file(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .map_err(|error| format!("无法限制凭据文件权限 {}：{error}", path.display()))
-}
 
-#[cfg(not(unix))]
-fn restrict_private_file(path: &Path) -> Result<(), String> {
-    // Restrict the credential file to the current Windows user when possible.
-    // Inheritance from the profile directory is usually enough; this is defense
-    // in depth for shared or relocated config folders.
-    let path_text = path.to_string_lossy();
-    let user = std::env::var("USERNAME").unwrap_or_else(|_| String::from("%USERNAME%"));
-    let mut command = std::process::Command::new("icacls");
-    command
-        .args([
-            path_text.as_ref(),
-            "/inheritance:r",
-            "/grant:r",
-            &format!("{user}:(R,W)"),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0800_0000);
-    }
-    let status = command.status();
-    match status {
-        Ok(code) if code.success() => Ok(()),
-        Ok(code) => {
-            eprintln!(
-                "grox: 无法限制凭据文件权限 {}（icacls 退出码 {:?}）；将继续依赖用户配置目录 ACL",
-                path.display(),
-                code.code()
-            );
-            Ok(())
-        }
-        Err(error) => {
-            eprintln!(
-                "grox: 无法启动 icacls 限制凭据文件权限 {}：{error}；将继续依赖用户配置目录 ACL",
-                path.display()
-            );
-            Ok(())
-        }
-    }
-}
 
 fn env_value(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn config_path(id: &str, cwd: &Path) -> Result<(PathBuf, &'static str, &'static str), String> {
-    let home = grok_home()?;
-    match id {
-        "config" => Ok((home.join("config.toml"), "Grok config.toml", "toml")),
-        "system-prompt" => Ok((home.join("system-prompt.md"), "系统提示词", "markdown")),
-        "agents" => Ok((cwd.join("AGENTS.md"), "项目 AGENTS.md", "markdown")),
-        _ => Err("未知配置文档".into()),
-    }
-}
 
 fn config_overlay_metadata_from(
     inline: Option<std::ffi::OsString>,
@@ -2906,124 +2053,10 @@ fn config_overlay_metadata() -> ConfigOverlayMetadata {
 /// 路由完全由 config.toml 的 `[model.*]` 段和 `[models] default` 表达。
 /// `GROK_MODELS_BASE_URL` 是 CLI 的另一套全局路由机制，两套并存意味着同一件
 /// 事有两个真相源、会互相矛盾；这里只保留前者，环境里仅注入凭据。
-fn apply_grox_provider_environment(command: &mut Command) -> Result<(), String> {
-    for key in [
-        "XAI_API_KEY",
-        "OPENAI_API_KEY",
-        GROK_MODELS_BASE_URL_KEY,
-        "GROK_MODELS_LIST_URL",
-    ] {
-        command.env_remove(key);
-    }
-    let runtime = provider_service_raw()?
-        .runtime_environment()
-        .map_err(|error| error.message)?;
-    if let Some(secret) = runtime.api_key {
-        command.env(
-            if runtime.compatible { "OPENAI_API_KEY" } else { "XAI_API_KEY" },
-            secret,
-        );
-    }
-    Ok(())
-}
 
-/// ACP has a text-only filesystem contract. Keep writes in the workspace, but
-/// let the CLI read its own built-in and user-installed Skill definitions.
-/// Canonical paths are compared after resolution so a workspace symlink cannot
-/// be used to escape the intended boundary.
-fn checked_acp_readable_file(workspace: &Path, requested: &str) -> Result<PathBuf, String> {
-    let grok = grok_home()?;
-    let roots = [
-        grok.join("skills"),
-        // Bundled skills can reference sibling templates/assets under this
-        // read-only tree, so allow the whole bundled root rather than only
-        // its `skills` child.
-        grok.join("bundled"),
-        // The official CLI persists session checkpoints here. These remain
-        // read-only; only ACP text writes inside the active workspace are
-        // permitted.
-        grok.join("sessions"),
-    ]
-    .into_iter()
-    .filter_map(|root| root.canonicalize().ok())
-    .collect::<Vec<_>>();
-    checked_read_file_with_roots(workspace, requested, &roots)
-}
 
-fn checked_read_file_with_roots(
-    workspace: &Path,
-    requested: &str,
-    readonly_roots: &[PathBuf],
-) -> Result<PathBuf, String> {
-    let candidate = if requested == "~"
-        || requested.starts_with("~/")
-        || requested.starts_with("~\\")
-    {
-        let home = user_home()?;
-        if requested == "~" {
-            home
-        } else {
-            home.join(&requested[2..])
-        }
-    } else {
-        PathBuf::from(requested)
-    };
-    let candidate = if candidate.is_absolute() {
-        candidate
-    } else {
-        workspace.join(candidate)
-    };
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|error| format!("无法解析文件 {}：{error}", candidate.display()))?;
-    if canonical.starts_with(workspace)
-        || readonly_roots
-            .iter()
-            .any(|root| canonical.starts_with(root))
-    {
-        return Ok(canonical);
-    }
-    Err("只能读取当前项目或 Grok 的 Skills、Bundled、Sessions 目录下的文件".into())
-}
 
-/// Identify accepted image formats from their contents rather than a mutable
-/// filename extension. This rejects a text file renamed to `.png` before it
-/// can be sent to the provider as a broken multimodal attachment.
-fn image_mime(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Some("image/png");
-    }
-    if bytes.starts_with(b"\xff\xd8\xff") {
-        return Some("image/jpeg");
-    }
-    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        return Some("image/gif");
-    }
-    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return Some("image/webp");
-    }
-    if bytes.starts_with(b"BM") {
-        return Some("image/bmp");
-    }
-    let svg_prefix = std::str::from_utf8(&bytes[..bytes.len().min(4 * 1024)]).ok()?;
-    let svg_start = svg_prefix.trim_start_matches(['\u{feff}', ' ', '\t', '\r', '\n']);
-    let svg_start = svg_start.to_ascii_lowercase();
-    if svg_start.starts_with("<svg")
-        || (svg_start.starts_with("<?xml") && svg_start.contains("<svg"))
-    {
-        return Some("image/svg+xml");
-    }
-    None
-}
 
-fn prompt_image_mime(bytes: &[u8]) -> Option<&'static str> {
-    match image_mime(bytes) {
-        // SVG 是带主动内容能力的文本，也不是通用多模态输入格式。文件预览仍可
-        // 支持 SVG，但不能把它作为图片附件发送给供应商。
-        Some("image/svg+xml") | None => None,
-        mime => mime,
-    }
-}
 
 /// Resolve a path the user themselves supplied in the composer. This does not
 /// change the agent's filesystem authority: only image files explicitly named
@@ -3154,230 +2187,15 @@ fn collect_workspace_entries(root: &Path, dir: &Path, output: &mut Vec<Workspace
     }
 }
 
-fn executable_file(path: &Path) -> bool {
-    if !path.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        return fs::metadata(path)
-            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
-    }
-    #[cfg(not(unix))]
-    true
-}
 
-fn system_grok_candidates(executable: &str) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    candidates.extend(
-        std::env::var_os("PATH")
-            .into_iter()
-            .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-            .map(|directory| directory.join(executable)),
-    );
-    if let Some(home) = std::env::var_os("GROK_HOME").filter(|value| !value.is_empty()) {
-        candidates.push(PathBuf::from(home).join("bin").join(executable));
-    }
-    if let Some(home) = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .filter(|value| !value.is_empty())
-    {
-        let home = PathBuf::from(home);
-        candidates.push(home.join(".grok").join("bin").join(executable));
-        candidates.push(home.join(".cargo").join("bin").join(executable));
-    }
-    #[cfg(windows)]
-    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-        candidates.push(
-            PathBuf::from(local_app_data)
-                .join("Programs")
-                .join("Grok")
-                .join(executable),
-        );
-    }
-    #[cfg(target_os = "macos")]
-    {
-        candidates.push(PathBuf::from("/opt/homebrew/bin").join(executable));
-        candidates.push(PathBuf::from("/usr/local/bin").join(executable));
-    }
-    candidates
-}
 
-fn normalized_existing_path(path: &Path) -> Option<PathBuf> {
-    if !executable_file(path) {
-        return None;
-    }
-    path.canonicalize()
-        .ok()
-        .or_else(|| Some(path.to_path_buf()))
-}
 
-/// Extract the semver token from a `grok --version` line such as
-/// "grok 0.2.106 (abc1234) [stable]".
-fn cli_version_number(raw: &str) -> Option<semver::Version> {
-    raw.split_whitespace()
-        .find_map(|token| semver::Version::parse(token.trim_start_matches(['v', 'V'])).ok())
-}
 
-fn grok_binary_version(path: &str) -> Option<String> {
-    let mut command = std::process::Command::new(path);
-    command
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0800_0000);
-    }
-    let output = command
-        .output()
-        .ok()
-        .filter(|output| output.status.success())?;
-    String::from_utf8(output.stdout)
-        .ok()?
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-}
 
-fn runtime_info(
-    path: String,
-    source: &'static str,
-    system_path: Option<String>,
-    selection_required: bool,
-) -> GrokRuntimeInfo {
-    GrokRuntimeInfo {
-        version: grok_binary_version(&path),
-        path,
-        source,
-        system_path,
-        selection_required,
-        grox_commit: GROX_BUILD_COMMIT,
-    }
-}
 
-fn configured_grok_command() -> GrokRuntimeInfo {
-    let executable = if cfg!(windows) { "grok.exe" } else { "grok" };
-    let system = system_grok_candidates(executable)
-        .into_iter()
-        .filter_map(|candidate| normalized_existing_path(&candidate))
-        .next();
 
-    if let Some(path) = std::env::var_os("GROK_DESKTOP_CLI").filter(|value| !value.is_empty()) {
-        return runtime_info(
-            PathBuf::from(path).to_string_lossy().into_owned(),
-            "override",
-            system.as_deref().map(path_for_webview),
-            false,
-        );
-    }
 
-    if let Some(path) = system.as_deref() {
-        return runtime_info(
-            path.to_string_lossy().into_owned(),
-            "system",
-            Some(path_for_webview(path)),
-            false,
-        );
-    }
 
-    runtime_info(executable.to_string(), "missing", None, true)
-}
-
-fn acp_read_text_file(
-    cwd: String,
-    path: String,
-    line: Option<u32>,
-    limit: Option<u32>,
-) -> Result<String, String> {
-    let workspace = checked_workspace(&cwd)?;
-    let file = checked_acp_readable_file(&workspace, &path)?;
-    let content = read_bounded_text(&file, MAX_ACP_TEXT_BYTES)?;
-    if line.is_none() && limit.is_none() {
-        return Ok(content);
-    }
-    let start = line.unwrap_or(1).max(1).saturating_sub(1) as usize;
-    let take = limit.map(|value| value as usize).unwrap_or(usize::MAX);
-    Ok(content
-        .split_inclusive('\n')
-        .skip(start)
-        .take(take)
-        .collect())
-}
-
-fn build_acp_read_file(bytes: Vec<u8>, line: Option<u32>, limit: Option<u32>) -> AcpReadFile {
-    let size = bytes.len() as u64;
-    if let Some(mime) = image_mime(&bytes) {
-        return AcpReadFile {
-            content: String::new(),
-            content_base64: Some(BASE64.encode(bytes)),
-            size,
-            line_count: None,
-            content_type: mime.to_string(),
-        };
-    }
-
-    match String::from_utf8(bytes) {
-        Ok(full_text) => {
-            let line_count = Some(full_text.lines().count() as u64);
-            let content = if line.is_none() && limit.is_none() {
-                full_text
-            } else {
-                let start = line.unwrap_or(1).max(1).saturating_sub(1) as usize;
-                let take = limit.map(|value| value as usize).unwrap_or(usize::MAX);
-                full_text
-                    .split_inclusive('\n')
-                    .skip(start)
-                    .take(take)
-                    .collect()
-            };
-            AcpReadFile {
-                content,
-                content_base64: None,
-                size,
-                line_count,
-                content_type: "text/plain".into(),
-            }
-        }
-        Err(error) => AcpReadFile {
-            content: String::new(),
-            content_base64: Some(BASE64.encode(error.into_bytes())),
-            size,
-            line_count: None,
-            content_type: "application/octet-stream".into(),
-        },
-    }
-}
-
-/// Build the TUI-compatible, binary-safe Host callback response. Unlike
-/// `acp_read_text_file`, this helper deliberately never calls
-/// `read_to_string` for an image: PNG/JPEG/etc. are returned as base64 bytes
-/// so the model can receive them as a multimodal tool result.
-fn acp_read_file(
-    cwd: String,
-    path: String,
-    line: Option<u32>,
-    limit: Option<u32>,
-) -> Result<AcpReadFile, String> {
-    let workspace = checked_workspace(&cwd)?;
-    let file = checked_acp_readable_file(&workspace, &path)?;
-    let metadata = fs::metadata(&file)
-        .map_err(|error| format!("无法读取 {}：{error}", file.display()))?;
-    if !metadata.is_file() {
-        return Err("只能读取文件".into());
-    }
-    if metadata.len() > MAX_ACP_TEXT_BYTES {
-        return Err("文件不能超过 16 MB".into());
-    }
-    let bytes = fs::read(&file).map_err(|error| format!("无法读取 {}：{error}", file.display()))?;
-    Ok(build_acp_read_file(bytes, line, limit))
-}
 
 #[tauri::command]
 fn read_prompt_image_paths(cwd: String, paths: Vec<String>) -> Result<Vec<PromptPathImage>, String> {
@@ -3427,21 +2245,6 @@ fn read_prompt_image_paths(cwd: String, paths: Vec<String>) -> Result<Vec<Prompt
     Ok(images)
 }
 
-fn acp_write_text_file(cwd: String, path: String, content: String) -> Result<(), String> {
-    if content.len() as u64 > MAX_ACP_TEXT_BYTES {
-        return Err("单个文本文件不能超过 16 MB".into());
-    }
-    let workspace = checked_workspace(&cwd)?;
-    let file = checked_workspace_target(&workspace, &path)?;
-    if file.exists() && !file.is_file() {
-        return Err(format!("目标不是文件：{}", file.display()));
-    }
-    let parent = file.parent().ok_or("文件路径缺少父目录")?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("无法创建目录 {}：{error}", parent.display()))?;
-    fs::write(&file, content.as_bytes())
-        .map_err(|error| format!("无法写入 {}：{error}", file.display()))
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -4129,37 +2932,8 @@ async fn start_project_preview(
     Ok(response)
 }
 
-async fn terminate_process(mut process: AgentProcess) {
-    drop(process.stdin);
-    // Job Object first: kills grandchildren that child.kill() alone orphans on Windows.
-    #[cfg(windows)]
-    if let Some(job) = process.job.take() {
-        let _ = job.terminate_tree();
-        drop(job);
-    }
-    let _ = process.child.kill().await;
-    let _ = process.child.wait().await;
-}
 
-fn host_prefs_dir_for_app(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| default_workspace().join(".grox-host-prefs-fallback"))
-}
 
-/// Product gate: env OR host_prefs only (ignore FE for actual attach).
-fn computer_use_gate_open() -> bool {
-    if let Ok(v) = std::env::var("GROX_COMPUTER_USE") {
-        let t = v.trim();
-        if t == "1" || t.eq_ignore_ascii_case("true") {
-            return true;
-        }
-        if t == "0" || t.eq_ignore_ascii_case("false") {
-            return false;
-        }
-    }
-    host_prefs::is_computer_use_enabled()
-}
 
 #[tauri::command]
 fn computer_use_env_enabled() -> bool {
@@ -4282,35 +3056,8 @@ fn list_workspace_files(cwd: String) -> Result<Vec<WorkspaceEntry>, String> {
     Ok(output)
 }
 
-fn git_command(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
-    let mut command = std::process::Command::new("git");
-    command.current_dir(root).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x0800_0000);
-    }
-    command
-        .output()
-        .map_err(|error| format!("无法运行 Git：{error}"))
-}
 
-fn git_text(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = git_command(root, args)?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if detail.is_empty() {
-            format!("Git 命令失败：git {}", args.join(" "))
-        } else {
-            detail
-        });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
 
-fn optional_git_text(root: &Path, args: &[&str]) -> Option<String> {
-    git_text(root, args).ok().filter(|value| !value.is_empty())
-}
 
 fn text_file_line_count(path: &Path) -> u64 {
     let Ok(mut file) = fs::File::open(path) else {
@@ -6729,503 +5476,8 @@ fn write_config_document(request: WriteConfigDocument) -> Result<ConfigDocument,
     })
 }
 
-fn provider_auth_overrides_path(home: &Path) -> PathBuf {
-    home.join(GROX_PROVIDER_AUTH_OVERRIDES_FILE)
-}
-
-fn read_provider_auth_overrides(home: &Path) -> Result<ProviderAuthOverridesFile, String> {
-    let path = provider_auth_overrides_path(home);
-    if !path.exists() {
-        return Ok(ProviderAuthOverridesFile::default());
-    }
-    let content = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
-    serde_json::from_str(&content).map_err(|error| {
-        format!(
-            "无法读取 Grox 兼容服务认证还原信息 {}：{error}",
-            path.display()
-        )
-    })
-}
-
-fn write_provider_auth_overrides(
-    home: &Path,
-    value: &ProviderAuthOverridesFile,
-) -> Result<(), String> {
-    let path = provider_auth_overrides_path(home);
-    if value.models.is_empty() {
-        if path.exists() {
-            fs::remove_file(&path)
-                .map_err(|error| format!("无法移除 Grox 兼容服务认证还原信息：{error}"))?;
-        }
-        return Ok(());
-    }
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("无法序列化 Grox 兼容服务认证还原信息：{error}"))?;
-    atomic_write_private(&path, &content)
-}
-
-fn parse_grok_config_document(content: &str) -> Result<Document, String> {
-    content.parse::<Document>().map_err(|error| {
-        format!(
-            "Grok config.toml 格式无效，无法安全切换兼容服务认证：{error}。请先修复该文件后重试。"
-        )
-    })
-}
-
-fn config_value_item(raw: &str) -> Result<Item, String> {
-    let document = format!("value = {raw}\n")
-        .parse::<Document>()
-        .map_err(|error| format!("无法还原原有模型认证配置：{error}"))?;
-    document
-        .get("value")
-        .cloned()
-        .ok_or_else(|| "无法还原原有模型认证配置".to_string())
-}
-
-fn model_table_mut<'a>(document: &'a mut Document, model_id: &str) -> Result<(&'a mut dyn TableLike, bool), String> {
-    let root = document.as_table_mut();
-    if !root.contains_key("model") {
-        root.insert("model", Item::Table(Table::new()));
-    }
-    let models = root
-        .get_mut("model")
-        .and_then(Item::as_table_like_mut)
-        .ok_or_else(|| {
-            "Grok config.toml 中的 [model] 不是 TOML 表，无法安全写入兼容服务认证".to_string()
-        })?;
-    let existed = models.contains_key(model_id);
-    if !existed {
-        models.insert(model_id, Item::Table(Table::new()));
-    }
-    let model = models
-        .get_mut(model_id)
-        .and_then(Item::as_table_like_mut)
-        .ok_or_else(|| format!("模型 {model_id} 的配置不是 TOML 表，无法安全写入兼容服务认证"))?;
-    Ok((model, existed))
-}
-
-fn restore_grox_provider_auth_overrides(home: &Path) -> Result<(), String> {
-    let overrides = read_provider_auth_overrides(home)?;
-    if overrides.models.is_empty() {
-        return Ok(());
-    }
-    let path = home.join("config.toml");
-    let content = if path.exists() {
-        read_bounded_text(&path, MAX_CONFIG_BYTES)?
-    } else {
-        String::new()
-    };
-    let mut document = parse_grok_config_document(&content)?;
-    let root = document.as_table_mut();
-    let Some(models) = root.get_mut("model").and_then(Item::as_table_like_mut) else {
-        // A user might have deleted the whole table while Grox was closed;
-        // that already removes every override, so do not recreate it.
-        write_provider_auth_overrides(home, &ProviderAuthOverridesFile::default())?;
-        return Ok(());
-    };
-
-    for (model_id, backup) in &overrides.models {
-        let Some(item) = models.get_mut(model_id) else {
-            continue;
-        };
-        let Some(model) = item.as_table_like_mut() else {
-            continue;
-        };
-        match backup.env_key.as_deref() {
-            Some(raw) => {
-                model.insert("env_key", config_value_item(raw)?);
-            }
-            None => {
-                model.remove("env_key");
-            }
-        }
-        match backup.api_key.as_deref() {
-            Some(raw) => {
-                model.insert("api_key", config_value_item(raw)?);
-            }
-            None => {
-                model.remove("api_key");
-            }
-        }
-        match backup.base_url.as_deref() {
-            Some(raw) => {
-                model.insert("base_url", config_value_item(raw)?);
-            }
-            None => {
-                model.remove("base_url");
-            }
-        }
-        match backup.api_backend.as_deref() {
-            Some(raw) => {
-                model.insert("api_backend", config_value_item(raw)?);
-            }
-            None => {
-                model.remove("api_backend");
-            }
-        }
-    }
-
-    // Remove model tables that Grox itself created only when they have not
-    // gained any user settings in the meantime.
-    let created: Vec<String> = overrides
-        .models
-        .iter()
-        .filter_map(|(id, backup)| (!backup.model_existed).then_some(id.clone()))
-        .collect();
-    for model_id in created {
-        let remove = models
-            .get(&model_id)
-            .and_then(Item::as_table_like)
-            .is_some_and(|model| model.is_empty());
-        if remove {
-            models.remove(&model_id);
-        }
-    }
-    let remove_models_root = models.is_empty();
-    if remove_models_root {
-        root.remove("model");
-    }
-
-    atomic_write_private(&path, &document.to_string())?;
-    write_provider_auth_overrides(home, &ProviderAuthOverridesFile::default())
-}
-
-fn provider_backend_overrides_path(home: &Path) -> PathBuf {
-    home.join(GROX_PROVIDER_BACKEND_OVERRIDES_FILE)
-}
-
-fn read_provider_backend_overrides(home: &Path) -> Result<ProviderBackendOverridesFile, String> {
-    let path = provider_backend_overrides_path(home);
-    if !path.exists() {
-        return Ok(ProviderBackendOverridesFile::default());
-    }
-    let content = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
-    serde_json::from_str(&content).map_err(|error| {
-        format!(
-            "无法读取 Grox 兼容服务协议还原信息 {}：{error}",
-            path.display()
-        )
-    })
-}
-
-fn write_provider_backend_overrides(
-    home: &Path,
-    value: &ProviderBackendOverridesFile,
-) -> Result<(), String> {
-    let path = provider_backend_overrides_path(home);
-    if value.models.is_empty() {
-        if path.exists() {
-            fs::remove_file(&path)
-                .map_err(|error| format!("无法移除 Grox 兼容服务协议还原信息：{error}"))?;
-        }
-        return Ok(());
-    }
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("无法序列化 Grox 兼容服务协议还原信息：{error}"))?;
-    atomic_write_private(&path, &content)
-}
-
-fn restore_grox_provider_backend_overrides(home: &Path) -> Result<(), String> {
-    // v0.3.3 及更早版本把中转配置写进用户自己的 `[model.<模型名>]`，因此需要
-    // 一份备份才能还原。现在 Grox 只写带前缀的自有段，删除即可。这里同时处理
-    // 两件事：把遗留备份还原回去（一次性），以及删掉所有自有段。
-    let legacy = read_provider_backend_overrides(home)?;
-    let path = home.join("config.toml");
-    if !path.exists() {
-        return write_provider_backend_overrides(home, &ProviderBackendOverridesFile::default());
-    }
-    let content = read_bounded_text(&path, MAX_CONFIG_BYTES)?;
-    let mut document = parse_grok_config_document(&content)?;
-    let root = document.as_table_mut();
-    let Some(models) = root.get_mut("model").and_then(Item::as_table_like_mut) else {
-        set_models_default_model(&mut document, None)?;
-        document.as_table_mut().remove(GROX_TABLE);
-        atomic_write_private(&path, &document.to_string())?;
-        return write_provider_backend_overrides(home, &ProviderBackendOverridesFile::default());
-    };
-
-    for (model_id, backup) in &legacy.models {
-        let Some(model) = models.get_mut(model_id).and_then(Item::as_table_like_mut) else {
-            continue;
-        };
-        for (key, saved) in [
-            ("env_key", backup.env_key.as_deref()),
-            ("base_url", backup.base_url.as_deref()),
-            ("api_backend", backup.api_backend.as_deref()),
-            ("model", backup.model.as_deref()),
-        ] {
-            match saved {
-                Some(raw) => {
-                    model.insert(key, config_value_item(raw)?);
-                }
-                None => {
-                    model.remove(key);
-                }
-            }
-        }
-        model.remove("supports_reasoning_effort");
-    }
-    // 只有当 Grox 创建过、且用户此后没有往里加设置时才整段删除。
-    for model_id in legacy
-        .models
-        .iter()
-        .filter_map(|(id, backup)| (!backup.model_existed).then_some(id.clone()))
-        .collect::<Vec<_>>()
-    {
-        let empty = models
-            .get(&model_id)
-            .and_then(Item::as_table_like)
-            .is_some_and(|model| model.is_empty());
-        if empty {
-            models.remove(&model_id);
-        }
-    }
-
-    // Grox 自有段无需备份：整段都是我们写的。
-    for section_id in models
-        .iter()
-        .map(|(id, _)| id.to_string())
-        .filter(|id| is_relay_section_id(id))
-        .collect::<Vec<_>>()
-    {
-        models.remove(&section_id);
-    }
-    if models.is_empty() {
-        root.remove("model");
-    }
-    // Grox owns `[models] default` only while a compatible profile is active.
-    // Leaving it behind would keep pointing the CLI at a section we just
-    // removed, so official sessions would start on a dangling model id.
-    set_models_default_model(&mut document, None)?;
-    document.as_table_mut().remove("grox");
-    atomic_write_private(&path, &document.to_string())?;
-    write_provider_backend_overrides(home, &ProviderBackendOverridesFile::default())
-}
-
-/// 写入 Grox 自有的 `[model.*]` 段并把 `[models] default` 指过去。
-///
-/// 不把应用元数据塞进 config.toml：官方 CLI 会为未知字段报警。
-fn apply_grox_provider_sections(
-    home: &Path,
-    model_ids: &[String],
-    base_url: &str,
-    primary_model: &str,
-    api_backend: &str,
-) -> Result<(), String> {
-    // Switches are transactional at the config level: first restore the
-    // previous profile's exact values, then add Chat Completions only for the
-    // selected models advertised by the new profile.
-    restore_grox_provider_backend_overrides(home)?;
-    let mut ids = model_ids
-        .iter()
-        .map(|id| id.trim())
-        .filter(|id| !id.is_empty())
-        .map(ToOwned::to_owned)
-        .collect::<Vec<_>>();
-    ids.sort();
-    ids.dedup();
-    if ids.is_empty() {
-        return Ok(());
-    }
-
-    let path = home.join("config.toml");
-    let content = if path.exists() {
-        read_bounded_text(&path, MAX_CONFIG_BYTES)?
-    } else {
-        String::new()
-    };
-    let mut document = parse_grok_config_document(&content)?;
-    for model_id in ids {
-        // 段名是 Grox 自有命名空间，上游真名写在段内。第三方反代暴露
-        // grok-4.5 时段名是 grox-relay-grok-4.5，官方段不受影响。
-        let section_id = provider_section_id(&model_id);
-        let (model, _existed) = model_table_mut(&mut document, &section_id)?;
-        // A named env key is the documented credential selector; the actual
-        // secret remains solely in the ACP child's managed environment.
-        // Do not expose a relay key as XAI_API_KEY. Grok Build's official
-        // helper models would otherwise send it to api.x.ai for titles/search.
-        model.insert("env_key", toml_value("OPENAI_API_KEY"));
-        model.insert("base_url", toml_value(base_url));
-        model.insert("api_backend", toml_value(api_backend));
-        // 上游请求体里的模型名，与段名无关。
-        model.insert("model", toml_value(&model_id));
-        // CLI 把段名当作 modelId 报告给界面；给它一个可读的显示名，否则模型
-        // 选择器里出现的是带前缀的内部段名。
-        model.insert("name", toml_value(&model_id));
-        // Grok Build gates forwarding `--reasoning-effort` on this flag. Without
-        // it a reasoning-capable gateway is asked for no reasoning at all, and
-        // the session shows an answer with no thinking content.
-        model.insert("supports_reasoning_effort", toml_value(true));
-    }
-    // Route explicitly instead of relying on whichever id the CLI defaults to.
-    // This is the documented switch (`[models] default`) and keeps the active
-    // provider readable from config.toml alone.
-    set_models_default_model(&mut document, Some(&provider_section_id(primary_model)))?;
-    atomic_write_private(&path, &document.to_string())
-}
-
-const GROX_TABLE: &str = "grox";
-const GROX_ACCOUNT_MODE_KEY: &str = "account_mode";
-const GROX_ACTIVE_PROVIDER_KEY: &str = "active_provider_id";
-
-fn legacy_grox_account_mode(home: &Path) -> Result<Option<String>, String> {
-    let path = home.join("config.toml");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let document = parse_grok_config_document(&read_bounded_text(&path, MAX_CONFIG_BYTES)?)?;
-    Ok(document
-        .as_table()
-        .get(GROX_TABLE)
-        .and_then(Item::as_table_like)
-        .and_then(|grox| grox.get(GROX_ACCOUNT_MODE_KEY))
-        .and_then(|item| item.as_str())
-        .map(str::to_owned))
-}
-
-/// `[models] default` 是否指向 Grox 自有的中转段。
-fn active_provider_route_is_relay(home: &Path) -> Result<bool, String> {
-    let path = home.join("config.toml");
-    if !path.exists() {
-        return Ok(false);
-    }
-    let document = parse_grok_config_document(&read_bounded_text(&path, MAX_CONFIG_BYTES)?)?;
-    Ok(document
-        .as_table()
-        .get("models")
-        .and_then(Item::as_table_like)
-        .and_then(|models| models.get("default"))
-        .and_then(|item| item.as_str())
-        .is_some_and(is_relay_section_id))
-}
-
-/// 从 config.toml 读出当前激活的供应商档案 id。
-///
-/// `[models] default` 指向中转段时，`[grox] active_provider_id` 说明它属于
-/// 哪个档案。返回 `None` 表示当前不是 Grox 中转路由（官方或未配置）。
-fn legacy_active_provider_profile_id(home: &Path) -> Result<Option<String>, String> {
-    let path = home.join("config.toml");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let document = parse_grok_config_document(&read_bounded_text(&path, MAX_CONFIG_BYTES)?)?;
-    let root = document.as_table();
-    let Some(default_id) = root
-        .get("models")
-        .and_then(Item::as_table_like)
-        .and_then(|models| models.get("default"))
-        .and_then(|item| item.as_str())
-    else {
-        return Ok(None);
-    };
-    if !is_relay_section_id(default_id) {
-        return Ok(None);
-    }
-    Ok(root
-        .get(GROX_TABLE)
-        .and_then(Item::as_table_like)
-        .and_then(|grox| grox.get(GROX_ACTIVE_PROVIDER_KEY))
-        .and_then(|item| item.as_str())
-        .map(str::to_string))
-}
-
-/// 把界面上选中的上游模型名解析成 `session/set_model` 实际要用的段 id。
-///
-/// 只有当前默认路由仍指向 Grox 中转时才翻译。单看命名空间段是否存在不够：
-/// 用户手动切回官方后，残留段不能继续劫持 `session/set_model`。
-pub(crate) fn resolve_agent_model_id(home: &Path, model_id: &str) -> Result<String, String> {
-    let section_id = provider_section_id(model_id);
-    if section_id == model_id {
-        return Ok(section_id);
-    }
-    let path = home.join("config.toml");
-    if !path.exists() {
-        return Ok(model_id.to_string());
-    }
-    let document = parse_grok_config_document(&read_bounded_text(&path, MAX_CONFIG_BYTES)?)?;
-    let root = document.as_table();
-    let relay_active = root
-        .get("models")
-        .and_then(Item::as_table_like)
-        .and_then(|models| models.get("default"))
-        .and_then(|item| item.as_str())
-        .is_some_and(is_relay_section_id)
-        && root
-        .get("model")
-        .and_then(Item::as_table_like)
-        .is_some_and(|models| models.contains_key(&section_id));
-    Ok(if relay_active {
-        section_id
-    } else {
-        model_id.to_string()
-    })
-}
-
-/// Set or clear `[models] default`. Grok Build reads this as the model used for
-/// new sessions, so it is the one line that decides the active route.
-fn set_models_default_model(document: &mut Document, model_id: Option<&str>) -> Result<(), String> {
-    let root = document.as_table_mut();
-    let Some(model_id) = model_id else {
-        if let Some(models) = root.get_mut("models").and_then(Item::as_table_like_mut) {
-            let owns_default = models
-                .get("default")
-                .and_then(|item| item.as_str())
-                .is_some_and(is_relay_section_id);
-            if owns_default {
-                models.remove("default");
-            }
-            if models.is_empty() {
-                root.remove("models");
-            }
-        }
-        return Ok(());
-    };
-    if !root.contains_key("models") {
-        root.insert("models", Item::Table(Table::new()));
-    }
-    let models = root
-        .get_mut("models")
-        .and_then(Item::as_table_like_mut)
-        .ok_or_else(|| "Grok config.toml 中的 [models] 不是 TOML 表，无法写入默认模型".to_string())?;
-    models.insert("default", toml_value(model_id));
-    Ok(())
-}
-
-fn clear_legacy_grox_metadata(home: &Path) -> Result<(), String> {
-    let path = home.join("config.toml");
-    if !path.exists() {
-        return Ok(());
-    }
-    let mut document = parse_grok_config_document(&read_bounded_text(&path, MAX_CONFIG_BYTES)?)?;
-    if document.as_table_mut().remove(GROX_TABLE).is_some() {
-        atomic_write_private(&path, &document.to_string())?;
-    }
-    Ok(())
-}
-
-fn read_provider_service_text(path: &Path) -> Result<String, String> {
-    read_bounded_text(path, MAX_CONFIG_BYTES)
-}
-
 fn provider_service_raw() -> Result<ProviderService, String> {
-    let service = ProviderService::new(
-        grok_home()?,
-        ProviderServiceHostOps {
-            read_text: read_provider_service_text,
-            atomic_write_private,
-            atomic_create_private,
-            normalize_endpoint: normalize_provider_endpoint,
-            restore_auth_overrides: restore_grox_provider_auth_overrides,
-            restore_backend_overrides: restore_grox_provider_backend_overrides,
-            apply_backend_overrides: apply_grox_provider_sections,
-            compatible_route_active: active_provider_route_is_relay,
-            legacy_active_profile_id: legacy_active_provider_profile_id,
-            legacy_account_mode: legacy_grox_account_mode,
-            clear_legacy_metadata: clear_legacy_grox_metadata,
-        },
-    );
-    service.migrate_legacy_config_metadata()?;
-    Ok(service)
+    provider_service::open_current(grok_home()?)
 }
 
 fn map_provider_service_error(error: ProviderServiceError) -> HostError {
@@ -7474,62 +5726,7 @@ fn configure_provider(request: ProviderConfig) -> Result<(), HostError> {
         .map_err(map_provider_service_error)
 }
 
-/// Parse + gate a user/markdown open URL (credentials, remote HTTP, IMDS/SSRF).
-fn parse_browser_url(url: &str) -> Result<url::Url, String> {
-    let trimmed = url.trim();
-    if trimmed.is_empty() || trimmed.len() > 8_192 {
-        return Err("链接长度无效".into());
-    }
-    if trimmed.chars().any(|c| c.is_control()) {
-        return Err("链接包含非法控制字符".into());
-    }
-    let parsed = url::Url::parse(trimmed).map_err(|error| format!("无效链接：{error}"))?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err("只允许打开 HTTP(S) 链接".into());
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("链接不能包含用户名或密码".into());
-    }
-    if parsed.host_str().is_none() {
-        return Err("链接缺少主机名".into());
-    }
-    // Cleartext HTTP only for loopback; remote must be HTTPS.
-    if parsed.scheme() == "http" && !is_loopback_host(parsed.host_str()) {
-        return Err("远程链接必须使用 HTTPS；仅本机回环地址允许 HTTP".into());
-    }
-    // Never open cloud metadata / link-local targets.
-    if is_blocked_service_host(parsed.host_str()) {
-        return Err("不允许打开链路本地或云元数据地址".into());
-    }
-    Ok(parsed)
-}
 
-fn spawn_system_browser(parsed: &url::Url) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        std::process::Command::new("rundll32.exe")
-            .args(["url.dll,FileProtocolHandler", parsed.as_str()])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(|error| format!("无法打开浏览器：{error}"))?;
-    }
-
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open")
-        .arg(parsed.as_str())
-        .spawn()
-        .map_err(|error| format!("无法打开浏览器：{error}"))?;
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    std::process::Command::new("xdg-open")
-        .arg(parsed.as_str())
-        .spawn()
-        .map_err(|error| format!("无法打开浏览器：{error}"))?;
-
-    Ok(())
-}
 
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
@@ -7546,30 +5743,6 @@ fn open_media_external(url: String) -> Result<(), String> {
     spawn_system_browser(&parsed)
 }
 
-fn ensure_computer_plugin() -> Result<PathBuf, String> {
-    let root = grok_home()?.join("plugins").join("grox-computer-use");
-    let skill = root.join("skills").join("computer");
-    fs::create_dir_all(&skill).map_err(|error| format!("无法创建 Computer Use Skill：{error}"))?;
-    fs::write(
-        root.join("plugin.json"),
-        r#"{"name":"grox-desktop-computer-use","version":"0.3.4","description":"Grox desktop Computer Use harness (Windows full control; macOS/Linux observation-first)"}"#,
-    )
-    .map_err(|error| format!("无法写入 Computer Use Plugin：{error}"))?;
-    fs::write(
-        skill.join("SKILL.md"),
-        r#"---
-name: computer
-description: Use Grox's Computer Use harness when the user asks for visual desktop control or uses @Computer. Full mouse/keyboard automation is strongest on Windows; macOS and Linux expose observation and limited control that may require Accessibility / input permissions.
----
-
-# Grox Computer Use
-
-Use only the grox_desktop_computer MCP tools for an explicit `/computer` or `@Computer` request (or when the user clearly asks for desktop control). Start with `list_apps`/`list_windows`, select an exact controllable window with `start`, then repeat observation → exactly one action → observation. Every state-changing action must use the latest `stateId`; stale state must be rejected. Prefer UI Automation `elementId` and `set_value` when available. Never send Win/Meta keys or system chords such as Alt+Tab, Alt+F4, or Ctrl+Esc. Never control Grox itself, installers, UAC, elevated windows, or the secure desktop. Use `stop` immediately when the user asks. Emergency stop is sticky.
-"#,
-    )
-    .map_err(|error| format!("无法写入 Computer Use Skill：{error}"))?;
-    Ok(root)
-}
 
 
 #[cfg(windows)]
@@ -7606,23 +5779,7 @@ fn register_computer_emergency_shortcut(app: tauri::AppHandle) {
     let _ = app.emit("computer-emergency-shortcut-status", false);
 }
 
-fn checked_reasoning_effort(effort: Option<String>) -> Result<Option<String>, String> {
-    match effort {
-        Some(value) if matches!(value.as_str(), "low" | "medium" | "high" | "xhigh" | "max") => {
-            Ok(Some(value))
-        }
-        Some(_) => Err("无效思考强度".into()),
-        None => Ok(None),
-    }
-}
 
-fn ensure_main_acp_owner(window_label: &str) -> Result<(), String> {
-    if window_label == "main" {
-        Ok(())
-    } else {
-        Err("当前窗口不是 ACP 运行时所有者，请回到主窗口继续会话".into())
-    }
-}
 
 #[tauri::command]
 async fn agent_runtime_connect(
@@ -7651,844 +5808,14 @@ async fn agent_runtime_connect(
     .await
 }
 
-/// Host 内唯一的 ACP 启动事务。页面首次加载、崩溃重连与自动化调度都从这里
-/// 取得同一个已握手代次；只有显式配置切换可以要求替换健康进程。
-pub(crate) async fn ensure_agent_runtime_ready(
-    app: &tauri::AppHandle,
-    state: &Arc<AcpState>,
-    leases: &Arc<McpLeaseStore>,
-    cwd: String,
-    reasoning_effort: Option<String>,
-    force_reconnect: bool,
-) -> Result<AgentRuntimeConnection, AcpHostError> {
-    let _connect_guard = state.connect_lock.lock().await;
-    if !force_reconnect {
-        if let Some(connection) = state.ready_connection().await {
-            tracing::debug!(
-                target: "grox::runtime",
-                generation = connection.generation,
-                "reusing ready Agent runtime"
-            );
-            return Ok(connection);
-        }
-        let paused_generation = state.paused_generation.load(Ordering::Acquire);
-        if paused_generation != 0
-            && state
-                .process
-                .lock()
-                .await
-                .as_ref()
-                .is_some_and(|process| process.generation == paused_generation)
-        {
-            return Err(AcpHostError::operation(
-                "ACP_RUNTIME_PAUSED",
-                "Agent 运行时正在执行配置切换，暂不能启动新任务",
-            ));
-        }
-    }
-    state.ready_generation.store(0, Ordering::Release);
-    state.paused_generation.store(0, Ordering::Release);
-    state.clear_cached_connection(None);
-    state.set_runtime_phase(RuntimePhase::Starting);
 
-    let connect_spec = RuntimeConnectSpec {
-        cwd,
-        reasoning_effort,
-    };
-    tracing::info!(
-        target: "grox::runtime",
-        force_reconnect,
-        "starting Agent runtime connection"
-    );
 
-    let (generation, client_version) = match spawn_acp_process(
-        app,
-        state,
-        leases,
-        connect_spec.cwd.clone(),
-        connect_spec.reasoning_effort.clone(),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(error) => {
-            state.set_runtime_phase(RuntimePhase::Offline);
-            tracing::error!(target: "grox::runtime", error = %error, "Agent process spawn failed");
-            return Err(AcpHostError::environment(
-                "ACP_SPAWN_FAILED",
-                error,
-                true,
-                true,
-                "请检查 CLI 安装、权限与当前工作目录后重试",
-            ));
-        }
-    };
 
-    state.set_runtime_phase(RuntimePhase::Initializing);
-    let initialize = match agent_runtime::initialize(
-        state,
-        leases,
-        generation,
-        client_version.as_deref(),
-    )
-    .await
-    {
-        Ok(initialize) => initialize,
-        Err(error) => {
-            tracing::warn!(
-                target: "grox::runtime",
-                generation,
-                code = %error.code,
-                "Agent initialize failed"
-            );
-            discard_failed_runtime(state, leases, generation, error.clone()).await;
-            return Err(error);
-        }
-    };
 
-    state.set_runtime_phase(RuntimePhase::Authenticating);
-    let auth = agent_runtime::authenticate(
-        state,
-        leases,
-        generation,
-        &initialize,
-    )
-    .await;
-    let connection = AgentRuntimeConnection {
-        generation,
-        initialize,
-        auth,
-    };
-    if let Err(error) = state.mark_runtime_ready(&connection).await {
-        discard_failed_runtime(state, leases, generation, error.clone()).await;
-        return Err(error);
-    }
-    state.remember_connect(connect_spec);
-    tracing::info!(
-        target: "grox::runtime",
-        generation,
-        auth_required = connection.auth.required,
-        auth_in_progress = connection.auth.in_progress,
-        "Agent runtime ready"
-    );
-    Ok(connection)
-}
 
-async fn discard_failed_runtime(
-    state: &AcpState,
-    leases: &McpLeaseStore,
-    generation: u64,
-    failure: AcpHostError,
-) {
-    state.mark_generation_unready(generation, RuntimePhase::Offline);
-    state.requests.reject_generation(generation, failure).await;
-    shutdown_all_mcp_resources(leases);
-    let process = {
-        let mut process = state.process.lock().await;
-        if process
-            .as_ref()
-            .is_some_and(|process| process.generation == generation)
-        {
-            process.take()
-        } else {
-            None
-        }
-    };
-    if let Some(process) = process {
-        let next_generation = state.next_generation.fetch_add(1, Ordering::Relaxed) + 1;
-        state.foreground_turns.reset(next_generation);
-        state.interactions.reset(next_generation);
-        state.client_callbacks.reset(next_generation).await;
-        state.sessions.reset(next_generation);
-        terminate_process(process).await;
-    }
-}
 
-fn schedule_automatic_runtime_reconnect(
-    app: tauri::AppHandle,
-    state: Arc<AcpState>,
-    leases: Arc<McpLeaseStore>,
-    affected_session_ids: Vec<String>,
-    interrupted_session_ids: Vec<String>,
-) {
-    let Some(spec) = state.last_connect() else {
-        return;
-    };
-    let Some(claim) = state.claim_automatic_reconnect() else {
-        return;
-    };
-    tauri::async_runtime::spawn(async move {
-        let _ = app.emit(
-            "agent-runtime-reconnect",
-            RuntimeReconnectPayload {
-                state: "reconnecting",
-                attempt: 0,
-                affected_session_ids: affected_session_ids.clone(),
-                interrupted_session_ids: interrupted_session_ids.clone(),
-                connection: None,
-                error: None,
-            },
-        );
-        let mut last_error = None;
-        for attempt in 1..=2u8 {
-            if app.state::<AppShutdown>().started.load(Ordering::Acquire)
-                || state.automatic_reconnect_cancelled(claim)
-            {
-                state.finish_automatic_reconnect(claim);
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(u64::from(attempt) * 800)).await;
-            if app.state::<AppShutdown>().started.load(Ordering::Acquire)
-                || state.automatic_reconnect_cancelled(claim)
-            {
-                state.finish_automatic_reconnect(claim);
-                return;
-            }
-            match ensure_agent_runtime_ready(
-                &app,
-                &state,
-                &leases,
-                spec.cwd.clone(),
-                spec.reasoning_effort.clone(),
-                false,
-            )
-            .await
-            {
-                Ok(connection) => {
-                    if state.automatic_reconnect_cancelled(claim) {
-                        state.finish_automatic_reconnect(claim);
-                        return;
-                    }
-                    let _ = app.emit(
-                        "agent-runtime-reconnect",
-                        RuntimeReconnectPayload {
-                            state: "ready",
-                            attempt,
-                            affected_session_ids: affected_session_ids.clone(),
-                            interrupted_session_ids: interrupted_session_ids.clone(),
-                            connection: Some(connection),
-                            error: None,
-                        },
-                    );
-                    state.finish_automatic_reconnect(claim);
-                    return;
-                }
-                Err(error) => last_error = Some(error),
-            }
-        }
-        if state.automatic_reconnect_cancelled(claim) {
-            state.finish_automatic_reconnect(claim);
-            return;
-        }
-        let detail = last_error
-            .as_ref()
-            .map(|error| error.message.as_str())
-            .unwrap_or("未知运行时错误");
-        let error = AcpHostError::environment(
-            "ACP_RECONNECT_FAILED",
-            format!("Agent 自动重连失败：{detail}"),
-            true,
-            true,
-            "检查 Grok Build CLI、认证与网络后重新连接；重发前先检查最后一轮结果",
-        );
-        let _ = app.emit(
-            "agent-runtime-reconnect",
-            RuntimeReconnectPayload {
-                state: "offline",
-                attempt: 2,
-                affected_session_ids,
-                interrupted_session_ids,
-                connection: None,
-                error: Some(error),
-            },
-        );
-        state.finish_automatic_reconnect(claim);
-    });
-}
 
-async fn handle_client_callback_inbound(
-    app: &tauri::AppHandle,
-    state: &Arc<AcpState>,
-    generation: u64,
-    message: &AcpInbound,
-) -> bool {
-    // 短锁只保护 callback 登记与 reset 的先后关系。实际文件操作会重新取得该锁；
-    // terminal/wait_for_exit 则必须脱离 stdout reader 独立等待。
-    let inbound = {
-        let _operation_guard = state.client_callbacks.lock_operations().await;
-        state
-            .client_callbacks
-            .observe_decoded_inbound(generation, message)
-    };
-    match inbound {
-        ClientCallbackInbound::NotCallback => false,
-        ClientCallbackInbound::Request(lease) => {
-            if ClientCallbackRegistry::waits_for_terminal_exit(&lease) {
-                let callback_app = app.clone();
-                let callback_state = Arc::clone(state);
-                tauri::async_runtime::spawn(async move {
-                    settle_client_callback(
-                        &callback_app,
-                        callback_state.as_ref(),
-                        generation,
-                        lease,
-                    )
-                    .await;
-                });
-            } else {
-                // 文件写入和短终端操作保持 wire 到达顺序；只有可能无限
-                // 等待的 wait_for_exit 脱离 stdout reader。
-                settle_client_callback(app, state.as_ref(), generation, lease).await;
-            }
-            true
-        }
-        ClientCallbackInbound::AutoReply(response) => {
-            state
-                .foreground_turns
-                .observe_outbound(generation, &response);
-            if let Err(error) = write_acp_line(state.as_ref(), &response, generation).await {
-                let _ = app.emit(
-                    "acp-stderr",
-                    format!("Client callback 自动拒绝回复失败：{error}"),
-                );
-            }
-            true
-        }
-        ClientCallbackInbound::Duplicate => {
-            let _ = app.emit(
-                "acp-stderr",
-                "Agent 复用了仍在处理的 Client callback rpc id；已拒绝覆盖原请求",
-            );
-            true
-        }
-        ClientCallbackInbound::Invalid => {
-            let _ = app.emit(
-                "acp-stderr",
-                "Agent 发送了没有合法 rpc id 的 Client callback；无法安全回复",
-            );
-            true
-        }
-    }
-}
 
-async fn settle_client_callback(
-    app: &tauri::AppHandle,
-    state: &AcpState,
-    generation: u64,
-    lease: client_callbacks::ClientCallbackLease,
-) {
-    let response = state.client_callbacks.render_response(&lease).await;
-    state
-        .foreground_turns
-        .observe_outbound(generation, &response);
-    let write_result = write_acp_line(state, &response, generation).await;
-    state.client_callbacks.settle(&lease);
-    if let Err(error) = write_result {
-        let (session_id, method) = ClientCallbackRegistry::describe(&lease);
-        let _ = app.emit(
-            "acp-stderr",
-            format!("Client callback 回复失败（{method}，session={session_id}）：{error}"),
-        );
-    }
-}
-
-/// Start a fresh ACP child and stream each stdout JSON-RPC line to the webview.
-/// Only the Host connection transaction calls this helper, so a spawned child
-/// can never be mistaken for an initialized runtime.
-async fn spawn_acp_process(
-    app: &tauri::AppHandle,
-    state: &Arc<AcpState>,
-    leases: &Arc<McpLeaseStore>,
-    cwd: String,
-    reasoning_effort: Option<String>,
-) -> Result<(u64, Option<String>), String> {
-    let cwd = checked_workspace(&cwd)?;
-
-    // Invalidate the previous readers before terminating their process. On a
-    // fast development reload Windows can still deliver a few buffered stdout
-    // or stderr lines after `kill`; those lines must not reach the new ACP
-    // connection.
-    let generation = state.next_generation.fetch_add(1, Ordering::Relaxed) + 1;
-    tracing::info!(target: "grox::runtime", generation, "spawning Grok Build ACP process");
-    state.authentication.reset(AcpHostError::environment(
-        "AUTH_RUNTIME_CHANGED",
-        "Agent 重连取消了旧通道上的登录",
-        false,
-        false,
-        "连接稳定后重新登录",
-    ));
-    state.foreground_turns.reset(generation);
-    state.interactions.reset(generation);
-    state.client_callbacks.reset(generation).await;
-    state.sessions.reset(generation);
-    state
-        .requests
-        .reject_all(AcpHostError::environment(
-            "ACP_CHANNEL_REPLACED",
-            "ACP 通道已切换，请在新通道上重试",
-            true,
-            true,
-            "Agent 重连后检查最后一轮结果，再决定是否重新发送",
-        ))
-        .await;
-    shutdown_all_mcp_resources(leases);
-
-    if let Some(old) = state.process.lock().await.take() {
-        terminate_process(old).await;
-    }
-
-    let runtime = configured_grok_command();
-    let client_version = runtime
-        .version
-        .as_deref()
-        .and_then(cli_version_number)
-        .map(|version| version.to_string());
-    // Host gate only (env | host_prefs); WebView state is not authorization.
-    let computer_plugin = if computer_use_gate_open() {
-        Some(
-            ensure_computer_plugin()
-                .map_err(|error| format!("Computer Use Plugin 初始化失败：{error}"))?,
-        )
-    } else {
-        None
-    };
-    let command_path = PathBuf::from(&runtime.path);
-    let mut command = Command::new(&command_path);
-    if let Some(path) = process_env::enriched_path_env() {
-        command.env("PATH", path);
-    }
-    command.arg("agent");
-    if let Some(effort) = checked_reasoning_effort(reasoning_effort)? {
-        command.arg("--reasoning-effort").arg(effort);
-    }
-    if let Some(plugin) = computer_plugin.as_ref() {
-        command.arg("--plugin-dir").arg(plugin);
-    }
-    command
-        .arg("stdio")
-        .current_dir(&cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    // Identify the launching client with the spawned CLI's own version, never
-    // the Grox app version. The value is written into the agent's diagnostic
-    // logs and may be read by newer upstream builds; a stale "0.2.0" there
-    // both misleads auth diagnostics and can trip the server-side version
-    // gate that answers inference with 403 "Grok Build is coming soon".
-    if let Some(version) = runtime.version.as_deref().and_then(cli_version_number) {
-        command.env("GROK_CLIENT_VERSION", version.to_string());
-    }
-    // The terminal CLI identifies itself as `grok-shell`; passing a desktop
-    // client marker here causes OAuth requests to hit a different upstream
-    // eligibility gate. Preserve official CLI identity end to end.
-    command.env("GROK_CLIENT_NAME", UPSTREAM_CLI_CLIENT_NAME);
-    apply_grox_provider_environment(&mut command)?;
-
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let mut child = command.spawn().map_err(|error| {
-        format!(
-            "无法启动 Grok CLI（{}）：{error}。可通过 GROK_DESKTOP_CLI 指定可执行文件。",
-            command_path.display()
-        )
-    })?;
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "Grok CLI 未提供标准输入".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Grok CLI 未提供标准输出".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Grok CLI 未提供标准错误".to_string())?;
-    // Windows: put ACP child in a Job Object so cancel kills nested tool trees.
-    #[cfg(windows)]
-    let job = {
-        match process_job::ProcessJob::create_kill_on_close() {
-            Ok(job) => {
-                if let Some(pid) = child.id() {
-                    if let Err(error) = job.assign_pid(pid) {
-                        tracing::warn!(target: "grox::runtime", generation, pid, error = %error, "AssignProcessToJobObject failed");
-                    }
-                }
-                Some(job)
-            }
-            Err(error) => {
-                tracing::warn!(target: "grox::runtime", generation, error = %error, "CreateJobObject failed; descendant cleanup is degraded");
-                None
-            }
-        }
-    };
-    *state.process.lock().await = Some(AgentProcess {
-        child,
-        stdin,
-        generation,
-        #[cfg(windows)]
-        job,
-    });
-
-    let stdout_app = app.clone();
-    let stdout_state = state.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    if stdout_state.next_generation.load(Ordering::Relaxed) != generation {
-                        break;
-                    }
-                    if !line.trim().is_empty() {
-                        let inbound = AcpInbound::parse(&line);
-                        if let Ok(message) = &inbound {
-                            if stdout_state
-                                .requests
-                                .resolve_decoded_response(generation, &line, message)
-                                .await
-                            {
-                                continue;
-                            }
-                        }
-                        if let Some(abort) = inbound.as_ref().ok().and_then(|message| {
-                            stdout_state
-                                .foreground_turns
-                                .observe_decoded_inbound(generation, message)
-                        }) {
-                            stdout_state
-                                .requests
-                                .reject(
-                                    abort.request_id,
-                                    abort.generation,
-                                    AcpHostError::protocol(
-                                        "ACP_INVALID_REASONING_EFFORT",
-                                        abort.message,
-                                    ),
-                                )
-                                .await;
-                        }
-                        if let Ok(message) = &inbound {
-                            if handle_client_callback_inbound(
-                                &stdout_app,
-                                &stdout_state,
-                                generation,
-                                message,
-                            )
-                            .await
-                            {
-                                continue;
-                            }
-                        }
-                        let interaction = inbound
-                            .as_ref()
-                            .ok()
-                            .map(|message| {
-                                stdout_state
-                                    .interactions
-                                    .observe_decoded_inbound(generation, message)
-                            })
-                            .unwrap_or(InteractionInbound::NotInteraction);
-                        match interaction {
-                            InteractionInbound::NotInteraction => {
-                                let event = stdout_state.session_events.append_inbound(
-                                    generation,
-                                    line.len(),
-                                    inbound.as_ref(),
-                                );
-                                if let Some(response) = event.unsupported_response() {
-                                    stdout_state
-                                        .foreground_turns
-                                        .observe_outbound(generation, response);
-                                    if let Err(error) = write_acp_line(
-                                        stdout_state.as_ref(),
-                                        response,
-                                        generation,
-                                    )
-                                    .await
-                                    {
-                                        let _ = stdout_app.emit(
-                                            "acp-stderr",
-                                            format!("Host 拒绝未知 Agent 回调失败：{error}"),
-                                        );
-                                    }
-                                }
-                                // 只把已编号的 Host 事件投影给运行时所有者。页面
-                                // 重载期间即使无人监听，事件仍可由游标命令补放。
-                                emit_host_session_event(&stdout_app, event);
-                            }
-                            InteractionInbound::Opened(interaction) => {
-                                // 反向 RPC 只投影给主窗口；rpc id 和 wire option
-                                // 留在 Host，辅助窗口不能窃取或回复门控。
-                                if let Some(window) = stdout_app.get_webview_window("main") {
-                                    let _ = window.emit("interaction-opened", interaction);
-                                }
-                            }
-                            InteractionInbound::AutoReply(response) => {
-                                stdout_state
-                                    .foreground_turns
-                                    .observe_outbound(generation, &response);
-                                if let Err(error) =
-                                    write_acp_line(stdout_state.as_ref(), &response, generation).await
-                                {
-                                    let _ = stdout_app.emit(
-                                        "acp-stderr",
-                                        format!("自动取消无效交互请求失败：{error}"),
-                                    );
-                                }
-                            }
-                            InteractionInbound::Duplicate => {
-                                let _ = stdout_app.emit(
-                                    "acp-stderr",
-                                    "Agent 在同一进程代次复用了仍待回复的交互 rpc id；已拒绝覆盖原门控",
-                                );
-                            }
-                        }
-                    }
-                }
-                Ok(None) => break,
-                Err(error) => {
-                    let _ = stdout_app.emit("acp-stderr", format!("读取 ACP 输出失败：{error}"));
-                    break;
-                }
-            }
-        }
-
-        let process = {
-            let mut guard = stdout_state.process.lock().await;
-            if guard
-                .as_ref()
-                .is_some_and(|process| process.generation == generation)
-            {
-                guard.take()
-            } else {
-                None
-            }
-        };
-        if let Some(mut process) = process {
-            let occupancy = stdout_state.sessions.snapshot();
-            let mut affected_session_ids = stdout_state.client_callbacks.bound_session_ids();
-            affected_session_ids.extend(occupancy.active_turn_session_ids.iter().cloned());
-            affected_session_ids.sort();
-            affected_session_ids.dedup();
-            let interrupted_session_ids = occupancy.active_turn_session_ids;
-            stdout_state.mark_generation_unready(generation, RuntimePhase::Offline);
-            shutdown_all_mcp_resources(stdout_app.state::<Arc<McpLeaseStore>>().inner());
-            let next_generation = stdout_state
-                .next_generation
-                .compare_exchange(
-                    generation,
-                    generation + 1,
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                )
-                .map(|_| generation + 1)
-                .unwrap_or_else(|current| current);
-            stdout_state.foreground_turns.reset(next_generation);
-            stdout_state.interactions.reset(next_generation);
-            stdout_state.client_callbacks.reset(next_generation).await;
-            stdout_state.sessions.reset(next_generation);
-            drop(process.stdin);
-            let code = process
-                .child
-                .wait()
-                .await
-                .ok()
-                .and_then(|status| status.code());
-            let exit_message = match code {
-                Some(code) => format!("Grok Agent 已退出（代码 {code}）"),
-                None => "Grok Agent 已退出".to_string(),
-            };
-            tracing::warn!(
-                target: "grox::runtime",
-                generation,
-                exit_code = ?code,
-                affected_sessions = affected_session_ids.len(),
-                interrupted_sessions = interrupted_session_ids.len(),
-                "Agent process exited"
-            );
-            stdout_state
-                .requests
-                .reject_generation(
-                    generation,
-                    AcpHostError::environment(
-                        "ACP_PROCESS_EXITED",
-                        exit_message,
-                        true,
-                        true,
-                        "Agent 重连后检查最后一轮结果，再决定是否重新发送",
-                    ),
-                )
-                .await;
-            let _ = stdout_app.emit(
-                "acp-exit",
-                AcpExitPayload {
-                    code,
-                    reason: "exited",
-                    affected_session_ids: affected_session_ids.clone(),
-                    interrupted_session_ids: interrupted_session_ids.clone(),
-                },
-            );
-            schedule_automatic_runtime_reconnect(
-                stdout_app.clone(),
-                Arc::clone(&stdout_state),
-                Arc::clone(stdout_app.state::<Arc<McpLeaseStore>>().inner()),
-                affected_session_ids,
-                interrupted_session_ids,
-            );
-        }
-    });
-
-    let stderr_app = app.clone();
-    let stderr_state = state.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if stderr_state.next_generation.load(Ordering::Relaxed) != generation {
-                break;
-            }
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                // Bound diagnostics before they cross into the webview.
-                let safe = trimmed.chars().take(16_384).collect::<String>();
-                let _ = stderr_app.emit("acp-stderr", safe);
-            }
-        }
-    });
-
-    Ok((generation, client_version))
-}
-
-/// Methods the desktop shell may write on the ACP stdin channel.
-/// Unknown methods from a compromised WebView are rejected.
-///
-/// Wire note: FE may prefix extension notifies as `_x.ai/...`.
-fn acp_method_allowed(method: &str) -> bool {
-    if method.is_empty()
-        || method.contains("..")
-        || method.contains('\\')
-        || method.bytes().any(|b| b < 0x20 || b == 0x7f)
-    {
-        return false;
-    }
-    if !method
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'_' | b'.' | b'-'))
-    {
-        return false;
-    }
-    // Only x.ai extension notifications use the optional wire-level `_` prefix.
-    // Do not let the prefix turn arbitrary standard namespaces into aliases.
-    let m = method
-        .strip_prefix("_x.ai/")
-        .map(|suffix| format!("x.ai/{suffix}"));
-    let m = m.as_deref().unwrap_or(method);
-    matches!(
-        m,
-        "session/new"
-            | "session/load"
-            | "session/close"
-            | "session/prompt"
-            | "session/cancel"
-            | "session/delete"
-            | "session/set_config_option"
-            | "session/set_model"
-            | "session/setMode"
-            | "session/set_mode"
-            | "session/info"
-            | "session/list"
-            | "session/resume"
-            | "session/fork"
-            | "session/update"
-            | "initialize"
-            | "authenticate"
-            | "x.ai/interject"
-            | "x.ai/session/list"
-            | "x.ai/session/delete"
-            | "x.ai/session/update"
-            | "x.ai/session/prompt_queue"
-            | "x.ai/session/prompt_queue/list"
-            | "x.ai/session/prompt_queue/cancel"
-            | "x.ai/set_permission_mode"
-            | "x.ai/permission/respond"
-            | "x.ai/question/respond"
-            | "x.ai/model/list"
-            | "x.ai/model/set"
-            | "x.ai/account"
-            | "x.ai/billing"
-            | "x.ai/config"
-            | "x.ai/mcp/status"
-            | "x.ai/yolo_mode_changed"
-            | "x.ai/queue/changed"
-    ) || m.starts_with("x.ai/")
-}
-
-fn prepare_acp_line(line: String, leases: &McpLeaseStore) -> Result<String, String> {
-    if line.contains('\n') || line.contains('\r') {
-        return Err("ACP 消息必须是单行 JSON".into());
-    }
-    // 多模态 base64 需要较大上限，但不能允许 WebView 无界占用 Host 内存。
-    const MAX_ACP_LINE_BYTES: usize = 8 * 1024 * 1024;
-    if line.len() > MAX_ACP_LINE_BYTES {
-        return Err(format!(
-            "ACP 消息过大（{} bytes，上限 {}）",
-            line.len(),
-            MAX_ACP_LINE_BYTES
-        ));
-    }
-    let message = serde_json::from_str::<serde_json::Value>(&line)
-        .map_err(|error| format!("ACP 消息不是合法 JSON：{error}"))?;
-    if !message.is_object() {
-        return Err("ACP 消息必须是 JSON 对象".into());
-    }
-    if message.get("jsonrpc").and_then(serde_json::Value::as_str) != Some("2.0") {
-        return Err("ACP 消息必须声明 jsonrpc 2.0".into());
-    }
-    if let Some(method) = message.get("method").and_then(serde_json::Value::as_str) {
-        if !acp_method_allowed(method) {
-            return Err(format!("不允许的 ACP 方法：{method}"));
-        }
-    }
-    let line = mcp_leases::inject_mcp_servers(&line, leases)?;
-    if line.contains('\n') || line.contains('\r') {
-        return Err("ACP 消息必须是单行 JSON".into());
-    }
-    Ok(line)
-}
-
-async fn write_acp_line(
-    state: &AcpState,
-    line: &str,
-    generation: u64,
-) -> Result<(), String> {
-    let mut guard = state.process.lock().await;
-    let process = guard
-        .as_mut()
-        .ok_or_else(|| "Grok Agent 尚未启动".to_string())?;
-    if process.generation != generation {
-        return Err("ACP 通道已切换，请在新通道上重试".into());
-    }
-    process
-        .stdin
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|error| format!("写入 Grok Agent 失败：{error}"))?;
-    process
-        .stdin
-        .write_all(b"\n")
-        .await
-        .map_err(|error| format!("写入 Grok Agent 失败：{error}"))?;
-    process
-        .stdin
-        .flush()
-        .await
-        .map_err(|error| format!("刷新 Grok Agent 输入失败：{error}"))
-}
 
 /// 返回当前 Host 代次仍待用户处理的交互门控。WebView 重载后用它恢复
 /// 界面投影，但拿不到 rpc id，因此旧页面状态不能伪造协议回复。
@@ -8635,245 +5962,11 @@ async fn acp_request(
     .await
 }
 
-async fn acp_request_inner(
-    state: &AcpState,
-    leases: &McpLeaseStore,
-    line: String,
-    request_id: u64,
-    generation: u64,
-    timeout_ms: u64,
-    gate_token: Option<u64>,
-) -> Result<String, AcpHostError> {
-    let line = prepare_acp_line(line, leases)
-        .map_err(|error| AcpHostError::protocol("ACP_INVALID_REQUEST", error))?;
-    let message = serde_json::from_str::<serde_json::Value>(&line).map_err(|error| {
-        AcpHostError::protocol(
-            "ACP_INVALID_REQUEST",
-            format!("ACP 消息不是合法 JSON：{error}"),
-        )
-    })?;
-    let wire_id = message
-        .get("id")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| AcpHostError::protocol("ACP_INVALID_REQUEST", "ACP 请求缺少数字 id"))?;
-    if wire_id != request_id {
-        return Err(AcpHostError::protocol(
-            "ACP_REQUEST_ID_MISMATCH",
-            "ACP 请求 id 与 Host 参数不一致",
-        ));
-    }
-    let method = message
-        .get("method")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AcpHostError::protocol("ACP_INVALID_REQUEST", "ACP 请求缺少 method"))?
-        .to_string();
-    state.sessions.verify_request(
-        &method,
-        message.get("params").unwrap_or(&serde_json::Value::Null),
-        gate_token,
-        generation,
-    )?;
-    let receiver = state
-        .requests
-        .register(request_id, generation, method.clone())
-        .await?;
-    if let Err(error) = write_acp_line(state, &line, generation).await {
-        let failure = AcpHostError::environment(
-            "ACP_WRITE_FAILED",
-            error,
-            true,
-            true,
-            "检查 Grok Build CLI 是否仍在运行，然后重新连接",
-        );
-        state
-            .requests
-            .reject(request_id, generation, failure.clone())
-            .await;
-        return Err(failure);
-    }
 
-    let response = if timeout_ms == 0 {
-        receiver.await.map_err(|_| {
-            AcpHostError::environment(
-                "ACP_REQUEST_CHANNEL_CLOSED",
-                "ACP 请求通道已关闭",
-                true,
-                true,
-                "重新连接 Agent 后重试",
-            )
-        })?
-    } else {
-        // 普通 RPC 最多允许等待一天；长回合使用 0 并由会话 watchdog 明确取消。
-        let timeout = Duration::from_millis(timeout_ms.min(24 * 60 * 60 * 1_000));
-        match tokio::time::timeout(timeout, receiver).await {
-            Ok(result) => result.map_err(|_| {
-                AcpHostError::environment(
-                    "ACP_REQUEST_CHANNEL_CLOSED",
-                    "ACP 请求通道已关闭",
-                    true,
-                    true,
-                    "重新连接 Agent 后重试",
-                )
-            })?,
-            Err(_) => {
-                let failure = AcpHostError::environment(
-                    "ACP_REQUEST_TIMEOUT",
-                    format!("Grok Agent 请求超时：{method}"),
-                    true,
-                    true,
-                    "检查网络和 Grok Build CLI 状态后重试",
-                );
-                state
-                    .requests
-                    .reject(request_id, generation, failure.clone())
-                    .await;
-                return Err(failure);
-            }
-        }
-    };
-    response
-}
 
-/// Host 服务使用与 WebView 完全相同的请求表、代次校验和 stdio 写通道。
-/// JavaScript 安全整数的高位命名空间避免与 WebView 递增请求 id 相撞。
-pub(crate) async fn request_acp_json(
-    state: &AcpState,
-    leases: &McpLeaseStore,
-    method: &str,
-    params: serde_json::Value,
-    generation: u64,
-    timeout_ms: u64,
-    gate_token: Option<u64>,
-) -> Result<serde_json::Value, AcpHostError> {
-    request_acp_json_tracked(
-        state,
-        leases,
-        method,
-        params,
-        generation,
-        timeout_ms,
-        gate_token,
-        None,
-    )
-    .await
-}
 
-fn acp_wire_method(method: &str) -> String {
-    method
-        .strip_prefix("x.ai/")
-        .map(|suffix| format!("_x.ai/{suffix}"))
-        .unwrap_or_else(|| method.to_string())
-}
 
-/// 与普通 Host 请求共用同一 broker；tracker 只记录当前事务可定向取消的 id。
-pub(crate) async fn request_acp_json_tracked(
-    state: &AcpState,
-    leases: &McpLeaseStore,
-    method: &str,
-    params: serde_json::Value,
-    generation: u64,
-    timeout_ms: u64,
-    gate_token: Option<u64>,
-    tracker: Option<&dyn turn_runtime::AcpRequestTracker>,
-) -> Result<serde_json::Value, AcpHostError> {
-    let request_id = state.issue_host_request_id();
-    if let Some(tracker) = tracker {
-        tracker.request_started(request_id, method)?;
-    }
-    struct TrackingGuard<'a> {
-        tracker: Option<&'a dyn turn_runtime::AcpRequestTracker>,
-        request_id: u64,
-    }
-    impl Drop for TrackingGuard<'_> {
-        fn drop(&mut self) {
-            if let Some(tracker) = self.tracker {
-                tracker.request_finished(self.request_id);
-            }
-        }
-    }
-    let _tracking = TrackingGuard {
-        tracker,
-        request_id,
-    };
-    // ACP 扩展在 wire 上使用前导下划线；Host 内部始终使用规范化的
-    // `x.ai/...` 名称做门禁、诊断和错误分类。此前只有 WebView 做了这层
-    // 编码，迁到 Host 的自动化/删除/fork 请求会在真实 CLI 上找不到方法。
-    let wire_method = acp_wire_method(method);
-    let line = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": wire_method,
-        "params": params,
-    })
-    .to_string();
-    let response = acp_request_inner(
-        state,
-        leases,
-        line,
-        request_id,
-        generation,
-        timeout_ms,
-        gate_token,
-    )
-    .await?;
-    decode_host_acp_response(&response, request_id, method)
-}
 
-fn decode_host_acp_response(
-    line: &str,
-    request_id: u64,
-    method: &str,
-) -> Result<serde_json::Value, AcpHostError> {
-    let response = serde_json::from_str::<serde_json::Value>(line).map_err(|error| {
-        AcpHostError::protocol(
-            "ACP_INVALID_RESPONSE",
-            format!("Grok Build 返回了无法解析的 ACP 响应：{error}"),
-        )
-    })?;
-    let object = response.as_object().ok_or_else(|| {
-        AcpHostError::protocol("ACP_INVALID_RESPONSE", "Grok Build 的 ACP 响应不是对象")
-    })?;
-    if object.get("id").and_then(serde_json::Value::as_u64) != Some(request_id)
-        || object.get("method").is_some()
-    {
-        return Err(AcpHostError::protocol(
-            "ACP_INVALID_RESPONSE",
-            format!("Grok Build 返回了无法归属的 ACP 响应 · {method}"),
-        ));
-    }
-    if let Some(error) = object.get("error") {
-        return Err(acp_rpc_error(method, error));
-    }
-    let result = object
-        .get("result")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    if method.starts_with("x.ai/") {
-        if let Some(error) = result.get("error").filter(|error| !error.is_null()) {
-            return Err(acp_rpc_error(method, error));
-        }
-        if let Some(nested) = result.get("result") {
-            return Ok(nested.clone());
-        }
-    }
-    Ok(result)
-}
-
-fn acp_rpc_error(method: &str, error: &serde_json::Value) -> AcpHostError {
-    let code = error.get("code").and_then(serde_json::Value::as_i64);
-    let detail = error
-        .get("message")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| error.to_string());
-    let detail = detail.chars().take(3_500).collect::<String>();
-    let stable_code = match code {
-        Some(-32601) => "ACP_RPC_METHOD_NOT_FOUND",
-        Some(-32602) => "ACP_RPC_INVALID_PARAMS",
-        _ => "ACP_RPC_FAILED",
-    };
-    AcpHostError::protocol(stable_code, format!("{detail} · {method}"))
-}
 
 #[tauri::command]
 async fn acp_kill(
@@ -9713,6 +6806,19 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::path_sandbox::checked_workspace_target;
+    use crate::provider_overrides::{
+        apply_grox_provider_sections, clear_legacy_grox_metadata, config_value_item,
+        legacy_grox_account_mode, model_table_mut, parse_grok_config_document,
+        resolve_agent_model_id, restore_grox_provider_backend_overrides, set_models_default_model,
+    };
+    use crate::host_core::{
+        acp_method_allowed, acp_read_file, acp_read_text_file, acp_wire_method,
+        acp_write_text_file, atomic_orphan_final_name, atomic_orphan_writer_pid,
+        build_acp_read_file, checked_read_file_with_roots, checked_reasoning_effort,
+        cli_version_number, decode_host_acp_response, image_mime,
+        RuntimeConnectSpec, UPSTREAM_CLI_CLIENT_NAME,
+    };
 
     fn runtime_connection(generation: u64, auth_required: bool) -> AgentRuntimeConnection {
         AgentRuntimeConnection {

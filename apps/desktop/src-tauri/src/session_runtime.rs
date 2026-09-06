@@ -7,11 +7,22 @@ use tauri::Manager as _;
 
 use crate::{
     acp_host::AcpHostError,
-    browser_mcp, checked_reasoning_effort, computer_mcp, computer_use_gate_open, config_path,
-    ensure_computer_plugin, ensure_main_acp_owner, host_prefs, host_prefs_dir_for_app,
+    browser_mcp,
+    host_core::checked_reasoning_effort,
+    computer_mcp,
+    host_core::computer_use_gate_open,
+    host_core::config_path,
+    host_core::ensure_computer_plugin,
+    host_core::ensure_main_acp_owner,
+    host_prefs,
+    host_core::host_prefs_dir_for_app,
     mcp_leases::{self, McpLeaseStore, SessionLeaseBinding},
     path_sandbox::{checked_workspace, path_for_webview},
-    read_bounded_text, request_acp_json, AcpState, MAX_CONFIG_BYTES, UPSTREAM_CLI_CLIENT_NAME,
+    host_core::read_bounded_text,
+    host_core::request_acp_json,
+    host_core::AcpState,
+    host_core::MAX_CONFIG_BYTES,
+    host_core::UPSTREAM_CLI_CLIENT_NAME,
 };
 
 struct ComputerSessionExtensions {
@@ -542,7 +553,7 @@ pub(crate) async fn open_agent_session_inner(
         30_000
     };
     if let Some(session_id) = session_id.as_deref() {
-        crate::emit_host_session_event(
+        crate::host_core::emit_host_session_event(
             app,
             state.session_events.reset_session(request.generation, session_id),
         );
@@ -639,7 +650,7 @@ pub(crate) async fn open_agent_session_inner(
     let binding = std::mem::take(&mut attempt.leases);
     let previous = leases.bind_session(bound_session_id.clone(), binding.clone());
     shutdown_replaced_session_resources(leases, previous, &binding);
-    let worktree_binding = crate::worktree_bindings_path(app)
+    let worktree_binding = crate::host_core::worktree_bindings_path(app)
         .and_then(|path| worktrees.bind_session(&path, &bound_session_id, &cwd).map(|_| ()));
     if let Err(error) = worktree_binding {
         // Agent 会话已经成功建立，不能伪装成 session/new 失败并在上游留下
@@ -789,7 +800,7 @@ pub(crate) async fn fork_agent_session_in_worktree(
             "重新选择源会话的项目目录",
         )
     })?;
-    let binding_path = crate::worktree_bindings_path(&app).map_err(|error| {
+    let binding_path = crate::host_core::worktree_bindings_path(&app).map_err(|error| {
         AcpHostError::environment(
             "WORKTREE_BINDING_PATH_FAILED",
             error,
@@ -989,7 +1000,7 @@ pub(crate) async fn close_agent_session(
     }
     shutdown_session_resources(leases.inner(), &session_id);
     state.client_callbacks.unbind_session(&session_id).await;
-    crate::emit_host_session_event(
+    crate::host_core::emit_host_session_event(
         window.app_handle(),
         state.session_events.remove_session(generation, &session_id),
     );
@@ -1033,7 +1044,7 @@ pub(crate) async fn delete_agent_session(
     .await?;
     shutdown_session_resources(leases.inner(), &session_id);
     state.client_callbacks.unbind_session(&session_id).await;
-    crate::emit_host_session_event(
+    crate::host_core::emit_host_session_event(
         window.app_handle(),
         state.session_events.remove_session(generation, &session_id),
     );

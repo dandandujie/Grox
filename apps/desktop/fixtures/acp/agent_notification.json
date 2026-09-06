@@ -1,0 +1,26 @@
+{
+  "description": "非会话方法的 Agent 通知：原样投影为 Notification（转交 WebView 侧分派）。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": false,
+      "method": "x.ai/server_status",
+      "projection": {
+        "kind": "notification",
+        "method": "x.ai/server_status",
+        "params": {
+          "status": "ready"
+        }
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": null,
+      "streamId": "stream",
+      "updateType": null
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"x.ai/server_status\",\"params\":{\"status\":\"ready\"}}"
+  ]
+}

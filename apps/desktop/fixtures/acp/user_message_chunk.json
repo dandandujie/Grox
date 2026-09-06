@@ -1,0 +1,40 @@
+{
+  "description": "回放用户提示分片；打开 user 块。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "session/update",
+      "projection": {
+        "blockOps": [
+          {
+            "action": "open",
+            "blockId": "host-block-stream-1-user",
+            "blockType": "user",
+            "startedAt": 0
+          }
+        ],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "content": {
+            "text": "给 http 中间件加限流。",
+            "type": "text"
+          },
+          "sessionUpdate": "user_message_chunk"
+        },
+        "updateType": "user_message_chunk"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "user_message_chunk"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"给 http 中间件加限流。\"}}}}"
+  ]
+}

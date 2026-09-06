@@ -23,14 +23,18 @@ use tokio::{
     sync::oneshot,
 };
 
+use crate::provider_service::{apply_provider_environment, open_current};
 use crate::{
-    apply_grox_provider_environment, atomic_write_bounded_private, configured_grok_command, grok_home,
+    host_core::atomic_write_bounded_private,
+    host_core::configured_grok_command,
+    host_core::grok_home,
     host_error::HostError,
     is_blocked_service_host,
     path_sandbox::{checked_workspace, path_for_webview},
-    prompt_image_mime, restrict_private_file,
+    host_core::prompt_image_mime,
+    host_core::restrict_private_file,
     support_bundle::redact_token_markers,
-    UPSTREAM_CLI_CLIENT_NAME,
+    host_core::UPSTREAM_CLI_CLIENT_NAME,
 };
 
 const MEDIA_GENERATION_EVENT: &str = "media-generation-changed";
@@ -865,7 +869,7 @@ pub(crate) fn save_media_reference(
     name: String,
     data: String,
 ) -> Result<MediaReferenceResponse, HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let workspace = checked_workspace(&cwd)
         .map_err(|error| HostError::operation("MEDIA_WORKSPACE_INVALID", error))?;
@@ -901,7 +905,7 @@ pub(crate) fn release_media_reference(
     cwd: String,
     id: String,
 ) -> Result<bool, HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let workspace = checked_workspace(&cwd)
         .map_err(|error| HostError::operation("MEDIA_WORKSPACE_INVALID", error))?;
@@ -917,7 +921,7 @@ pub(crate) fn start_media_generation(
     service: tauri::State<'_, Arc<MediaService>>,
     request: MediaGenerationRequest,
 ) -> Result<MediaJobSnapshot, HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let service = Arc::clone(service.inner());
     let prepared = prepare_request(Arc::clone(&service), request)
@@ -969,7 +973,7 @@ pub(crate) fn media_generation_status(
     cwd: String,
     kind: MediaKind,
 ) -> Result<Option<MediaJobSnapshot>, HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let workspace = checked_workspace(&cwd)
         .map_err(|error| HostError::operation("MEDIA_WORKSPACE_INVALID", error))?;
@@ -984,7 +988,7 @@ pub(crate) fn media_generation_history(
     kind: Option<MediaKind>,
     limit: Option<usize>,
 ) -> Result<Vec<MediaJobSnapshot>, HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let workspace = checked_workspace(&cwd)
         .map_err(|error| HostError::operation("MEDIA_WORKSPACE_INVALID", error))?;
@@ -1014,7 +1018,7 @@ pub(crate) fn cancel_media_generation(
     cwd: String,
     id: String,
 ) -> Result<MediaJobSnapshot, HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let workspace = checked_workspace(&cwd)
         .map_err(|error| HostError::operation("MEDIA_WORKSPACE_INVALID", error))?;
@@ -1032,7 +1036,7 @@ pub(crate) fn open_media_artifact(
     artifact_index: usize,
     action: MediaArtifactAction,
 ) -> Result<(), HostError> {
-    crate::ensure_main_acp_owner(window.label())
+    crate::host_core::ensure_main_acp_owner(window.label())
         .map_err(|error| HostError::operation("MEDIA_WINDOW_NOT_OWNER", error))?;
     let workspace = checked_workspace(&cwd)
         .map_err(|error| HostError::operation("MEDIA_WORKSPACE_INVALID", error))?;
@@ -1077,7 +1081,7 @@ pub(crate) fn open_media_artifact(
             let parsed = url::Url::parse(url).map_err(|error| {
                 HostError::protocol("MEDIA_ARTIFACT_URL_INVALID", format!("媒体链接无效：{error}"))
             })?;
-            crate::spawn_system_browser(&parsed).map_err(|error| {
+            crate::host_core::spawn_system_browser(&parsed).map_err(|error| {
                 HostError::recoverable_environment(
                     "MEDIA_ARTIFACT_OPEN_FAILED",
                     error,
@@ -1213,7 +1217,21 @@ async fn run_media_generation(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .env("GROK_CLIENT_NAME", UPSTREAM_CLI_CLIENT_NAME);
-    apply_grox_provider_environment(&mut command).map_err(|error| {
+    let home = grok_home().map_err(|error| {
+        MediaRunError::Failed(MediaFailure::environment(
+            "SECRET_STORE_READ_FAILED",
+            error,
+            "解锁系统凭据库，或在供应商设置中重新保存 API Key",
+        ))
+    })?;
+    let provider = open_current(home).map_err(|error| {
+        MediaRunError::Failed(MediaFailure::environment(
+            "SECRET_STORE_READ_FAILED",
+            error,
+            "解锁系统凭据库，或在供应商设置中重新保存 API Key",
+        ))
+    })?;
+    apply_provider_environment(&mut command, &provider).map_err(|error| {
         MediaRunError::Failed(MediaFailure::environment(
             "SECRET_STORE_READ_FAILED",
             error,

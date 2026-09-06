@@ -1,0 +1,40 @@
+{
+  "description": "x.ai 包装通知只解一层：内层 session/update 直接投影。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "x.ai/session/update",
+      "projection": {
+        "blockOps": [
+          {
+            "action": "open",
+            "blockId": "host-block-stream-1-assistant",
+            "blockType": "assistant",
+            "startedAt": 0
+          }
+        ],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "content": {
+            "text": "包装通道的分片。",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        },
+        "updateType": "agent_message_chunk"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "agent_message_chunk"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"_x.ai/wrapped\",\"params\":{\"method\":\"x.ai/session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"包装通道的分片。\"}}}}}"
+  ]
+}

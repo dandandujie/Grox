@@ -1,0 +1,38 @@
+{
+  "description": "可用斜杠命令更新。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": false,
+      "method": "session/update",
+      "projection": {
+        "blockOps": [],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "commands": [
+            {
+              "description": "启动深度研究",
+              "input": {
+                "hint": "研究主题"
+              },
+              "name": "deep-research"
+            }
+          ],
+          "sessionUpdate": "available_commands_update"
+        },
+        "updateType": "available_commands_update"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "available_commands_update"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"commands\":[{\"name\":\"deep-research\",\"description\":\"启动深度研究\",\"input\":{\"hint\":\"研究主题\"}}]}}}"
+  ]
+}

@@ -6,7 +6,10 @@
 use serde_json::{json, Value};
 
 use crate::{
-    acp_host::AcpHostError, mcp_leases::McpLeaseStore, request_acp_json_tracked, AcpState,
+    acp_host::AcpHostError,
+    mcp_leases::McpLeaseStore,
+    host_core::request_acp_json_tracked,
+    host_core::AcpState,
 };
 
 pub(crate) const TURN_RPC_TIMEOUT_MS: u64 = 30_000;
@@ -30,8 +33,8 @@ pub(crate) async fn bind_model(
     let mut last_error = None;
     // 界面给的是上游模型名；CLI 认的是 config.toml 段名。中转档案借用官方
     // 模型名时两者不同，必须在这里收口，否则请求会落到官方段上。
-    let model = crate::grok_home()
-        .and_then(|home| crate::resolve_agent_model_id(&home, model))
+    let model = crate::host_core::grok_home()
+        .and_then(|home| crate::provider_overrides::resolve_agent_model_id(&home, model))
         .map_err(|error| {
             AcpHostError::environment(
                 "PROVIDER_MODEL_RESOLVE_FAILED",

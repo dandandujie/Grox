@@ -7,7 +7,10 @@ use std::{fs, path::Path};
 
 use serde_json::Value;
 
-use crate::{atomic_write_bounded_private, read_bounded_text};
+use crate::{
+    host_core::atomic_write_bounded_private,
+    host_core::read_bounded_text,
+};
 
 #[derive(Default)]
 pub(crate) struct SessionJournalStore;

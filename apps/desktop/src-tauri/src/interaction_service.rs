@@ -15,7 +15,10 @@ use std::{
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
-use crate::{acp_host::AcpHostError, acp_inbound::AcpInbound};
+use crate::{
+    acp_host::AcpHostError,
+    acp_inbound::AcpInbound,
+};
 
 const MAX_RESOLVED_TOMBSTONES: usize = 2_048;
 const MAX_PENDING_INTERACTIONS: usize = 256;

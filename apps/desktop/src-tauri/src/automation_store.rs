@@ -9,7 +9,10 @@ use chrono::{Datelike, Days, Local, LocalResult, NaiveTime, TimeZone};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{atomic_write_bounded_private, read_bounded_text};
+use crate::{
+    host_core::atomic_write_bounded_private,
+    host_core::read_bounded_text,
+};
 
 const MAX_AUTOMATIONS: usize = 2_000;
 const HOST_RUNTIME_KEY: &str = "_hostRuntime";

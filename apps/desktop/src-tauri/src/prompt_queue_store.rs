@@ -15,7 +15,10 @@ use std::{
 
 use serde_json::{Map, Value};
 
-use crate::{atomic_write_bounded_private, read_bounded_text};
+use crate::{
+    host_core::atomic_write_bounded_private,
+    host_core::read_bounded_text,
+};
 
 const MAX_QUEUE_ITEMS_PER_SESSION: usize = 1_000;
 const MAX_ATTACHMENTS_PER_ITEM: usize = 64;

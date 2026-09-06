@@ -12,7 +12,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::atomic_write_private;
+use crate::host_core::atomic_write_private;
 
 const KEYRING_SERVICE: &str = "dev.grox.desktop";
 const SECRET_FILE_NAME: &str = "grox-secrets.json";

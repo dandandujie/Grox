@@ -1,0 +1,49 @@
+{
+  "description": "工具调用开始：kind/title/status/rawInput 齐全。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "session/update",
+      "projection": {
+        "blockOps": [
+          {
+            "action": "open",
+            "blockId": "host-block-stream-1-tool",
+            "blockType": "tool",
+            "sourceId": "tc-1",
+            "startedAt": 0
+          }
+        ],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "kind": "edit",
+          "locations": [
+            {
+              "path": "crates/xai-grok-http/src/middleware.rs"
+            }
+          ],
+          "rawInput": {
+            "path": "crates/xai-grok-http/src/middleware.rs"
+          },
+          "sessionUpdate": "tool_call",
+          "status": "in_progress",
+          "title": "编辑 crates/xai-grok-http/src/middleware.rs",
+          "toolCallId": "tc-1"
+        },
+        "updateType": "tool_call"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "tool_call"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"tc-1\",\"kind\":\"edit\",\"title\":\"编辑 crates/xai-grok-http/src/middleware.rs\",\"status\":\"in_progress\",\"rawInput\":{\"path\":\"crates/xai-grok-http/src/middleware.rs\"},\"locations\":[{\"path\":\"crates/xai-grok-http/src/middleware.rs\"}]}}}"
+  ]
+}

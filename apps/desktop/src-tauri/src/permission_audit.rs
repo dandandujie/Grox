@@ -13,8 +13,9 @@ use std::{
 use serde::Serialize;
 
 use crate::{
-    atomic_write_bounded_private, interaction_service::PermissionAuditRecord,
-    restrict_private_file,
+    host_core::atomic_write_bounded_private,
+    interaction_service::PermissionAuditRecord,
+    host_core::restrict_private_file,
 };
 
 const AUDIT_DIR: &str = "audit";

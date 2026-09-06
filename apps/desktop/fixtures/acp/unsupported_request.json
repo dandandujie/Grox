@@ -1,0 +1,23 @@
+{
+  "description": "未知客户端请求：UnsupportedRequest 投影并自动回 -32601。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": false,
+      "method": "x.ai/unknown_thing",
+      "projection": {
+        "kind": "unsupported_request",
+        "method": "x.ai/unknown_thing"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": null
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"x.ai/unknown_thing\",\"params\":{\"sessionId\":\"s1\"}}"
+  ]
+}

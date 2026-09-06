@@ -1,0 +1,22 @@
+{
+  "description": "无归属响应：OrphanResponse 投影。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": false,
+      "method": null,
+      "projection": {
+        "kind": "orphan_response"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": null,
+      "streamId": "stream",
+      "updateType": null
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"id\":12,\"result\":{\"ok\":true}}"
+  ]
+}

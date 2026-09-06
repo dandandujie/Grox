@@ -19,19 +19,23 @@ use tauri::{Emitter, Manager, WebviewWindow};
 use crate::{
     acp_inbound::AcpInbound,
     acp_host::AcpHostError,
-    ensure_main_acp_owner, host_prefs,
+    host_core::ensure_main_acp_owner,
+    host_prefs,
     mcp_leases::McpLeaseStore,
-    prepare_acp_line,
+    host_core::prepare_acp_line,
     prompt_queue_store::{
         PromptQueueClaim, PromptQueueClaimError, PromptQueueSettlement, PromptQueueStore,
     },
-    request_acp_json_tracked,
+    host_core::request_acp_json_tracked,
     turn_runtime::{
         bind_mode, bind_model, effort_fallback_chain, invalid_reasoning_effort_message,
         is_invalid_reasoning_effort, normalize_effort, normalize_mode,
         prompt_result_invalid_effort, AcpRequestTracker,
     },
-    write_acp_line, AcpState, PROMPT_QUEUES_MAX_BYTES, UPSTREAM_CLI_CLIENT_NAME,
+    host_core::write_acp_line,
+    host_core::AcpState,
+    host_core::PROMPT_QUEUES_MAX_BYTES,
+    host_core::UPSTREAM_CLI_CLIENT_NAME,
 };
 
 const WATCHDOG_POLL_MS: u64 = 15_000;
@@ -148,7 +152,7 @@ impl<'a> SessionProjectionTurn<'a> {
         session_id: &'a str,
         generation: u64,
     ) -> Self {
-        crate::emit_host_session_event(app, journal.begin_turn(generation, session_id));
+        crate::host_core::emit_host_session_event(app, journal.begin_turn(generation, session_id));
         Self {
             app,
             journal,
@@ -160,7 +164,7 @@ impl<'a> SessionProjectionTurn<'a> {
 
 impl Drop for SessionProjectionTurn<'_> {
     fn drop(&mut self) {
-        crate::emit_host_session_event(
+        crate::host_core::emit_host_session_event(
             self.app,
             self.journal.finish_turn(self.generation, self.session_id),
         );
@@ -579,7 +583,7 @@ pub(crate) async fn execute_foreground_turn(
     let queue_path = request
         .queue_item_id
         .as_ref()
-        .map(|_| crate::prompt_queues_path(&app))
+        .map(|_| crate::host_core::prompt_queues_path(&app))
         .transpose()
         .map_err(prompt_queue_storage_error)?;
     let queue_claim = match (request.queue_item_id.as_deref(), queue_path.as_ref()) {
@@ -724,7 +728,7 @@ async fn execute_prepared_foreground_turn(
     )
     .await?;
 
-    let prefs = host_prefs::load_prefs(&crate::host_prefs_dir_for_app(app)).map_err(|error| {
+    let prefs = host_prefs::load_prefs(&crate::host_core::host_prefs_dir_for_app(app)).map_err(|error| {
         AcpHostError::environment(
             "HOST_PREFS_READ_FAILED",
             error,

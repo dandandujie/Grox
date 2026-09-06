@@ -12,7 +12,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{atomic_write_bounded_private, read_bounded_text};
+use crate::{
+    host_core::atomic_write_bounded_private,
+    host_core::read_bounded_text,
+};
 
 const DRAFT_FILE_VERSION: u8 = 1;
 const MAX_DRAFTS: usize = 32;

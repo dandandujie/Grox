@@ -1,0 +1,40 @@
+{
+  "description": "会话通道的助手文本流式分片；打开 assistant 块。",
+  "expected": [
+    {
+      "generation": 1,
+      "journalAcknowledged": false,
+      "journalRecoverable": true,
+      "method": "session/update",
+      "projection": {
+        "blockOps": [
+          {
+            "action": "open",
+            "blockId": "host-block-stream-1-assistant",
+            "blockType": "assistant",
+            "startedAt": 0
+          }
+        ],
+        "channel": "session",
+        "kind": "session_update",
+        "sessionId": "s1",
+        "update": {
+          "content": {
+            "text": "我来追踪请求链路。",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        },
+        "updateType": "agent_message_chunk"
+      },
+      "receivedAt": 0,
+      "sequence": 1,
+      "sessionId": "s1",
+      "streamId": "stream",
+      "updateType": "agent_message_chunk"
+    }
+  ],
+  "lines": [
+    "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"我来追踪请求链路。\"}}}}"
+  ]
+}
