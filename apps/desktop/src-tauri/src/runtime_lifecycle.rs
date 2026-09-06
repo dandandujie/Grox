@@ -431,7 +431,7 @@ pub(crate) async fn spawn_acp_process(
     // Windows: put ACP child in a Job Object so cancel kills nested tool trees.
     #[cfg(windows)]
     let job = {
-        match process_job::ProcessJob::create_kill_on_close() {
+        match crate::process_job::ProcessJob::create_kill_on_close() {
             Ok(job) => {
                 if let Some(pid) = child.id() {
                     if let Err(error) = job.assign_pid(pid) {

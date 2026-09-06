@@ -63,7 +63,7 @@ pub(crate) struct AgentProcess {
     pub(crate) generation: u64,
     /// Windows Job Object so cancel kills nested tool trees (cargo test, shells).
     #[cfg(windows)]
-    pub(crate) job: Option<process_job::ProcessJob>,
+    pub(crate) job: Option<ProcessJob>,
 }
 
 #[derive(Default)]
