@@ -1307,7 +1307,7 @@ pub(crate) fn ensure_computer_plugin() -> Result<PathBuf, String> {
     fs::create_dir_all(&skill).map_err(|error| format!("无法创建 Computer Use Skill：{error}"))?;
     fs::write(
         root.join("plugin.json"),
-        r#"{"name":"grox-desktop-computer-use","version":"0.3.4","description":"Grox desktop Computer Use harness (Windows full control; macOS/Linux observation-first)"}"#,
+        r#"{"name":"grox-desktop-computer-use","version":"0.3.5","description":"Grox desktop Computer Use harness (Windows full control; macOS/Linux observation-first)"}"#,
     )
     .map_err(|error| format!("无法写入 Computer Use Plugin：{error}"))?;
     fs::write(
