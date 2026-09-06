@@ -245,24 +245,25 @@ function RequestNodeRail({
   }, [activeIndex, markers]);
 
   // Free-scroll highlight: which turn is near the reading focus line.
+  // IntersectionObserver 缓存每个回合行的文档相对坐标（观察回调里才做布局读），
+  // 滚动时只做纯算术选取，长会话不再每帧对全部行 querySelectorAll + getBoundingClientRect。
   useEffect(() => {
     const viewport = scrollerRef.current;
     if (!viewport || markers.length === 0) return;
 
+    const idSet = new Set(markers.map((m) => m.id));
+    const docRects = new Map<string, { top: number; bottom: number }>();
+
     const sync = () => {
       rafRef.current = null;
-      const viewportRect = viewport.getBoundingClientRect();
-      const focusY = viewportRect.top + viewport.clientHeight * 0.28;
-      const idSet = new Set(markers.map((m) => m.id));
-      const rows = viewport.querySelectorAll<HTMLElement>("[data-turn-id]");
+      const scrollTop = viewport.scrollTop;
+      const viewBottom = scrollTop + viewport.clientHeight;
+      const focusY = scrollTop + viewport.clientHeight * 0.28;
       let bestId: string | null = null;
       let bestDist = Number.POSITIVE_INFINITY;
-      for (const row of rows) {
-        const id = row.getAttribute("data-turn-id");
-        if (!id || !idSet.has(id)) continue;
-        const r = row.getBoundingClientRect();
-        if (r.bottom < viewportRect.top || r.top > viewportRect.bottom) continue;
-        const mid = (r.top + r.bottom) / 2;
+      for (const [id, rect] of docRects) {
+        if (rect.bottom < scrollTop || rect.top > viewBottom) continue;
+        const mid = (rect.top + rect.bottom) / 2;
         const dist = Math.abs(mid - focusY);
         if (dist < bestDist) {
           bestDist = dist;
@@ -271,8 +272,8 @@ function RequestNodeRail({
       }
       if (!bestId) {
         // Fallback: first / last by scroll extremes.
-        if (viewport.scrollTop <= 8) bestId = markers[0]?.id ?? null;
-        else if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 8) {
+        if (scrollTop <= 8) bestId = markers[0]?.id ?? null;
+        else if (viewport.scrollHeight - scrollTop - viewport.clientHeight <= 8) {
           bestId = markers[markers.length - 1]?.id ?? null;
         }
       }
@@ -284,9 +285,31 @@ function RequestNodeRail({
       rafRef.current = window.requestAnimationFrame(sync);
     };
 
+    // 120% 外扩：行进入可视区前后就完成坐标缓存；内容变化导致行重新相交时刷新缓存。
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let dirty = false;
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).getAttribute("data-turn-id");
+          if (!id || !idSet.has(id)) continue;
+          docRects.set(id, {
+            top: entry.boundingClientRect.top + viewport.scrollTop,
+            bottom: entry.boundingClientRect.bottom + viewport.scrollTop,
+          });
+          dirty = true;
+        }
+        if (dirty) onScroll();
+      },
+      { root: viewport, rootMargin: "120% 0px 120% 0px" },
+    );
+    for (const row of viewport.querySelectorAll<HTMLElement>("[data-turn-id]")) {
+      observer.observe(row);
+    }
+
     viewport.addEventListener("scroll", onScroll, { passive: true });
     rafRef.current = window.requestAnimationFrame(sync);
     return () => {
+      observer.disconnect();
       viewport.removeEventListener("scroll", onScroll);
       if (rafRef.current != null) {
         window.cancelAnimationFrame(rafRef.current);
@@ -635,6 +658,7 @@ export function Timeline({ session }: { session: Session }) {
   const settleTimerRef = useRef<number | undefined>(undefined);
   const turns = useMemo(() => groupTurns(session.blocks), [session.blocks]);
   const [visibleCount, setVisibleCount] = useState(TIMELINE_TURN_WINDOW_INITIAL);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const sessionRunning = deriveSessionSnapshot({ status: session.status, blocks: session.blocks }).busy;
   const wasRunningRef = useRef(sessionRunning);
   const lastBlock = session.blocks.at(-1);
@@ -650,6 +674,7 @@ export function Timeline({ session }: { session: Session }) {
     followRef.current = true;
     inspectHoldRef.current = false;
     leftBottomRef.current = false;
+    setAwayFromBottom(false);
   }, [session.id]);
 
   // Window is "last N turns" — as new turns stream in, the newest stay mounted
@@ -734,9 +759,20 @@ export function Timeline({ session }: { session: Session }) {
     node.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [visibleTurns, visibleCount]);
 
+  // 回到最新：把控制权交还自动跟随，之后流式输出会继续吸底。
+  const jumpToLatest = useCallback(() => {
+    followRef.current = true;
+    inspectHoldRef.current = false;
+    leftBottomRef.current = false;
+    userTookOverRef.current = false;
+    const el = scrollerRef.current;
+    el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
   const onScrollerScroll = () => {
     const el = scrollerRef.current;
     if (!el) return;
+    setAwayFromBottom(!isNearBottom(el));
     if (!isNearBottom(el)) {
       // Operator left the bottom — never force-land again this open.
       userTookOverRef.current = true;
@@ -835,6 +871,17 @@ export function Timeline({ session }: { session: Session }) {
         })}
         <div className="h-11 shrink-0" aria-hidden="true" />
       </div>
+      {awayFromBottom && (
+        <button
+          type="button"
+          onClick={jumpToLatest}
+          className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line2 bg-raise/95 px-3.5 py-1.5 font-mono text-[10px] text-fg2 shadow-lg backdrop-blur transition-colors hover:border-acc/50 hover:text-fg"
+        >
+          <Icon name="chevronDown" size={10} />
+          {language === "zh-CN" ? "回到最新" : "Jump to latest"}
+          {sessionRunning && <span className="h-1 w-1 animate-pulse-dot rounded-full bg-acc" aria-hidden="true" />}
+        </button>
+      )}
       <RequestNodeRail markers={markers} language={language} scrollerRef={scrollerRef} onJump={jumpToTurn} />
     </div>
   );

@@ -74,6 +74,8 @@ import { mapToolKind } from "../lib/toolKind";
 import { displayReplayUserPrompt } from "../lib/replayUserPrompt";
 import { mergeOfflineWithLive } from "../lib/offlineMerge";
 import { AcpRpcError, decodeAcpResponse } from "./acpRpc";
+import { applyToSession } from "./sessionProjection";
+import { decodeWorkflowRun } from "./workflowDecoder";
 
 export const ACP_METHODS = {
   initialize: "initialize",
@@ -716,71 +718,6 @@ function applyCommandTags(commands: SlashCommand[], tags: Map<string, string>): 
   });
 }
 
-function mapWorkflowRun(update: JsonObject): WorkflowRun | undefined {
-  const runId = string(update.runId) ?? string(update.run_id) ?? string(update.workflowRunId) ?? string(update.workflow_run_id);
-  if (!runId) return undefined;
-  const phases = array(update.phases).flatMap((entry) => {
-    const phase = record(entry);
-    const title = string(phase?.title) ?? string(phase?.name);
-    if (!phase || !title) return [];
-    const rawState = string(phase.state) ?? string(phase.status);
-    const state: WorkflowRun["phases"][number]["state"] =
-      rawState === "active" || rawState === "done" ? rawState : "pending";
-    return [{ title, state }];
-  });
-  const agents = array(update.agents).flatMap((entry) => {
-    const agent = record(entry);
-    const agentId = string(agent?.agentId) ?? string(agent?.agent_id);
-    if (!agent || !agentId) return [];
-    const tokensUsed = number(agent.tokensUsed) ?? number(agent.tokens_used);
-    const durationMs = number(agent.durationMs) ?? number(agent.duration_ms);
-    return [{
-      agentId,
-      label: string(agent.label) ?? agentId,
-      ...(string(agent.phase) ? { phase: string(agent.phase) } : {}),
-      ...(string(agent.model) ? { model: string(agent.model) } : {}),
-      state: string(agent.state) ?? "unknown",
-      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
-      ...(durationMs !== undefined ? { durationMs } : {}),
-    }];
-  });
-  const lastEvent = string(update.lastEvent) ?? string(update.last_event);
-  const lastEventDetail = string(update.lastEventDetail) ?? string(update.last_event_detail);
-  const lastEventTimestamp = string(update.lastEventTimestamp) ?? string(update.last_event_timestamp);
-  return {
-    runId,
-    revision: number(update.revision) ?? 0,
-    name: string(update.name) ?? "workflow",
-    objective: string(update.objective) ?? "",
-    status: (() => {
-      const raw = string(update.status) ?? "active";
-      return raw === "completed" || raw === "succeeded" ? "complete" : raw;
-    })(),
-    foreground: bool(update.foreground) ?? false,
-    phases,
-    currentPhase: string(update.currentPhase) ?? string(update.current_phase),
-    agentBudget: number(update.agentBudget) ?? number(update.agent_budget),
-    agentsUsed: number(update.agentsUsed) ?? number(update.agents_used) ?? 0,
-    agentsReserved: number(update.agentsReserved) ?? number(update.agents_reserved) ?? 0,
-    agentsRemaining: number(update.agentsRemaining) ?? number(update.agents_remaining),
-    agentUsageIncomplete: bool(update.agentUsageIncomplete) ?? bool(update.agent_usage_incomplete) ?? false,
-    elapsedMs: number(update.elapsedMs) ?? number(update.elapsed_ms) ?? 0,
-    activeAgents: number(update.activeAgents) ?? number(update.active_agents) ?? 0,
-    currentAgentLabel: string(update.currentAgentLabel) ?? string(update.current_agent_label),
-    agents,
-    ...(lastEvent ? { lastEvent } : {}),
-    ...(lastEventDetail ? { lastEventDetail } : {}),
-    ...(lastEventTimestamp ? { lastEventTimestamp } : {}),
-    events: lastEvent ? [{
-      event: lastEvent,
-      ...(lastEventDetail ? { detail: lastEventDetail } : {}),
-      ...(lastEventTimestamp ? { timestamp: lastEventTimestamp } : {}),
-    }] : [],
-    pauseMessage: string(update.pauseMessage) ?? string(update.pause_message),
-    resultSummary: string(update.resultSummary) ?? string(update.result_summary),
-  };
-}
-
 function workflowEnvelopeTimestamp(envelope: JsonObject): number | undefined {
   const value = number(envelope.timestamp);
   if (value === undefined) return undefined;
@@ -893,131 +830,6 @@ function combinedDisplayTexts(value: unknown): string[] | undefined {
     .map((entry) => string(entry))
     .filter((entry): entry is string => Boolean(entry));
   return segments.length >= 2 ? segments : undefined;
-}
-
-function applyToSession(session: Session, event: BridgeEvent): Session {
-  if ("sessionId" in event && event.sessionId !== session.id) return session;
-  const patchBlock = (blockId: string, patch: Partial<SessionBlock>) =>
-    session.blocks.map((block) =>
-      block.id === blockId ? ({ ...block, ...patch } as SessionBlock) : block,
-    );
-
-  switch (event.type) {
-    case "auth_state":
-    case "model_state":
-    case "mode_state":
-    case "available_commands":
-    case "workflow_update":
-    case "workflow_trace_update":
-    case "runtime_notice":
-    case "runtime_state":
-    case "runtime_occupancy":
-    case "session_journal_checkpoint":
-    case "prompt_queue_changed":
-    case "automation_session_started":
-    case "automation_session_settled":
-    case "automation_runner_tick":
-      return session;
-    case "session_meta":
-      return { ...session, ...event.patch };
-    case "block_add":
-      return session.blocks.some((block) => block.id === event.block.id)
-        ? session
-        : { ...session, blocks: [...session.blocks, event.block] };
-    case "block_patch":
-      return { ...session, blocks: patchBlock(event.blockId, event.patch) };
-    case "assistant_append":
-    case "thinking_append":
-      return {
-        ...session,
-        blocks: session.blocks.map((block) =>
-          block.id === event.blockId &&
-          (block.type === "assistant" || block.type === "thinking")
-            ? { ...block, text: block.text + event.delta }
-            : block,
-        ),
-      };
-    case "user_append":
-      return {
-        ...session,
-        blocks: session.blocks.map((block) =>
-          block.id === event.blockId && block.type === "user"
-            ? { ...block, text: block.text + event.delta }
-            : block,
-        ),
-      };
-    case "tool_patch":
-      return {
-        ...session,
-        blocks: session.blocks.map((block) =>
-          block.id === event.blockId && block.type === "tool"
-            ? { ...block, call: { ...block.call, ...event.call } }
-            : block,
-        ),
-      };
-    case "plan_patch":
-      return {
-        ...session,
-        blocks: session.blocks.map((block) =>
-          block.id === event.blockId && block.type === "plan"
-            ? { ...block, steps: event.steps }
-            : block,
-        ),
-      };
-    case "permission_request":
-      return {
-        ...session,
-        status: "awaiting_permission",
-        blocks: [
-          ...session.blocks,
-          { type: "permission", id: event.blockId, req: event.req, ts: Date.now() },
-        ],
-      };
-    case "permission_resolved":
-      return {
-        ...session,
-        status: "running",
-        blocks: session.blocks.map((block) =>
-          block.id === event.blockId && block.type === "permission"
-            ? { ...block, resolved: event.option }
-            : block,
-        ),
-      };
-    case "question_request":
-      return {
-        ...session,
-        status: "awaiting_input",
-        blocks: [
-          ...session.blocks,
-          { type: "question", id: event.blockId, req: event.req, ts: Date.now() },
-        ],
-      };
-    case "question_resolved":
-      return {
-        ...session,
-        status: "running",
-        blocks: session.blocks.map((block) =>
-          block.id === event.blockId && block.type === "question"
-            ? { ...block, response: event.response }
-            : block,
-        ),
-      };
-    case "status":
-      return { ...session, status: event.status };
-    case "usage":
-      return { ...session, usage: event.usage };
-    case "error":
-      return {
-        ...session,
-        status: event.error.fatal ? "failed" : session.status,
-        blocks: [
-          ...session.blocks,
-          { type: "system", id: uid(), text: formatGroxError(event.error), ts: Date.now(), kind: "error" },
-        ],
-      };
-    case "session_ready":
-      return event.session;
-  }
 }
 
 export class AcpBridge implements GrokBridge {
@@ -2423,7 +2235,7 @@ export class AcpBridge implements GrokBridge {
         return;
       }
       case "workflow_updated": {
-        const workflow = mapWorkflowRun(update);
+        const workflow = decodeWorkflowRun(update);
         if (workflow) {
           this.trackWorkflowStatus(sessionId, workflow);
           this.emit({ type: "workflow_update", sessionId, workflow });
@@ -2638,7 +2450,7 @@ export class AcpBridge implements GrokBridge {
     }
     switch (type) {
       case "workflow_updated": {
-        const workflow = mapWorkflowRun(update);
+        const workflow = decodeWorkflowRun(update);
         if (workflow) {
           this.trackWorkflowStatus(sessionId, workflow);
           this.emit({ type: "workflow_update", sessionId, workflow });
@@ -3753,7 +3565,7 @@ export class AcpBridge implements GrokBridge {
             continue;
           }
           if (type === "workflow_updated") {
-            const workflow = mapWorkflowRun(update);
+            const workflow = decodeWorkflowRun(update);
             if (!workflow) continue;
             const previous = collected.get(workflow.runId);
             collected.set(workflow.runId, previous ? {

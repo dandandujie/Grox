@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { bridge } from "../../bridge";
+import {
+  loadRuntimeSession, openExternal, readConfigDocuments, runtimeCall, writeConfigDocument,
+} from "../../lib/hostActions";
 import type { ConfigDocument, ProviderApiBackend, ProviderKind, SecretBackendKind } from "../../bridge/types";
 import { EFFORTS } from "../../bridge/types";
 import { useDesktop } from "../../state/store";
+import { useProviderCapability } from "../../state/providerCapabilityStore";
 import { usePreferences } from "../../state/preferences";
 import { useI18n } from "../../lib/i18n";
+import { useModalA11y } from "../../hooks/useModalA11y";
 import { fmtBillingDate, fmtBillingValue } from "../../lib/format";
 import { formatGroxError, toGroxError } from "../../lib/errorModel";
 import { Icon } from "../fx/Icon";
@@ -52,12 +55,18 @@ export function SettingsModal() {
   const { t, language } = useI18n();
   const open = useDesktop((state) => state.settingsOpen);
   const setOpen = useDesktop((state) => state.setSettingsOpen);
+  const panelRef = useModalA11y(() => setOpen(false));
   const [section, setSection] = useState<SettingsSection>(() => settingsSectionFromHash(window.location.hash) ?? "general");
   const [query, setQuery] = useState("");
   const wasOpen = useRef(false);
   const zh = language === "zh-CN";
   const catalog = useMemo(() => getSettingsCatalog(zh), [zh]);
   const results = useMemo(() => searchSettings(catalog, query), [catalog, query]);
+
+  const loadCapabilities = useDesktop((state) => state.loadCapabilities);
+  useEffect(() => {
+    if (open) void loadCapabilities();
+  }, [loadCapabilities, open]);
 
   useEffect(() => {
     const openSection = (event: Event) => {
@@ -123,6 +132,7 @@ export function SettingsModal() {
       onMouseDown={() => setOpen(false)}
     >
       <div
+        ref={panelRef}
         className="flex h-[min(820px,92vh)] w-[min(1180px,96vw)] overflow-hidden rounded-[9px] border border-line3 bg-panel shadow-2xl animate-fade-up"
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -348,7 +358,7 @@ function Account() {
   const zh = language === "zh-CN";
   const account = useDesktop((state) => state.account);
   const billing = useDesktop((state) => state.billing);
-  const provider = useDesktop((state) => state.provider);
+  const provider = useProviderCapability((state) => state.provider);
   const models = useDesktop((state) => state.models);
   const loading = useDesktop((state) => state.accountLoading);
   const refresh = useDesktop((state) => state.refreshAccount);
@@ -367,7 +377,7 @@ function Account() {
       </> : <><Metric label={zh ? "密钥存储" : "Secret storage"} value={secretBackendLabel(provider.secretBackend, zh)} /><Metric label={zh ? "可用模型" : "Available models"} value={`${models.length}`} /></>}</div>
       {provider.kind === "oauth" && <p className="mt-3 text-[10px] leading-relaxed text-dim">{billing?.creditUsagePercent !== undefined ? (zh ? `订阅额度已使用 ${Math.round(billing.creditUsagePercent)}%。` : `${Math.round(billing.creditUsagePercent)}% of plan quota used.`) : (zh ? "Grok Build 当前未公开五小时或订阅剩余额度；这里展示 CLI 实际返回的订阅周期与按量额度。" : "Grok Build does not currently expose five-hour or remaining subscription quota; the values above are the billing data actually returned by the CLI.")}</p>}
     </div>
-    <div className="mt-3 flex gap-2">{provider.kind === "oauth" && !account?.authenticated && <ActionButton tone="accent" onClick={() => openSetup(true)}>{t("login")}</ActionButton>}{provider.kind === "oauth" && account?.authenticated && <ActionButton tone="danger" onClick={() => { setActionError(""); void logout().catch((cause) => setActionError(providerErrorText(cause))); }}>{t("logout")}</ActionButton>}<ActionButton onClick={() => { setActionError(""); void invoke("open_external", { url: "https://grok.com/supergrok?referrer=grok-build" }).catch((cause) => setActionError(providerErrorText(cause))); }}>{t("upgrade")}</ActionButton></div>
+    <div className="mt-3 flex gap-2">{provider.kind === "oauth" && !account?.authenticated && <ActionButton tone="accent" onClick={() => openSetup(true)}>{t("login")}</ActionButton>}{provider.kind === "oauth" && account?.authenticated && <ActionButton tone="danger" onClick={() => { setActionError(""); void logout().catch((cause) => setActionError(providerErrorText(cause))); }}>{t("logout")}</ActionButton>}<ActionButton onClick={() => { setActionError(""); void openExternal("https://grok.com/supergrok?referrer=grok-build").catch((cause) => setActionError(providerErrorText(cause))); }}>{t("upgrade")}</ActionButton></div>
     {actionError && <p role="alert" className="mt-2 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{actionError}</p>}
     <ProviderAndModels />
     <div className="mt-8 border-t border-line pt-6"><ConfigDocumentsPanel /></div>
@@ -377,16 +387,16 @@ function Account() {
 function ProviderAndModels() {
   const { t, language } = useI18n();
   const zh = language === "zh-CN";
-  const provider = useDesktop((state) => state.provider);
+  const provider = useProviderCapability((state) => state.provider);
   const models = useDesktop((state) => state.models);
   const model = useDesktop((state) => state.model);
   const modelsUpdatedAt = useDesktop((state) => state.modelsUpdatedAt);
   const setModel = useDesktop((state) => state.setModel);
   const refreshModels = useDesktop((state) => state.refreshModels);
   const configure = useDesktop((state) => state.configureProvider);
-  const profiles = useDesktop((state) => state.providerProfiles);
-  const activeProfileId = useDesktop((state) => state.activeProviderProfileId);
-  const providerSwitching = useDesktop((state) => state.providerSwitching);
+  const profiles = useProviderCapability((state) => state.profiles);
+  const activeProfileId = useProviderCapability((state) => state.activeProfileId);
+  const providerSwitching = useProviderCapability((state) => state.switching);
   const saveProfile = useDesktop((state) => state.saveProviderProfile);
   const fetchProfileModels = useDesktop((state) => state.fetchProviderModels);
   const refreshStoredModels = useDesktop((state) => state.refreshProviderModels);
@@ -686,9 +696,9 @@ function McpPanel() {
   const [name, setName] = useState(""); const [endpoint, setEndpoint] = useState(""); const [kind, setKind] = useState<"http" | "stdio">("http");
   const [confirmingServer, setConfirmingServer] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
-  const state = useExtension(async () => object(await bridge.callExtension("x.ai/mcp/list", { ...(sessionId ? { sessionId } : {}), cache: false })), [sessionId]);
+  const state = useExtension(async () => object(await runtimeCall("x.ai/mcp/list", { ...(sessionId ? { sessionId } : {}), cache: false })), [sessionId]);
   const servers = list(state.data?.servers).map(object);
-  const action = async (method: string, params: Json) => { setActionError(""); try { if (!sessionId) throw new Error(zh ? "请先打开一个项目任务，以便 Grok Build 创建运行时上下文。" : "Open a project mission first so Grok Build can create its runtime context."); await bridge.callExtension(method, { session_id: sessionId, ...params }); state.reload(); } catch (cause) { setActionError(extensionErrorText(cause)); throw cause; } };
+  const action = async (method: string, params: Json) => { setActionError(""); try { if (!sessionId) throw new Error(zh ? "请先打开一个项目任务，以便 Grok Build 创建运行时上下文。" : "Open a project mission first so Grok Build can create its runtime context."); await runtimeCall(method, { session_id: sessionId, ...params }); state.reload(); } catch (cause) { setActionError(extensionErrorText(cause)); throw cause; } };
   const add = async () => { if (!name.trim() || !endpoint.trim()) return; await action("x.ai/mcp/upsert", { server_name: name.trim(), ...(kind === "http" ? { type: "http", url: endpoint.trim(), enabled: true } : { command: endpoint.trim(), args: [], enabled: true }) }); setName(""); setEndpoint(""); };
   return <div><Heading title={t("mcp")} description={zh ? "直接读写 Grok Build 的 MCP 配置；启停和删除会同步到 config.toml。" : "Manage Grok Build MCP configuration directly; toggles and deletions sync to config.toml."} />
     <div className="mb-4 grid grid-cols-[120px_1fr_110px_auto] items-center gap-2">
@@ -732,10 +742,10 @@ function SkillsPanel() {
   const { t, language } = useI18n(); const zh = language === "zh-CN"; const cwd = useDesktop((state) => state.workspace); const [path, setPath] = useState("");
   const [confirmingSkill, setConfirmingSkill] = useState<{ name: string; path: string } | null>(null);
   const [actionError, setActionError] = useState("");
-  const state = useExtension(async () => object(await bridge.callExtension("x.ai/skills/list", { cwd })), [cwd]);
+  const state = useExtension(async () => object(await runtimeCall("x.ai/skills/list", { cwd })), [cwd]);
   const skills = list(state.data?.skills).map(object).sort((a, b) => text(a.displayName, text(a.name)).localeCompare(text(b.displayName, text(b.name))));
   const groups = [...skills.reduce((result, skill) => { const scope = text(skill.scope, "other"); result.set(scope, [...(result.get(scope) ?? []), skill]); return result; }, new Map<string, Json[]>()).entries()].sort(([a], [b]) => a.localeCompare(b));
-  const run = async (method: string, params: Json) => { setActionError(""); try { await bridge.callExtension(method, { ...params, cwd }); state.reload(); } catch (cause) { setActionError(extensionErrorText(cause)); throw cause; } };
+  const run = async (method: string, params: Json) => { setActionError(""); try { await runtimeCall(method, { ...params, cwd }); state.reload(); } catch (cause) { setActionError(extensionErrorText(cause)); throw cause; } };
   return <div><Heading title={t("skills")} description={zh ? "从 Grok Build 的用户、项目和插件作用域发现 Skill，可视化启停与移除。" : "Discover Skills from Grok Build user, project, and plugin scopes; toggle or remove them visually."} /><div className="mb-4 flex gap-2"><div className="flex-1"><Input value={path} onChange={setPath} placeholder={zh ? "C:\\path\\to\\skill 或 SKILL.md" : "C:\\path\\to\\skill or SKILL.md"} /></div><ActionButton tone="accent" disabled={!path.trim()} onClick={() => void run("x.ai/skills/add", { path }).then(() => setPath("")).catch(() => {})}>{t("add")}</ActionButton></div>
     {skills.length === 0 ? <ExtensionState error={state.error} loading={state.loading} empty={zh ? "尚未发现 Skill" : "No Skills discovered"} /> : <div className="space-y-2">{groups.map(([scope, entries]) => <details key={scope} open className="rounded-[5px] border border-line2 bg-void/40"><summary className="cursor-pointer px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.08em] text-mute">{scope} · {entries.length}</summary><div className="grid grid-cols-2 gap-2 border-t border-line p-2">{entries.map((skill) => { const name = text(skill.name); const skillPath = text(skill.path); const enabled = skill.enabled !== false; return <div key={`${name}-${skillPath}`} className="rounded-[5px] border border-line2 bg-raise p-3"><div className="flex items-start gap-2"><Icon name="bolt" size={12} className="mt-0.5 text-gold" /><div className="min-w-0 flex-1"><p className="truncate text-[11px] text-fg2">{text(skill.displayName, name)}</p><p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-dim">{text(skill.description, skillPath)}</p></div><Toggle label={`${name} Skill`} on={enabled} onChange={(value) => void run("x.ai/skills/toggle", { name, enabled: value }).catch(() => {})} /></div>{text(skill.scope) !== "bundled" && <button onClick={() => setConfirmingSkill({ name, path: skillPath })} className="mt-2 font-mono text-[9.5px] text-red/70 hover:text-red">{t("remove")}</button>}</div>; })}</div></details>)}</div>}
     {actionError && <p className="mt-2 rounded-[4px] border border-red/30 bg-red/5 px-3 py-2 text-[10px] text-red">{actionError}</p>}
@@ -761,8 +771,8 @@ function PluginsPanel() {
   const [confirmingPlugin, setConfirmingPlugin] = useState<{ id: string; name: string } | null>(null);
   const [actionError, setActionError] = useState("");
   const actionLocked = useRef(false);
-  const pluginsState = useExtension(async () => sessionId ? object(await bridge.callExtension("x.ai/plugins/list", { sessionId })) : { plugins: [] }, [sessionId]);
-  const marketState = useExtension(async () => object(await bridge.callExtension("x.ai/marketplace/list", sessionId ? { sessionId } : {})), [sessionId]);
+  const pluginsState = useExtension(async () => sessionId ? object(await runtimeCall("x.ai/plugins/list", { sessionId })) : { plugins: [] }, [sessionId]);
+  const marketState = useExtension(async () => object(await runtimeCall("x.ai/marketplace/list", sessionId ? { sessionId } : {})), [sessionId]);
   const plugins = list(pluginsState.data?.plugins).map(object);
   const sources = list(marketState.data?.sources).map(object);
   const unlockLater = () => window.setTimeout(() => { actionLocked.current = false; setActionBusy(false); }, 500);
@@ -777,7 +787,7 @@ function PluginsPanel() {
     actionLocked.current = true;
     setActionBusy(true);
     try {
-      await bridge.callExtension("x.ai/plugins/action", { sessionId, action });
+      await runtimeCall("x.ai/plugins/action", { sessionId, action });
       pluginsState.reload();
       marketState.reload();
     } catch (cause) {
@@ -798,7 +808,7 @@ function PluginsPanel() {
     actionLocked.current = true;
     setActionBusy(true);
     try {
-      await bridge.callExtension("x.ai/marketplace/action", { sessionId, action: { type: "install", source_url_or_path: text(source.sourceUrlOrPath), plugin_relative_path: text(plugin.relativePath) } });
+      await runtimeCall("x.ai/marketplace/action", { sessionId, action: { type: "install", source_url_or_path: text(source.sourceUrlOrPath), plugin_relative_path: text(plugin.relativePath) } });
       pluginsState.reload();
       marketState.reload();
     } catch (cause) {
@@ -831,7 +841,7 @@ function PluginsPanel() {
 function MarketLinks({ kind }: { kind: "mcp" | "skills" | "plugins" }) {
   const { language } = useI18n();
   const links = kind === "mcp" ? [{ label: "Smithery", url: "https://smithery.ai/" }, { label: "MCP.so", url: "https://mcp.so/" }, { label: "GitHub MCP", url: "https://github.com/topics/mcp" }] : kind === "skills" ? [{ label: "skills.sh", url: "https://skills.sh/" }, { label: "GitHub", url: "https://github.com/topics/agent-skills" }] : [{ label: "xAI GitHub", url: "https://github.com/xai-org" }, { label: "GitHub", url: "https://github.com/topics/ai-plugins" }];
-  return <div className="mt-5 flex items-center gap-2 border-t border-line pt-4"><span className="lbl !text-[9.5px]">{language === "zh-CN" ? "发现更多" : "DISCOVER"}</span>{links.map((link) => <button key={link.url} onClick={() => void invoke("open_external", { url: link.url })} className="chip">{link.label}<Icon name="external" size={9} /></button>)}</div>;
+  return <div className="mt-5 flex items-center gap-2 border-t border-line pt-4"><span className="lbl !text-[9.5px]">{language === "zh-CN" ? "发现更多" : "DISCOVER"}</span>{links.map((link) => <button key={link.url} onClick={() => void openExternal(link.url)} className="chip">{link.label}<Icon name="external" size={9} /></button>)}</div>;
 }
 
 export function configOverlayNotice(document: ConfigDocument | undefined, zh: boolean): string | undefined {
@@ -862,7 +872,7 @@ function ConfigDocumentsPanel() {
     let live = true;
     const load = async () => {
       try {
-        const next = await bridge.readConfigDocuments(cwd);
+        const next = await readConfigDocuments(cwd);
         if (!live) return;
         setDocuments(next);
         setDrafts((current) => {
@@ -888,10 +898,10 @@ function ConfigDocumentsPanel() {
       ? (zh ? "正在验证并重启 Grok Build…" : "Validating and restarting Grok Build…")
       : (zh ? "正在保存并重新载入当前任务…" : "Saving and reloading the current mission…"));
     try {
-      const saved = await bridge.writeConfigDocument({ ...document, content: drafts[document.id] ?? "" }, cwd);
+      const saved = await writeConfigDocument({ ...document, content: drafts[document.id] ?? "" }, cwd);
       setDocuments((items) => items.map((item) => item.id === saved.id ? saved : item));
       setDirty((current) => ({ ...current, [saved.id]: false }));
-      if (activeId) await bridge.loadSession(activeId);
+      if (activeId) await loadRuntimeSession(activeId);
       setStatus(activeId
         ? (zh ? "已保存并应用到当前任务" : "Saved and applied to the current mission")
         : (zh ? "已保存；下一个任务会使用新配置" : "Saved; the next mission will use this configuration"));

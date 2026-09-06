@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { getUpdateStatus, openExternal as openExternalHost, installUpdate, rollbackUpdate } from "../../lib/hostActions";
 import { useI18n } from "../../lib/i18n";
 import {
   readSkippedUpdateVersion,
@@ -75,7 +75,7 @@ export function UpdateNotice() {
     setChecking(true);
     setError("");
     try {
-      const next = await invoke<UpdateStatus>("get_update_status");
+      const next = await getUpdateStatus<UpdateStatus>();
       if (shouldResetSessionDismiss(lastLatestVersion.current, next.latest.latestVersion)) {
         sessionDismissed.current = false;
       }
@@ -140,7 +140,7 @@ export function UpdateNotice() {
     setInstalling(true);
     setError("");
     try {
-      await invoke("install_update", { version: status.latest.latestVersion });
+      await installUpdate(status.latest.latestVersion);
     } catch (cause) {
       setInstalling(false);
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -152,7 +152,7 @@ export function UpdateNotice() {
     setRollingBack(true);
     setError("");
     try {
-      await invoke("rollback_update", { version: status.rollback.version });
+      await rollbackUpdate(status.rollback.version);
     } catch (cause) {
       setRollingBack(false);
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -162,7 +162,7 @@ export function UpdateNotice() {
   const openExternal = async (url: string) => {
     setError("");
     try {
-      await invoke("open_external", { url });
+      await openExternalHost(url);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }

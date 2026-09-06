@@ -10,40 +10,17 @@ import { EFFORTS, isSessionTerminal, MODELS } from "../bridge/types";
 import { notifyDesktop } from "../lib/notify";
 import { createSerialMutationQueue } from "../lib/serialMutationQueue";
 import type {
-  AgentMode,
-  AccountInfo,
-  AuthState,
   BillingInfo,
   BridgeEvent,
-  Effort,
-  PermissionOption,
   PermissionMode,
-  QuestionResponse,
-  ModelInfo,
-  ModelState,
   PromptAttachment,
-  ProviderStatus,
   Session,
-  SessionBlock,
   SessionMeta,
-  ToolCall,
-  DiffHunk,
   PreviewFile,
   ProjectPreview,
-  ProviderConfig,
-  ProviderProfileSummary,
-  SaveProviderProfile,
-  FetchProviderModels,
   GrokRuntimeInfo,
   WorkspaceEntry,
-  RewindMode,
-  RewindPoint,
-  RewindResult,
-  SlashCommand,
   WorkflowRun,
-  RuntimeNotice,
-  RuntimeConnectionState,
-  RuntimeOccupancy,
 } from "../bridge/types";
 import { DEMO_CWD } from "../demo/data";
 import {
@@ -76,7 +53,6 @@ import {
   shouldPromotePostPrompt,
   statusAfterGateResolve,
 } from "../lib/sessionRuntime";
-import { mergeProjectSessionsPure } from "../lib/sessionCatalogMerge";
 import { isLiveBusyStatus, mergeOfflineWithLive } from "../lib/offlineMerge";
 import {
   consumeShellUpgradeRescan,
@@ -96,16 +72,18 @@ import {
   parsePromptQueueSnapshot,
   persistPromptQueues,
 } from "../lib/promptQueuePersistence";
-import type { PersistedQueuedPrompt } from "../lib/promptQueuePersistence";
 import { formatGroxError, runtimeNoticeFromError, toGroxError } from "../lib/errorModel";
 import { cleanApiError } from "../lib/runtimeNotice";
 import type { ErrorFallback } from "../lib/errorModel";
 import { commitComposerSubmission } from "../lib/composerSubmission";
-import type { ComposerSubmission } from "../lib/composerSubmission";
 import {
   adoptNativeAutomation,
   loadAutomations,
   persistAutomations,
+  removeAutomation,
+  patchAutomation,
+  setAutomationEnabled,
+  upsertAutomation,
 } from "../lib/automations";
 import type { Automation } from "../lib/automations";
 import {
@@ -131,7 +109,6 @@ import {
   isDraftSessionId,
   isEphemeralSessionId,
   maySurfaceProject,
-  mergeDiscoveredProjects as mergeDiscoveredProjectsPure,
   projectId,
   samePath,
   undismissProjectId,
@@ -151,63 +128,19 @@ import {
   sessionTranscriptSignature,
 } from "../lib/sessionJournalReconcile";
 import { isUnavailableSessionError } from "../lib/sessionUnavailable";
-
-export type View = "home" | "session";
-export type InspectorTab = "files" | "tasks" | "preview" | "usage";
-
-const isWorkflowTerminal = (status: string) =>
-  ["complete", "failed", "cancelled", "interrupted"].includes(status);
-
-// `hideFromScrollback` is a wire-level flag, so old clients may already have
-// persisted internal workflow traffic as normal user blocks. Keep a
-// state-layer guard as well: a draft update or a late session/load must never
-// bring task-panel controls back into the timeline.
-const isHiddenWorkflowControlPrompt = (block: SessionBlock) => {
-  if (block.type !== "user") return false;
-  const text = block.text.trim();
-  return /^A background workflow stopped\. Review the workflow completion reminder, report the result to the user, and take any appropriate next action\.$/i.test(text)
-    || /^\/workflow\s+(?:pause|resume|stop)\s+\S+(?:\s|$)/i.test(text);
-};
-
-function mergeWorkflowEvents(previous: WorkflowRun["events"], incoming: WorkflowRun["events"]): WorkflowRun["events"] {
-  const merged = [...previous, ...incoming];
-  const unique = new Map<string, WorkflowRun["events"][number]>();
-  for (const entry of merged) {
-    const key = `${entry.timestamp ?? ""}\u0000${entry.event}\u0000${entry.detail ?? ""}`;
-    unique.set(key, entry);
-  }
-  return [...unique.values()].slice(-64);
-}
-
-function mergeWorkflowRun(previous: WorkflowRun | undefined, incoming: WorkflowRun): WorkflowRun {
-  if (!previous) return incoming;
-  const traces = incoming.agentTraces
-    ? [...new Map([
-      ...(previous.agentTraces ?? []).map((trace) => [trace.childSessionId, trace] as const),
-      ...incoming.agentTraces.map((trace) => [trace.childSessionId, trace] as const),
-    ]).values()]
-    : previous.agentTraces;
-  return {
-    ...previous,
-    ...incoming,
-    // Some versions omit unchanged arrays/fields on an update. Preserve the
-    // last complete snapshot, while accumulating the public progress journal.
-    phases: incoming.phases.length > 0 ? incoming.phases : previous.phases,
-    agents: incoming.agents.length > 0 ? incoming.agents : previous.agents,
-    events: mergeWorkflowEvents(previous.events, incoming.events),
-    ...(traces ? { agentTraces: traces } : {}),
-  };
-}
-
-export interface ProjectMeta {
-  id: string;
-  path: string;
-  name: string;
-  pinned: boolean;
-  archived: boolean;
-  createdAt: number;
-  lastOpenedAt: number;
-}
+import { isWorkflowTerminal, mergeWorkflowRun } from "./workflowProjection";
+import { providerDefaultModel, providerModelState, providerProfilesState, resolveModelState } from "./providerDomain";
+import { mapGitDiffs } from "./diffDomain";
+import { blocksBeforePrompt, isHiddenWorkflowControlPrompt, patchBlock, patchTool } from "./sessionDomain";
+import { loadJson, loadSessionComposers, loadWorkflowRuns, SESSION_COMPOSERS_KEY, WORKFLOW_RUNS_KEY } from "./durableState";
+import { decorateSessionMetas, mergeProjectMetas, mergeSessionMetas } from "./catalogDomain";
+import { beginFilePreview, closeFilePreview, failFilePreview, finishFilePreview } from "./previewDomain";
+import { useAutomationCapability } from "./automationCapabilityStore";
+import { usePreviewCapability } from "./previewCapabilityStore";
+import { useProviderCapability } from "./providerCapabilityStore";
+import { emptyCapabilityState } from "./capabilityTypes";
+import type { DesktopState, InspectorTab, ProjectMeta, QueuedPrompt, SessionComposerState, View } from "./storeTypes";
+export type { InspectorTab, ProjectMeta, QueuedPrompt, SessionComposerState, View } from "./storeTypes";
 
 interface SessionFlags {
   pinned?: boolean;
@@ -215,182 +148,10 @@ interface SessionFlags {
   completionUnread?: boolean;
 }
 
-export interface SessionComposerState {
-  text: string;
-  attachments: PromptAttachment[];
-  model: string;
-  effort: Effort;
-  mode: AgentMode;
-  permissionMode: PermissionMode;
-}
-
-export type QueuedPrompt = PersistedQueuedPrompt;
-
-interface DesktopState {
-  ready: boolean;
-  startupError: string | null;
-  runtimeNotices: RuntimeNotice[];
-  runtimeConnection: RuntimeConnectionState;
-  runtimeOccupancy: RuntimeOccupancy;
-  auth: AuthState;
-  bridgeKind: "mock" | "acp";
-  workspace: string;
-  view: View;
-  projects: ProjectMeta[];
-  activeProjectId: string | null;
-
-  sessionIndex: SessionMeta[];
-  sessions: Record<string, Session>;
-  activeId: string | null;
-  account: AccountInfo | null;
-  billing: BillingInfo | null;
-  provider: ProviderStatus;
-  providerProfiles: ProviderProfileSummary[];
-  activeProviderProfileId?: string;
-  providerSwitching: boolean;
-  /** The new provider is ready while its active transcript attaches. */
-  restoringSessionId: string | null;
-  runtime: GrokRuntimeInfo | null;
-  runtimeBusy: boolean;
-  accountLoading: boolean;
-  accountSetupOpen: boolean;
-  automations: Automation[];
-  automationRunningId: string | null;
-  automationRunHistory: AutomationRunRecord[];
-  automationLastTickAt: number | null;
-
-  workspaceFiles: WorkspaceEntry[];
-  workspaceDiffs: DiffHunk[];
-  workspaceDiffReady: boolean;
-  projectPreview: ProjectPreview;
-  previewOpen: boolean;
-  previewFile: PreviewFile | null;
-  previewLoading: boolean;
-  previewError: string | null;
-  planPreviewOpen: boolean;
-  slashCommands: Record<string, SlashCommand[]>;
-  workflows: Record<string, WorkflowRun[]>;
-
-  model: string;
-  models: ModelInfo[];
-  modelsUpdatedAt: number;
-  effort: Effort;
-  mode: AgentMode;
-  permissionMode: PermissionMode;
-  computerUseEnabled: boolean;
-  browserUseEnabled: boolean;
-  sessionComposers: Record<string, SessionComposerState>;
-  promptQueues: Record<string, QueuedPrompt[]>;
-  /** UI mirror of suppressNextIdleDrain (Stop parks auto-drain). */
-  queueDrainParked: Record<string, boolean>;
-  /** Model choices made during a turn, applied only when that turn settles. */
-  pendingSessionModels: Record<string, string>;
-
-  inspectorOpen: boolean;
-  inspectorTab: InspectorTab;
-  terminalOpen: boolean;
-  paletteOpen: boolean;
-  settingsOpen: boolean;
-  historySyncing: boolean;
-  historyCount: number;
-  historyError: string | null;
-  historySyncedAt: number;
-
-  init(): Promise<void>;
-  dismissRuntimeNotice(id: string): void;
-  goHome(): void;
-  openSession(id: string): Promise<void>;
-  newSession(launch?: { text: string; attachments?: PromptAttachment[] }): Promise<void>;
-  newProject(): Promise<void>;
-  openProject(id: string): Promise<void>;
-  renameProject(id: string, name: string): void;
-  pinProject(id: string): void;
-  archiveProject(id: string): Promise<void>;
-  removeProject(id: string): Promise<void>;
-  openProjectInExplorer(id?: string): Promise<void>;
-  createProjectWorktree(id: string): Promise<void>;
-  /** Permanently remove CLI/disk/cache data and tombstone the id against re-import. */
-  deleteSession(id: string): Promise<void>;
-  /** Alias of deleteSession for sidebar rows. */
-  removeSessionFromSidebar(id: string): Promise<void>;
-  renameSession(id: string, title: string): void;
-  pinSession(id: string): void;
-  archiveSession(id: string): void;
-  markSessionUnread(id: string): void;
-  copySessionValue(id: string, value: "cwd" | "id" | "link"): Promise<void>;
-  continueSessionInNewChat(id: string): Promise<void>;
-  continueSessionInNewWorktree(id: string): Promise<void>;
-  /** `restoreProject`: explicit add (folder picker) may undismiss a removed project. */
-  setWorkspace(cwd: string, options?: { restoreProject?: boolean; navigation?: ViewNavigationIntent }): Promise<void>;
-  authenticate(): Promise<void>;
-  cancelAuthentication(): Promise<void>;
-  logout(): Promise<void>;
-  refreshAccount(): Promise<void>;
-  refreshModels(): Promise<void>;
-  configureProvider(config: ProviderConfig): Promise<void>;
-  refreshProviderProfiles(): Promise<void>;
-  saveProviderProfile(config: SaveProviderProfile): Promise<ProviderProfileSummary>;
-  fetchProviderModels(config: FetchProviderModels): Promise<string[]>;
-  refreshProviderModels(id: string): Promise<ProviderProfileSummary>;
-  activateProviderProfile(id: string): Promise<void>;
-  deleteProviderProfile(id: string): Promise<void>;
-  refreshRuntime(): Promise<void>;
-  installOfficialRuntime(): Promise<void>;
-  saveAutomation(automation: Automation): void;
-  deleteAutomation(id: string): void;
-  setAutomationEnabled(id: string, enabled: boolean): void;
-  runAutomation(id: string): Promise<void>;
-  clearAutomationRunHistory(): void;
-  setAccountSetupOpen(open: boolean): void;
-  refreshWorkspaceFiles(): Promise<void>;
-  refreshWorkspaceDiffs(): Promise<void>;
-  refreshProjectPreview(start?: boolean): Promise<void>;
-  setProjectPreviewUrl(url: string): void;
-  openPreview(path: string): Promise<void>;
-  closePreview(): void;
-
-  /**
-   * Queue a turn for one session. A target is used by the composer while it
-   * asynchronously prepares path-based image attachments, so switching tasks
-   * during that read cannot redirect or erase the original draft.
-   */
-  sendPrompt(text: string, attachments?: PromptAttachment[], targetSessionId?: string, modeOverride?: AgentMode, submission?: ComposerSubmission, queueItemId?: string): boolean;
-  interjectPrompt(text: string, attachments?: PromptAttachment[], targetSessionId?: string, submission?: ComposerSubmission): Promise<boolean>;
-  removeQueuedPrompt(sessionId: string, queueId: string): void;
-  updateQueuedPrompt(sessionId: string, queueId: string, text: string): void;
-  moveQueuedPrompt(sessionId: string, queueId: string, direction: -1 | 1): void;
-  moveQueuedAttachment(sessionId: string, queueId: string, attachmentId: string, direction: -1 | 1): void;
-  resumePromptQueue(sessionId?: string): void;
-  clearPromptQueue(sessionId?: string): void;
-  stop(): void;
-  emergencyStopComputer(): void;
-  compact(): void;
-  listRewindPoints(): Promise<RewindPoint[]>;
-  previewRewind(targetPromptIndex: number, mode: RewindMode): Promise<RewindResult>;
-  executeRewind(point: RewindPoint, mode: RewindMode): Promise<RewindResult>;
-  resolvePermission(blockId: string, option: PermissionOption, feedback?: string): void;
-  resolveQuestion(blockId: string, response: QuestionResponse): void;
-
-  setModel(model: string): void;
-  setEffort(effort: Effort): void;
-  setMode(mode: AgentMode): void;
-  setPermissionMode(mode: PermissionMode): void;
-  setComputerUseEnabled(enabled: boolean): void;
-  setBrowserUseEnabled(enabled: boolean): void;
-  setDraft(text: string): void;
-  /** Flush the app session journal + catalog for crash durability. */
-  flushDurableState(): void;
-  setComposerAttachments(attachments: PromptAttachment[]): void;
-  setInspectorTab(tab: InspectorTab): void;
-  setPlanPreviewOpen(open: boolean): void;
-  toggleInspector(): void;
-  toggleTerminal(): void;
-  setPaletteOpen(open: boolean): void;
-  setSettingsOpen(open: boolean): void;
-  refreshHistory(): Promise<void>;
-}
-
 const uid = () => crypto.randomUUID();
+const automationCapability = useAutomationCapability.getState;
+const previewCapability = usePreviewCapability.getState;
+const providerCapability = useProviderCapability.getState;
 const suppressedQueueDrain = new Set<string>();
 /** 用户主动停止的回合；下一次 Host idle 必须保留“已停止”而不是伪装完成。 */
 const userStoppedSessions = new Set<string>();
@@ -403,8 +164,6 @@ const postTurnReconcilePendingGenerations = new Map<string, number>();
 /** Upgrade generation: force background load once per session after shell bump. */
 let upgradeForceOfflineRescan = false;
 const upgradeForceRescanned = new Set<string>();
-const SESSION_COMPOSERS_KEY = "grox.sessionComposers.v1";
-const WORKFLOW_RUNS_KEY = "grox.workflowRuns.v1";
 let catalogPersistTimer: number | undefined;
 let pendingCatalog: SessionMeta[] | undefined;
 let composerPersistTimer: number | undefined;
@@ -421,29 +180,6 @@ let previewRequestGeneration = 0;
 let viewNavigation: ViewNavigationIntent = { generation: 0, sessionId: null };
 let pendingForegroundNavigation: ViewNavigationIntent | null = null;
 
-function loadJson<T>(key: string, fallback: T): T {
-  try {
-    const value = localStorage.getItem(key);
-    return value ? (JSON.parse(value) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function loadSessionComposers(): Record<string, SessionComposerState> {
-  const stored = loadJson<Record<string, Omit<SessionComposerState, "attachments">>>(
-    SESSION_COMPOSERS_KEY,
-    {},
-  );
-  return Object.fromEntries(
-    Object.entries(stored).map(([id, state]) => [id, {
-      ...state,
-      effort: EFFORTS.find((effort) => effort === state.effort) ?? "high",
-      attachments: [],
-    }]),
-  );
-}
-
 function persistSessionComposers(states: Record<string, SessionComposerState>) {
   pendingComposerStates = states;
   if (composerPersistTimer !== undefined) return;
@@ -455,21 +191,6 @@ function persistSessionComposers(states: Record<string, SessionComposerState>) {
     pendingComposerStates = undefined;
     composerPersistTimer = undefined;
   }, 300);
-}
-
-function loadWorkflowRuns(): Record<string, WorkflowRun[]> {
-  const stored = loadJson<Record<string, WorkflowRun[]>>(WORKFLOW_RUNS_KEY, {});
-  return Object.fromEntries(
-    Object.entries(stored).map(([sessionId, runs]) => [sessionId, (Array.isArray(runs) ? runs : []).map((run) => ({
-      ...run,
-      phases: Array.isArray(run.phases) ? run.phases : [],
-      agents: Array.isArray(run.agents) ? run.agents : [],
-      events: Array.isArray(run.events) ? run.events : [],
-      agentTraces: Array.isArray(run.agentTraces)
-        ? run.agentTraces.map((trace) => ({ ...trace, entries: Array.isArray(trace.entries) ? trace.entries : [] }))
-        : [],
-    }))]),
-  );
 }
 
 function persistWorkflowRuns(runs: Record<string, WorkflowRun[]>) {
@@ -594,11 +315,7 @@ function ensureProject(
 function decorateSessions(metas: SessionMeta[]) {
   const flags = loadJson<Record<string, SessionFlags>>("grox.sessionFlags", {});
   const legacyArchivedPaths = loadJson<string[]>(LEGACY_ARCHIVED_PROJECT_PATHS_KEY, []);
-  return metas.map((meta) => ({
-    ...meta,
-    ...flags[meta.id],
-    ...(legacyArchivedPaths.some((path) => samePath(path, meta.cwd)) ? { archived: true } : {}),
-  }));
+  return decorateSessionMetas(metas, flags, legacyArchivedPaths);
 }
 
 function persistSessionCatalog(metas: SessionMeta[]) {
@@ -615,35 +332,14 @@ function mergeSessions(
   cwd?: string,
 ): SessionMeta[] {
   const deleted = loadDeletedSessions();
-  const visibleExisting = existing.filter((meta) => !deleted.has(meta.id));
-  const visibleIncoming = incoming.filter((meta) => !deleted.has(meta.id));
-  // When scoped to a cwd (project open / setWorkspace), keep same-cwd offline
-  // catalog rows the CLI did not return — otherwise "project +" hides history.
-  const merged = cwd
-    ? (mergeProjectSessionsPure(
-        visibleExisting,
-        samePath,
-        cwd,
-        decorateSessions(visibleIncoming),
-        deleted,
-      ) as SessionMeta[])
-    : (() => {
-        const incomingIds = new Set(visibleIncoming.map((meta) => meta.id));
-        return [
-          ...decorateSessions(visibleIncoming),
-          ...visibleExisting.filter((meta) => !incomingIds.has(meta.id)),
-        ].sort((a, b) => b.updatedAt - a.updatedAt);
-      })();
+  // Project-scoped loads retain offline rows; full loads replace duplicate ids.
+  const merged = mergeSessionMetas(existing, incoming, cwd, deleted, decorateSessions);
   persistSessionCatalog(merged);
   return merged;
 }
 
 function mergeDiscoveredProjects(projects: ProjectMeta[], sessions: SessionMeta[]): ProjectMeta[] {
-  const next = mergeDiscoveredProjectsPure(
-    projects,
-    sessions,
-    loadDismissedProjects(),
-  ) as ProjectMeta[];
+  const next = mergeProjectMetas(projects, sessions, loadDismissedProjects()) as ProjectMeta[];
   if (JSON.stringify(next) !== JSON.stringify(projects)) {
     localStorage.setItem("grox.projects", JSON.stringify(next));
   }
@@ -659,72 +355,10 @@ function dropEphemeralSessions(
   );
 }
 
-function patchLines(path: string, patch: string, additions = 0, deletions = 0): DiffHunk {
-  const lines = patch
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .filter((line) => !line.startsWith("diff --git") && !line.startsWith("index ") && !line.startsWith("@@") && !line.startsWith("--- ") && !line.startsWith("+++ "))
-    .map((line) => ({
-      kind: line.startsWith("+") ? "add" as const : line.startsWith("-") ? "del" as const : "ctx" as const,
-      text: /^[ +\-]/.test(line) ? line.slice(1) : line,
-    }));
-  return {
-    path,
-    lines,
-    added: additions || lines.filter((line) => line.kind === "add").length,
-    removed: deletions || lines.filter((line) => line.kind === "del").length,
-  };
-}
-
-function mapGitDiffs(value: unknown): DiffHunk[] {
-  const envelope = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const resultValue = envelope.result ?? value;
-  const result = resultValue && typeof resultValue === "object" ? resultValue as Record<string, unknown> : {};
-  const files = Array.isArray(result.files) ? result.files : [];
-  return files.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
-    const file = entry as Record<string, unknown>;
-    const path = typeof file.path === "string" ? file.path : "unknown";
-    const patch = typeof file.patch === "string" ? file.patch : "";
-    if (!patch && typeof file.oldText !== "string" && typeof file.newText !== "string") return [];
-    if (patch) return [patchLines(path, patch, Number(file.additions) || 0, Number(file.deletions) || 0)];
-    const oldText = typeof file.oldText === "string" ? file.oldText : "";
-    const newText = typeof file.newText === "string" ? file.newText : "";
-    const synthetic = `${oldText.split("\n").map((line) => `-${line}`).join("\n")}\n${newText.split("\n").map((line) => `+${line}`).join("\n")}`;
-    return [patchLines(path, synthetic, Number(file.additions) || 0, Number(file.deletions) || 0)];
-  });
-}
-
 function setSessionFlag(id: string, patch: SessionFlags) {
   const flags = loadJson<Record<string, SessionFlags>>("grox.sessionFlags", {});
   flags[id] = { ...flags[id], ...patch };
   localStorage.setItem("grox.sessionFlags", JSON.stringify(flags));
-}
-
-function resolveModelState(state: ModelState) {
-  const models = state.models.length > 0 ? state.models : MODELS;
-  const saved = localStorage.getItem("grok.model");
-  const model =
-    (saved && models.some((item) => item.id === saved) ? saved : undefined) ??
-    (models.some((item) => item.id === state.currentId) ? state.currentId : models[0].id);
-  localStorage.setItem("grok.model", model);
-  return { models, model, modelsUpdatedAt: Date.now() };
-}
-
-function providerModelState(state: ModelState, profile?: ProviderProfileSummary): ModelState {
-  if (!profile || profile.residentModels.length === 0) return state;
-  return {
-    currentId: profile.residentModels.includes(state.currentId) ? state.currentId : profile.residentModels[0],
-    models: profile.residentModels.map((id) => state.models.find((item) => item.id === id) ?? {
-      id,
-      label: id,
-      tagline: profile.name,
-    }),
-  };
-}
-
-function providerDefaultModel(profile?: ProviderProfileSummary) {
-  return profile?.residentModels[0] ?? profile?.availableModels[0];
 }
 
 /* StrictMode mounts effects twice in dev — subscribe once, ever. */
@@ -733,6 +367,7 @@ let workspaceWatchTimer: number | undefined;
 let workspaceWatchTick = 0;
 let pendingLaunch: { text: string; attachments: PromptAttachment[] } | undefined;
 let providerRestoreGeneration = 0;
+let capabilityLoadPromise: Promise<void> | undefined;
 
 function scheduleSessionCatalog(metas: SessionMeta[]) {
   pendingCatalog = metas;
@@ -750,36 +385,6 @@ if (import.meta.hot) {
     if (catalogPersistTimer !== undefined) window.clearTimeout(catalogPersistTimer);
     if (composerPersistTimer !== undefined) window.clearTimeout(composerPersistTimer);
     if (workflowPersistTimer !== undefined) window.clearTimeout(workflowPersistTimer);
-  });
-}
-
-function patchBlock(
-  blocks: SessionBlock[],
-  blockId: string,
-  patch: Partial<SessionBlock>,
-): SessionBlock[] {
-  return blocks.map((b) => (b.id === blockId ? ({ ...b, ...patch } as SessionBlock) : b));
-}
-
-function patchTool(
-  blocks: SessionBlock[],
-  blockId: string,
-  call: Partial<ToolCall>,
-): SessionBlock[] {
-  return blocks.map((b) =>
-    b.id === blockId && b.type === "tool"
-      ? { ...b, call: { ...b.call, ...call } as ToolCall }
-      : b,
-  );
-}
-
-/** Keep only the transcript strictly before the rewind target turn. */
-function blocksBeforePrompt(blocks: SessionBlock[], targetPromptIndex: number): SessionBlock[] {
-  let promptIndex = -1;
-  return blocks.filter((block) => {
-    if (isHiddenWorkflowControlPrompt(block)) return false;
-    if (block.type === "user" && !block.interjected) promptIndex += 1;
-    return promptIndex < targetPromptIndex;
   });
 }
 
@@ -802,7 +407,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
   const enqueueHostPrefsMutation = createSerialMutationQueue();
 
   const publishRuntimeError = (cause: unknown, fallback: ErrorFallback) => {
-    const notice = runtimeNoticeFromError(toGroxError(cause, fallback));
+    const notice = runtimeNoticeFromError(toGroxError(cause, fallback), fallback.severity ?? "error");
     set((state) => ({
       runtimeNotices: [...state.runtimeNotices.filter((item) => item.id !== notice.id), notice],
     }));
@@ -835,7 +440,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
         code: "HOST_PREFS_CACHE_FAILED",
         message: "Host 偏好已生效，但页面缓存未能更新",
         recoverable: true,
-        action: "当前运行仍使用 Host 权威设置；重启后会重新读取",
+        action: "任务不受影响；当前运行仍使用 Host 权威设置，重启后会重新读取",
+        severity: "warning",
       });
     }
     setComputerUseHostPrefsEnabled(prefs.computerUseEnabled);
@@ -886,7 +492,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
       code: "SESSION_JOURNAL_READ_FAILED",
       message: `会话 ${sessionId} 的应用 journal 无法读取`,
       recoverable: true,
-      action: "已继续尝试 Agent 磁盘历史；请检查应用数据目录、磁盘健康和文件权限",
+      action: "已改用 Agent 磁盘历史展示；重启 Grox 后自动重试",
+        severity: "warning",
     });
   };
 
@@ -897,7 +504,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
       code: "AGENT_HISTORY_READ_FAILED",
       message: `会话 ${sessionId} 的 Agent 历史无法读取`,
       recoverable: true,
-      action: "应用 journal 仍可用于展示；请检查 GROK_HOME、会话文件权限和磁盘健康",
+      action: "应用 journal 仍可用于展示；重启 Grox 后自动重试",
+        severity: "warning",
     });
   };
 
@@ -957,6 +565,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
   };
 
   const saveAutomationHistory = (history: AutomationRunRecord[]) => {
+    automationCapability().setRunHistory(history);
     set({ automationRunHistory: history });
     try {
       persistAutomationRunHistory(history);
@@ -1371,7 +980,9 @@ export const useDesktop = create<DesktopState>((set, get) => {
         const settled = e.settled;
         const updated = settled.automation as Automation | null | undefined;
         if (updated) {
-          set({ automations: adoptNativeAutomation(updated) });
+          const nextAutomations = adoptNativeAutomation(updated);
+          automationCapability().setAutomations(nextAutomations);
+          set({ automations: nextAutomations });
         }
         if (settled.error) {
           const detail = formatGroxError(settled.error);
@@ -1407,14 +1018,17 @@ export const useDesktop = create<DesktopState>((set, get) => {
           }
         }
         if (get().automationRunningId === settled.automationId) {
+          automationCapability().setRunningId(null);
           set({ automationRunningId: null });
         }
         break;
       }
       case "automation_runner_tick":
+        automationCapability().setLastTickAt(e.status.checkedAt ?? null);
+        automationCapability().setRunningId(e.status.activeAutomationId ?? null);
         set({
           automationLastTickAt: e.status.checkedAt ?? null,
-          automationRunningId: e.status.activeAutomationId ?? null,
+            automationRunningId: e.status.activeAutomationId ?? null,
         });
         break;
       case "model_state":
@@ -1800,9 +1414,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         {
           const automation = get().automations.find((item) => item.lastSessionId === e.sessionId);
           if (automation) {
-            const automations = get().automations.map((item) => item.id === automation.id
-              ? { ...item, lastError: formatGroxError(e.error) }
-              : item);
+            const automations = patchAutomation(get().automations, automation.id, { lastError: formatGroxError(e.error) });
             set({ automations });
             void persistAutomations(automations).catch(() => {});
             saveAutomationHistory(failLatestAutomationSessionRun(
@@ -1906,30 +1518,13 @@ export const useDesktop = create<DesktopState>((set, get) => {
     sessionIndex: [],
     sessions: {},
     activeId: null,
-    account: null,
-    billing: null,
-    provider: { kind: "oauth", hasApiKey: false, secretBackend: "missing" },
-    providerProfiles: [],
-    activeProviderProfileId: undefined,
-    providerSwitching: false,
+    ...emptyCapabilityState,
     restoringSessionId: null,
     runtime: null,
     runtimeBusy: false,
-    accountLoading: false,
     accountSetupOpen:
       localStorage.getItem("grox.accountSetupComplete") !== "1" && bridge.kind !== "mock",
-    automations: [],
-    automationRunningId: null,
     automationRunHistory: loadAutomationRunHistory(),
-    automationLastTickAt: null,
-    workspaceFiles: [],
-    workspaceDiffs: [],
-    workspaceDiffReady: false,
-    projectPreview: { status: "idle" },
-    previewOpen: false,
-    previewFile: null,
-    previewLoading: false,
-    previewError: null,
     planPreviewOpen: false,
     slashCommands: {},
     workflows: loadWorkflowRuns(),
@@ -1956,6 +1551,44 @@ export const useDesktop = create<DesktopState>((set, get) => {
     historyCount: 0,
     historyError: null,
     historySyncedAt: 0,
+
+    async loadCapabilities() {
+      if (capabilityLoadPromise) return capabilityLoadPromise;
+      capabilityLoadPromise = (async () => {
+        const [automationLoad, providerLoad] = await Promise.all([
+          loadAutomations().then((value) => ({ value, error: null as unknown }), (error: unknown) => ({ value: null, error })),
+          Promise.all([bridge.getProviderStatus(), bridge.listProviderProfiles()]).then(
+            ([provider, profiles]) => ({ value: { provider, profiles }, error: null as unknown }),
+            (error: unknown) => ({ value: null, error }),
+          ),
+        ]);
+        set({
+          ...(automationLoad.value ? { automations: automationLoad.value } : {}),
+          ...(providerLoad.value ? {
+            provider: providerLoad.value.provider,
+            ...providerProfilesState(providerLoad.value.profiles),
+          } : {}),
+        });
+        if (automationLoad.value) automationCapability().setAutomations(automationLoad.value);
+        if (providerLoad.value) {
+          providerCapability().setProvider(providerLoad.value.provider);
+          providerCapability().setProfiles(providerLoad.value.profiles.profiles, providerLoad.value.profiles.activeId);
+        }
+        automationCapability().setRunHistory(get().automationRunHistory);
+        for (const [code, message, error] of [
+          ["AUTOMATION_READ_FAILED", "无法恢复已安排任务", automationLoad.error],
+          ["PROVIDER_PROFILES_READ_FAILED", "无法读取模型服务配置", providerLoad.error],
+        ] as const) {
+          if (!error) continue;
+          const notice = runtimeNoticeFromError(toGroxError(error, {
+            domain: "environment", code, message, recoverable: true,
+            action: "不影响发送任务；重启 Grox 后自动重试",
+          }), "warning");
+          set((state) => ({ runtimeNotices: [...state.runtimeNotices.filter((item) => item.id !== notice.id), notice] }));
+        }
+      })().finally(() => { capabilityLoadPromise = undefined; });
+      return capabilityLoadPromise;
+    },
 
     async init() {
       if (bridgeSubscribed) return;
@@ -2013,25 +1646,28 @@ export const useDesktop = create<DesktopState>((set, get) => {
             const feCu = localStorage.getItem("grox.computerUseEnabled") !== "0";
             const feBrowser = localStorage.getItem("grox.browserUseEnabled") !== "0";
             await invoke("host_prefs_migrate_computer_use", { feEnabled: feCu }).catch((cause) => {
+              // 可选能力的偏好迁移失败不阻断任何任务：按默认设置运行即可。
               publishRuntimeError(cause, {
                 domain: "environment",
                 code: "HOST_PREFS_MIGRATION_FAILED",
-                message: "Computer Use 偏好迁移失败",
+                message: "Computer Use 偏好迁移失败，本次启动按默认设置运行",
                 recoverable: true,
-                action: "检查应用数据目录的文件权限后重试",
+                severity: "warning",
+                action: "可在设置的通用页重新调整该能力",
               });
             });
             await invoke("host_prefs_migrate_browser_use", { feEnabled: feBrowser }).catch((cause) => {
               publishRuntimeError(cause, {
                 domain: "environment",
                 code: "HOST_PREFS_MIGRATION_FAILED",
-                message: "Browser Use 偏好迁移失败",
+                message: "Browser Use 偏好迁移失败，本次启动按默认设置运行",
                 recoverable: true,
-                action: "检查应用数据目录的文件权限后重试",
+                severity: "warning",
+                action: "可在设置的通用页重新调整该能力",
               });
             });
 
-            const [hostPrefsLoad, envOn, env, promptQueueLoad, automationLoad, providerLoad] = await Promise.all([
+            const [hostPrefsLoad, envOn, env, promptQueueLoad] = await Promise.all([
               invoke<HostPrefsProjection>("host_prefs_get").then(
                 (value) => ({ value, error: null as unknown }),
                 (error: unknown) => ({ value: null, error }),
@@ -2040,14 +1676,6 @@ export const useDesktop = create<DesktopState>((set, get) => {
               invoke<{ appVersion?: string }>("desktop_environment").catch(() => null),
               loadPromptQueues().then(
                 (value) => ({ value, error: null as unknown }),
-                (error: unknown) => ({ value: null, error }),
-              ),
-              loadAutomations().then(
-                (value) => ({ value, error: null as unknown }),
-                (error: unknown) => ({ value: null, error }),
-              ),
-              Promise.all([bridge.getProviderStatus(), bridge.listProviderProfiles()]).then(
-                ([provider, profiles]) => ({ value: { provider, profiles }, error: null as unknown }),
                 (error: unknown) => ({ value: null, error }),
               ),
             ]);
@@ -2061,18 +1689,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
               ...(promptQueueLoad.value
                 ? { promptQueues: mergeHydratedPromptQueues(promptQueueLoad.value, state.promptQueues) }
                 : {}),
-              ...(automationLoad.value ? { automations: automationLoad.value } : {}),
-              ...(providerLoad.value ? {
-                provider: providerLoad.value.provider,
-                providerProfiles: providerLoad.value.profiles.profiles,
-                activeProviderProfileId: providerLoad.value.profiles.activeId,
-              } : {}),
             }));
             for (const [code, message, error] of [
               ["HOST_PREFS_READ_FAILED", "无法读取 Host 权限偏好", hostPrefsLoad.error],
               ["PROMPT_QUEUE_READ_FAILED", "无法恢复已持久化的提示队列", promptQueueLoad.error],
-              ["AUTOMATION_READ_FAILED", "无法恢复已安排任务", automationLoad.error],
-              ["PROVIDER_PROFILES_READ_FAILED", "无法读取模型服务配置", providerLoad.error],
             ] as const) {
               if (!error) continue;
               const notice = runtimeNoticeFromError(toGroxError(error, {
@@ -2080,8 +1700,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
                 code,
                 message,
                 recoverable: true,
-                action: "请检查应用数据目录的文件权限或磁盘状态",
-              }));
+                action: "不影响发送任务；重启 Grox 后自动重试",
+              }), "warning");
               set((state) => ({ runtimeNotices: [...state.runtimeNotices.filter((item) => item.id !== notice.id), notice] }));
             }
           } catch (cause) {
@@ -2141,9 +1761,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
             if (!auth.required) void get().refreshAccount();
             window.setTimeout(() => {
               if (get().auth.inProgress) return;
+              if (get().view !== "session") return;
               void get().refreshWorkspaceFiles();
               void get().refreshProjectPreview(false);
-              if (get().view === "session") void get().refreshWorkspaceDiffs();
+              void get().refreshWorkspaceDiffs();
             }, 1_500);
 
             window.setTimeout(() => {
@@ -2405,7 +2026,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
             code: "DRAFT_READ_FAILED",
             message: "未发送草稿无法从 Host 恢复",
             recoverable: true,
-            action: "已保留磁盘文件且打开空编辑器；请检查应用数据目录后重试",
+            action: "已保留磁盘文件并打开空编辑器；重启 Grox 后自动重试",
+            severity: "warning",
           });
         }
         const recoveredText = recovered?.text ?? "";
@@ -2823,6 +2445,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
       set({ accountSetupOpen: false });
       try {
         set({ providerSwitching: true });
+        providerCapability().setSwitching(true);
         await bridge.configureProvider(config);
       } catch (error) {
         if (!wasComplete) localStorage.removeItem("grox.accountSetupComplete");
@@ -2840,9 +2463,12 @@ export const useDesktop = create<DesktopState>((set, get) => {
         // normalize it before the send lock is lifted rather than making the
         // first prompt fail a `session/set_model` RPC.
         await get().refreshModels();
+        providerCapability().setProvider(provider);
+        providerCapability().setSwitching(false);
         set({ provider, providerSwitching: false, startupError: null });
         restoreActiveSessionAfterProviderSwitch();
       } catch (error) {
+        providerCapability().setSwitching(false);
         set({
           providerSwitching: false,
           startupError: formattedError(error, {
@@ -2864,7 +2490,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
     async refreshProviderProfiles() {
       try {
         const result = await bridge.listProviderProfiles();
-        set({ providerProfiles: result.profiles, activeProviderProfileId: result.activeId });
+        providerCapability().setProfiles(result.profiles, result.activeId);
+        set(providerProfilesState(result));
       } catch (error) {
         set({ startupError: formattedError(error, {
           domain: "environment",
@@ -2920,6 +2547,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
     async activateProviderProfile(id) {
       const expected = get().providerProfiles.find((profile) => profile.id === id);
       set({ providerSwitching: true });
+      providerCapability().setSwitching(true);
       try {
         await bridge.activateProviderProfile(id);
         const activeId = get().activeId;
@@ -2931,6 +2559,7 @@ export const useDesktop = create<DesktopState>((set, get) => {
         if (provider.kind !== "compatible" || !selectedBase || activeBase !== selectedBase) {
           throw new Error("供应商配置没有被 ACP 子进程确认，请检查服务地址后重试");
         }
+        providerCapability().setProvider(provider);
         set({ provider });
         const preferredModel = providerDefaultModel(expected);
         if (preferredModel) {
@@ -2945,9 +2574,11 @@ export const useDesktop = create<DesktopState>((set, get) => {
           });
         }
         await profilesRefresh;
+        providerCapability().setSwitching(false);
         set({ providerSwitching: false, startupError: null });
         restoreActiveSessionAfterProviderSwitch();
       } catch (error) {
+        providerCapability().setSwitching(false);
         set({ providerSwitching: false });
         throw error;
       }
@@ -2995,10 +2626,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     saveAutomation(automation) {
-      const automations = [
-        ...get().automations.filter((item) => item.id !== automation.id),
-        automation,
-      ].sort((a, b) => a.nextRunAt - b.nextRunAt);
+      const automations = upsertAutomation(get().automations, automation);
+      automationCapability().setAutomations(automations);
       set({ automations });
       void persistAutomations(automations).catch((cause) => {
         publishRuntimeError(cause, {
@@ -3012,7 +2641,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     deleteAutomation(id) {
-      const automations = get().automations.filter((item) => item.id !== id);
+      const automations = removeAutomation(get().automations, id);
+      automationCapability().setAutomations(automations);
       set({ automations });
       void persistAutomations(automations).catch((cause) => {
         publishRuntimeError(cause, {
@@ -3026,7 +2656,8 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     setAutomationEnabled(id, enabled) {
-      const automations = get().automations.map((item) => item.id === id ? { ...item, enabled } : item);
+      const automations = setAutomationEnabled(get().automations, id, enabled);
+      automationCapability().setAutomations(automations);
       set({ automations });
       void persistAutomations(automations).catch((cause) => {
         publishRuntimeError(cause, {
@@ -3040,11 +2671,15 @@ export const useDesktop = create<DesktopState>((set, get) => {
     },
 
     async runAutomation(id) {
+      automationCapability().setRunningId(id);
       set({ automationRunningId: id });
       try {
         await invoke("run_automation_now", { id });
       } catch (cause) {
-        if (get().automationRunningId === id) set({ automationRunningId: null });
+        if (get().automationRunningId === id) {
+          automationCapability().setRunningId(null);
+          set({ automationRunningId: null });
+        }
         const automation = get().automations.find((item) => item.id === id);
         const error = toGroxError(cause, {
           domain: "operation",
@@ -3143,7 +2778,10 @@ export const useDesktop = create<DesktopState>((set, get) => {
     async openPreview(path) {
       const generation = ++previewRequestGeneration;
       const cwd = get().workspace;
-      set({ previewOpen: true, planPreviewOpen: false, inspectorOpen: false, terminalOpen: false, previewLoading: true, previewError: null });
+      set(beginFilePreview());
+      previewCapability().setLoading(true);
+      previewCapability().setError(null);
+      previewCapability().setFile(null);
       try {
         let previewFile = await invoke<PreviewFile>("read_preview_file", {
           cwd,
@@ -3158,20 +2796,25 @@ export const useDesktop = create<DesktopState>((set, get) => {
           if (generation !== previewRequestGeneration) return;
           previewFile = { ...previewFile, url };
         }
-        set({ previewFile, previewLoading: false });
+        previewCapability().setFile(previewFile);
+        previewCapability().setLoading(false);
+        set(finishFilePreview(previewFile));
       } catch (error) {
         if (generation !== previewRequestGeneration) return;
-        set({
-          previewFile: null,
-          previewLoading: false,
-          previewError: errorText(error),
-        });
+        const message = errorText(error);
+        previewCapability().setFile(null);
+        previewCapability().setLoading(false);
+        previewCapability().setError(message);
+        set(failFilePreview(message));
       }
     },
 
     closePreview: () => {
       previewRequestGeneration += 1;
-      set({ previewOpen: false, previewLoading: false, previewFile: null, previewError: null });
+      previewCapability().setFile(null);
+      previewCapability().setLoading(false);
+      previewCapability().setError(null);
+      set(closeFilePreview());
     },
 
     async deleteSession(id) {

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   diffAutomations,
+  removeAutomation,
   nextAutomationRun,
   parseAutomations,
+  setAutomationEnabled,
+  upsertAutomation,
+  patchAutomation,
+  replaceAutomation,
   type Automation,
 } from "./automations";
 
@@ -41,5 +46,15 @@ describe("automations", () => {
       upserts: [{ ...base, enabled: false }, { ...base, id: "new" }],
       deletes: ["remove"],
     });
+  });
+
+  it("纯状态操作保持排序并只修改目标任务", () => {
+    const other = { ...base, id: "b", nextRunAt: 3 };
+    const updated = upsertAutomation([other], { ...base, nextRunAt: 1 });
+    expect(updated.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(setAutomationEnabled(updated, "b", false).find((item) => item.id === "a")?.enabled).toBe(true);
+    expect(removeAutomation(updated, "a").map((item) => item.id)).toEqual(["b"]);
+    expect(patchAutomation(updated, "b", { lastError: "failed" })[1].lastError).toBe("failed");
+    expect(replaceAutomation(updated, { ...other, title: "new" })[1].title).toBe("new");
   });
 });

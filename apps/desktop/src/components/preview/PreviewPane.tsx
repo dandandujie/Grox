@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useDesktop } from "../../state/store";
+import { usePreviewCapability } from "../../state/previewCapabilityStore";
 import { usePreferences } from "../../state/preferences";
 import { useI18n } from "../../lib/i18n";
 import { Markdown } from "../../lib/markdown";
 import { Icon } from "../fx/Icon";
 import { ResizeHandle } from "../common/ResizeHandle";
-import { openFileWithConfiguredApplication } from "../../lib/defaultOpen";
+import {
+  openFileWithConfiguredApplication,
+  openWorkspaceFileWithDialog,
+  revealWorkspaceFile,
+  workspaceFilePath,
+} from "../../lib/defaultOpen";
 
 export function PreviewPane() {
   const { t, language } = useI18n();
-  const file = useDesktop((state) => state.previewFile);
-  const loading = useDesktop((state) => state.previewLoading);
-  const error = useDesktop((state) => state.previewError);
+  const file = usePreviewCapability((state) => state.file);
+  const loading = usePreviewCapability((state) => state.loading);
+  const error = usePreviewCapability((state) => state.error);
   const close = useDesktop((state) => state.closePreview);
   const workspace = useDesktop((state) => state.workspace);
   const setInspectorTab = useDesktop((state) => state.setInspectorTab);
@@ -50,13 +55,13 @@ export function PreviewPane() {
             <div className="ml-1 flex max-w-[62%] shrink-0 items-center gap-0.5 overflow-x-auto border-l border-line pl-1">
               <PreviewAction label={languageLabel(language, "files")} icon="folder" onClick={() => setInspectorTab("files")} />
               <PreviewAction label={languageLabel(language, "copyPath")} icon="copy" onClick={() => run(async () => {
-                const fullPath = await invoke<string>("workspace_file_path", { cwd: workspace, path: file.path });
+                const fullPath = await workspaceFilePath(workspace, file.path);
                 await navigator.clipboard.writeText(fullPath);
               })} />
               {!(["image", "video", "audio", "pdf"] as string[]).includes(file.kind) && <PreviewAction label={languageLabel(language, "copyContents")} icon="copy" onClick={() => run(() => navigator.clipboard.writeText(file.content).then(() => undefined))} />}
-              <PreviewAction label={languageLabel(language, "reveal")} icon="folder" onClick={() => run(() => invoke("reveal_in_explorer", { cwd: workspace, path: file.path }))} />
+              <PreviewAction label={languageLabel(language, "reveal")} icon="folder" onClick={() => run(() => revealWorkspaceFile(workspace, file.path))} />
               <PreviewAction label={languageLabel(language, "openDefault")} icon="external" onClick={() => run(() => openFileWithConfiguredApplication(workspace, file.path))} />
-              <PreviewAction label={languageLabel(language, "openWith")} icon="external" onClick={() => run(() => invoke("open_file_with_dialog", { cwd: workspace, path: file.path }))} />
+              <PreviewAction label={languageLabel(language, "openWith")} icon="external" onClick={() => run(() => openWorkspaceFileWithDialog(workspace, file.path))} />
             </div>
           </>}
           <button

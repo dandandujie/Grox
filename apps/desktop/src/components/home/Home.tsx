@@ -1,8 +1,8 @@
 /* Home — a calm starting surface: choose a medium, describe the work, begin. */
 
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useDesktop } from "../../state/store";
-import type { PromptAttachment } from "../../bridge/types";
+import type { PromptAttachment, SessionStatus } from "../../bridge/types";
 import { fmtRelTime, fmtTokens } from "../../lib/format";
 import { MAX_ATTACHMENTS, prepareAttachment, validateAttachmentSet } from "../../lib/attachments";
 import { attachExplicitPromptImages } from "../../lib/pathAttachments";
@@ -12,11 +12,12 @@ import { Icon } from "../fx/Icon";
 import { ChipSelect } from "../common/ChipSelect";
 import { PromptOptionsMenu, ProviderSwitcher } from "../common/PromptControls";
 import { useI18n } from "../../lib/i18n";
-import { MediaStudio } from "./MediaStudio";
-import { AutomationsStudio } from "./AutomationsStudio";
 import { useImeGuard } from "../../lib/ime";
 import { clearDraftBuffer, loadDraftBuffer, saveDraftBuffer } from "../../lib/draftPersistence";
 import { cleanApiError } from "../../lib/runtimeNotice";
+
+const MediaStudio = lazy(() => import("./MediaStudio").then((module) => ({ default: module.MediaStudio })));
+const AutomationsStudio = lazy(() => import("./AutomationsStudio").then((module) => ({ default: module.AutomationsStudio })));
 
 export function Home() {
   const { language, t } = useI18n();
@@ -167,9 +168,11 @@ export function Home() {
         <div className="home-nebula opacity-40" />
         <WorkspaceTabs mode={workspaceMode} onChange={setWorkspaceMode} />
         <StageTransition stageKey={workspaceMode} variant="panel" className="relative z-[1]">
-          {workspaceMode === "automations"
-            ? <AutomationsStudio key={`automations:${workspace}`} />
-            : <MediaStudio key={`${workspaceMode}:${workspace}`} mode={workspaceMode} />}
+          <Suspense fallback={<div className="flex flex-1 items-center justify-center"><BlackHole size={28} spin /></div>}>
+            {workspaceMode === "automations"
+              ? <AutomationsStudio key={`automations:${workspace}`} />
+              : <MediaStudio key={`${workspaceMode}:${workspace}`} mode={workspaceMode} />}
+          </Suspense>
         </StageTransition>
       </div>
     );
@@ -273,9 +276,17 @@ export function Home() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {recent.map((mission, index) => {
                 const tokens = (sessions[mission.id]?.usage.inputTokens ?? 0) + (sessions[mission.id]?.usage.outputTokens ?? 0);
+                const status = sessions[mission.id]?.status ?? mission.lastStatus ?? "idle";
+                const attention = recentStatusPresentation(status, language === "zh-CN");
+                const title = mission.title?.trim()
+                  || mission.summary?.trim().slice(0, 48)
+                  || (language === "zh-CN" ? "未命名任务" : "Untitled task");
                 return (
                   <button key={mission.id} onClick={() => openSession(mission.id)} className="mission-card group animate-mission-card rounded-[14px] border border-line2 bg-raise/55 px-4 py-3 text-left hover:border-line3 hover:bg-raise" style={{ animationDelay: `${0.38 + index * 0.04}s` }}>
-                    <p className="truncate text-[13px] text-fg2 group-hover:text-fg">{mission.title}</p>
+                    <p className="flex items-center gap-1.5 text-[13px] text-fg2 group-hover:text-fg">
+                      {attention && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${attention.tone}`} title={attention.label} aria-label={attention.label} />}
+                      <span className="min-w-0 truncate">{title}</span>
+                    </p>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-faint">
                       <span>{fmtRelTime(mission.updatedAt)}</span>
                       {tokens > 0 && <span className="font-mono">{fmtTokens(tokens)} tokens</span>}
@@ -289,6 +300,28 @@ export function Home() {
       </div>
     </div>
   );
+}
+
+function recentStatusPresentation(status: SessionStatus, zh: boolean): { tone: string; label: string } | null {
+  switch (status) {
+    case "running":
+      return { tone: "bg-acc animate-pulse-dot", label: zh ? "运行中" : "Running" };
+    case "connecting":
+      return { tone: "bg-status-blue animate-pulse-dot", label: zh ? "正在恢复" : "Restoring" };
+    case "stopping":
+      return { tone: "bg-gold animate-pulse-dot", label: zh ? "正在停止" : "Stopping" };
+    case "awaiting_permission":
+    case "awaiting_input":
+      return { tone: "bg-status-blue animate-pulse-dot", label: zh ? "等待你的决定" : "Awaiting your decision" };
+    case "failed":
+      return { tone: "bg-red", label: zh ? "上次执行失败" : "Failed" };
+    case "disconnected":
+      return { tone: "bg-red", label: zh ? "连接已中断" : "Disconnected" };
+    case "cancelled":
+      return { tone: "bg-gold", label: zh ? "已停止" : "Stopped" };
+    default:
+      return null;
+  }
 }
 
 function WorkspaceTabs({ mode, onChange }: { mode: "conversation" | "image" | "video" | "automations"; onChange(mode: "conversation" | "image" | "video" | "automations"): void }) {

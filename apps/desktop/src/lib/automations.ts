@@ -22,6 +22,26 @@ export interface Automation {
   lastError?: string;
 }
 
+export function upsertAutomation(current: readonly Automation[], next: Automation): Automation[] {
+  return [...current.filter((item) => item.id !== next.id), next].sort((a, b) => a.nextRunAt - b.nextRunAt);
+}
+
+export function removeAutomation(current: readonly Automation[], id: string): Automation[] {
+  return current.filter((item) => item.id !== id);
+}
+
+export function setAutomationEnabled(current: readonly Automation[], id: string, enabled: boolean): Automation[] {
+  return current.map((item) => item.id === id ? { ...item, enabled } : item);
+}
+
+export function replaceAutomation(current: readonly Automation[], next: Automation): Automation[] {
+  return current.map((item) => item.id === next.id ? next : item);
+}
+
+export function patchAutomation(current: readonly Automation[], id: string, patch: Partial<Automation>): Automation[] {
+  return current.map((item) => item.id === id ? { ...item, ...patch } : item);
+}
+
 let nativeWriteChain = Promise.resolve();
 let nativeCommittedAutomations: Automation[] = [];
 let nativeDesiredAutomations: Automation[] = [];

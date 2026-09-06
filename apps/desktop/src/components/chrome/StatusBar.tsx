@@ -4,8 +4,8 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useDesktop } from "../../state/store";
+import { gitSummary } from "../../lib/hostActions";
 import { fmtCost, fmtTokens } from "../../lib/format";
 import { BlackHole } from "../fx/BlackHole";
 import { useI18n } from "../../lib/i18n";
@@ -56,7 +56,7 @@ export function StatusBar() {
       return;
     }
     let cancelled = false;
-    void invoke<{ branch?: string; isRepository: boolean }>("git_summary", { cwd: workspace })
+    void gitSummary<{ branch?: string; isRepository: boolean }>(workspace)
       .then((summary) => {
         if (!cancelled) setBranch(summary.isRepository ? (summary.branch ?? "DETACHED") : null);
       })

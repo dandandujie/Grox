@@ -24,7 +24,8 @@ import {
 import { attachExplicitPromptImages } from "../../lib/pathAttachments";
 import { RewindMenu } from "./RewindMenu";
 import { useImeGuard } from "../../lib/ime";
-import { bridge } from "../../bridge";
+import { runtimeCall } from "../../lib/hostActions";
+import { useModalA11y } from "../../hooks/useModalA11y";
 
 interface SlashCmd {
   id: string;
@@ -557,7 +558,7 @@ export function Composer() {
                 </button>}
                 <button
                   onClick={stop}
-                  title="Abort turn"
+                  title={language === "zh-CN" ? "中止当前回合（Esc）" : "Abort turn (Esc)"}
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-red/50 text-red transition-colors hover:bg-red/10"
                 >
                   <Icon name="stop" size={11} />
@@ -567,7 +568,7 @@ export function Composer() {
               <button
                 onClick={send}
                 disabled={creating || (!text.trim() && attachments.length === 0) || readingFiles}
-                title="Transmit"
+                title={language === "zh-CN" ? "发送（Enter）" : "Transmit (Enter)"}
                 className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
                   text.trim() || attachments.length > 0
                     ? "bg-acc text-base hover:bg-acc-deep"
@@ -579,20 +580,73 @@ export function Composer() {
             )}
           </div>
           {feedbackOpen && (
-            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-6" onMouseDown={(event) => event.target === event.currentTarget && setFeedbackOpen(false)}>
-              <div className="w-full max-w-lg rounded-[7px] border border-line3 bg-raise p-4 shadow-2xl">
-                <div className="flex items-center justify-between"><span className="lbl !text-gold">{language === "zh-CN" ? "提交 GROK BUILD 反馈" : "GROK BUILD FEEDBACK"}</span><button onClick={() => setFeedbackOpen(false)} className="text-faint hover:text-fg"><Icon name="x" size={11} /></button></div>
-                <p className="mt-2 text-[10.5px] leading-relaxed text-dim">{language === "zh-CN" ? "反馈会通过官方 x.ai/feedback 通道提交，并关联当前任务上下文。" : "Feedback is submitted through the official x.ai/feedback channel with this mission context."}</p>
-                <textarea autoFocus value={feedbackText} onChange={(event) => setFeedbackText(event.target.value)} rows={6} className="mt-3 w-full resize-y rounded-[5px] border border-line2 bg-void p-3 text-[12px] text-fg outline-none focus:border-gold/60" placeholder={language === "zh-CN" ? "请描述问题或建议…" : "Describe the issue or suggestion…"} />
-                {feedbackError && <p className="mt-2 text-[10px] text-red">{feedbackError}</p>}
-                <div className="mt-3 flex justify-end gap-2"><button onClick={() => setFeedbackOpen(false)} className="rounded-[4px] border border-line2 px-3 py-2 text-[10.5px] text-mute hover:text-fg">{language === "zh-CN" ? "取消" : "Cancel"}</button><button disabled={!feedbackText.trim() || feedbackSending || !activeId} onClick={() => { if (!activeId) return; setFeedbackSending(true); setFeedbackError(""); void bridge.callExtension("x.ai/feedback", { session_id: activeId, feedback_text: feedbackText.trim() }).then(() => { setFeedbackText(""); setFeedbackOpen(false); }).catch((error) => setFeedbackError(error instanceof Error ? error.message : String(error))).finally(() => setFeedbackSending(false)); }} className="rounded-[4px] bg-gold px-3 py-2 text-[10.5px] font-medium text-base disabled:opacity-40">{feedbackSending ? (language === "zh-CN" ? "提交中…" : "Sending…") : (language === "zh-CN" ? "提交" : "Submit")}</button></div>
-              </div>
-            </div>
+            <FeedbackDialog
+              language={language}
+              activeId={activeId}
+              text={feedbackText}
+              onTextChange={setFeedbackText}
+              error={feedbackError}
+              sending={feedbackSending}
+              onClose={() => setFeedbackOpen(false)}
+              onError={setFeedbackError}
+              onSending={setFeedbackSending}
+              onSent={() => { setFeedbackText(""); setFeedbackOpen(false); }}
+            />
           )}
           {attachmentError && <p className="border-t border-red/20 px-3 py-1.5 text-[9.5px] text-red">{attachmentError}</p>}
         </div>
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+function FeedbackDialog({ language, activeId, text, onTextChange, error, sending, onClose, onError, onSending, onSent }: {
+  language: string;
+  activeId: string | null;
+  text: string;
+  onTextChange(value: string): void;
+  error: string;
+  sending: boolean;
+  onClose(): void;
+  onError(value: string): void;
+  onSending(value: boolean): void;
+  onSent(): void;
+}) {
+  const dialogRef = useModalA11y(onClose);
+  const zh = language === "zh-CN";
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={zh ? "提交反馈" : "Submit feedback"}
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-6"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <div ref={dialogRef} className="w-full max-w-lg rounded-[7px] border border-line3 bg-raise p-4 shadow-2xl">
+        <div className="flex items-center justify-between"><span className="lbl !text-gold">{zh ? "提交 GROK BUILD 反馈" : "GROK BUILD FEEDBACK"}</span><button onClick={onClose} className="text-faint hover:text-fg"><Icon name="x" size={11} /></button></div>
+        <p className="mt-2 text-[10.5px] leading-relaxed text-dim">{zh ? "反馈会通过官方 x.ai/feedback 通道提交，并关联当前任务上下文。" : "Feedback is submitted through the official x.ai/feedback channel with this mission context."}</p>
+        <textarea value={text} onChange={(event) => onTextChange(event.target.value)} rows={6} className="mt-3 w-full resize-y rounded-[5px] border border-line2 bg-void p-3 text-[12px] text-fg outline-none focus:border-gold/60" placeholder={zh ? "请描述问题或建议…" : "Describe the issue or suggestion…"} />
+        {error && <p className="mt-2 text-[10px] text-red">{error}</p>}
+        <div className="mt-3 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-[4px] border border-line2 px-3 py-2 text-[10.5px] text-mute hover:text-fg">{zh ? "取消" : "Cancel"}</button>
+          <button
+            disabled={!text.trim() || sending || !activeId}
+            onClick={() => {
+              if (!activeId) return;
+              onSending(true);
+              onError("");
+              void runtimeCall("x.ai/feedback", { session_id: activeId, feedback_text: text.trim() })
+                .then(onSent)
+                .catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)))
+                .finally(() => onSending(false));
+            }}
+            className="rounded-[4px] bg-gold px-3 py-2 text-[10.5px] font-medium text-base disabled:opacity-40"
+          >
+            {sending ? (zh ? "提交中…" : "Sending…") : (zh ? "提交" : "Submit")}
+          </button>
+        </div>
       </div>
     </div>
   );

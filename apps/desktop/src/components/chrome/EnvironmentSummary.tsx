@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { agentRuntimeStatus, gitCheckout, gitCommit, gitPush, gitSummary, gitWorktreeAdd, gitWorktreeRemove, gitWorktrees, openExternal, openInApp, prepareGitCommit, prepareGitPush, prepareGitWorktreeRemove, sessionJournalStatus } from "../../lib/hostActions";
 import { useDesktop } from "../../state/store";
 import { MAX_ATTACHMENTS, prepareAttachment, validateAttachmentSet } from "../../lib/attachments";
 import { baseName } from "../../lib/format";
@@ -151,10 +151,10 @@ export function EnvironmentSummary() {
     try {
       if (inTauri()) {
         const [nextSummary, nextWorktrees, nextJournalStatus, nextRuntimeStatus] = await Promise.all([
-          invoke<GitSummary>("git_summary", { cwd: workspace }),
-          invoke<GitWorktree[]>("git_worktrees", { cwd: workspace }),
-          invoke<SessionJournalStatus>("session_journal_status"),
-          invoke<AgentRuntimeStatus>("agent_runtime_status"),
+          gitSummary<GitSummary>(workspace),
+          gitWorktrees<GitWorktree[]>(workspace),
+          sessionJournalStatus<SessionJournalStatus>(),
+          agentRuntimeStatus<AgentRuntimeStatus>(),
         ]);
         if (generation !== loadGenerationRef.current) return;
         setSummary(nextSummary);
@@ -228,7 +228,7 @@ export function EnvironmentSummary() {
     if (!branch || branch === summary?.branch) return;
     if (!window.confirm(zh ? `切换到分支 ${branch}？未提交的变更将保留。` : `Switch to ${branch}? Uncommitted changes will be kept.`)) return;
     void runAction("checkout", () =>
-      inTauri() ? invoke<string>("git_checkout", { cwd: workspace, branch }) : Promise.resolve(zh ? `已切换到 ${branch}` : `Switched to ${branch}`),
+      inTauri() ? gitCheckout(workspace, branch) : Promise.resolve(zh ? `已切换到 ${branch}` : `Switched to ${branch}`),
     );
   };
 
@@ -238,8 +238,8 @@ export function EnvironmentSummary() {
     void runAction("commit", async () => {
       if (!inTauri()) return zh ? "提交已创建" : "Commit created";
       // Native shell shows the OS confirm dialog inside prepare_git_commit.
-      const confirmToken = await invoke<string>("prepare_git_commit", { cwd: workspace });
-      return invoke<string>("git_commit", { cwd: workspace, message, confirmToken });
+      const confirmToken = await prepareGitCommit(workspace);
+      return gitCommit(workspace, message, confirmToken);
     }).then((succeeded) => {
       if (succeeded) {
         setCommitMessage("");
@@ -252,8 +252,8 @@ export function EnvironmentSummary() {
     void runAction("push", async () => {
       if (!inTauri()) return zh ? "推送已完成" : "Push completed";
       // Native shell shows the OS confirm dialog inside prepare_git_push.
-      const confirmToken = await invoke<string>("prepare_git_push", { cwd: workspace });
-      return invoke<string>("git_push", { cwd: workspace, confirmToken });
+      const confirmToken = await prepareGitPush(workspace);
+      return gitPush(workspace, confirmToken);
     });
   };
 
@@ -262,7 +262,7 @@ export function EnvironmentSummary() {
     const branch = summary?.branch;
     if (!base || !branch) return;
     const target = `${base}/compare/${encodeURIComponent(summary?.defaultBranch ?? "main")}...${encodeURIComponent(branch)}`;
-    if (inTauri()) void invoke("open_external", { url: target });
+    if (inTauri()) void openExternal(target);
     else window.open(target, "_blank", "noopener,noreferrer");
   };
 
@@ -286,13 +286,8 @@ export function EnvironmentSummary() {
     try {
       const result = inTauri()
         ? await (async () => {
-            const confirmToken = await invoke<string>("prepare_git_worktree_remove", {
-              cwd: workspace,
-              path: item.path,
-            });
-            return invoke<string>("git_worktree_remove", {
-              request: { cwd: workspace, path: item.path, confirmToken },
-            });
+            const confirmToken = await prepareGitWorktreeRemove(workspace, item.path);
+            return gitWorktreeRemove({ cwd: workspace, path: item.path, confirmToken });
           })()
         : (zh ? "Worktree 已移除" : "Worktree removed");
       setNotice(result);
@@ -461,7 +456,7 @@ export function EnvironmentSummary() {
                   key={app}
                   disabled={!inTauri()}
                   onClick={() => {
-                    void invoke("open_in_app", { cwd: workspace, app }).then(
+                    void openInApp(workspace, app).then(
                       () => setNotice(zh ? `已打开 ${label}` : `Opened ${label}`),
                       (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
                     );
@@ -601,7 +596,7 @@ export function EnvironmentSummary() {
                       onClick={() => {
                         const name = worktreeName.trim();
                         void runAction("worktree", async () => {
-                          const path = await invoke<string>("git_worktree_add", { cwd: workspace, name, branch: null });
+                          const path = await gitWorktreeAdd(workspace, name, null);
                           setWorktreeName("");
                           return path;
                         });
@@ -654,7 +649,7 @@ export function EnvironmentSummary() {
                   <button
                     key={source.id}
                     disabled={!source.url}
-                    onClick={() => source.url && (inTauri() ? void invoke("open_external", { url: source.url }) : window.open(source.url, "_blank", "noopener,noreferrer"))}
+                    onClick={() => source.url && (inTauri() ? void openExternal(source.url) : window.open(source.url, "_blank", "noopener,noreferrer"))}
                     className="summary-row w-full disabled:cursor-default"
                     title={source.label}
                   >

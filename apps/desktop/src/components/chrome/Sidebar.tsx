@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { exportSessionSupportBundle, openExternal, revealSupportBundle, searchSessionHistory } from "../../lib/hostActions";
 import { useDesktop, type ProjectMeta } from "../../state/store";
 import { usePreferences } from "../../state/preferences";
 import { useI18n } from "../../lib/i18n";
@@ -97,10 +97,7 @@ export function Sidebar({ onRequestHide }: { onRequestHide?: () => void } = {}) 
     setHistorySearching(true);
     setHistorySearchError("");
     const timeout = window.setTimeout(() => {
-      void invoke<string[]>("search_session_history", {
-        query: normalizedQuery,
-        sessionIds: sessionIndex.map((session) => session.id),
-      }).then((ids) => {
+      void searchSessionHistory(normalizedQuery, sessionIndex.map((session) => session.id)).then((ids) => {
         if (!cancelled) setHistoryMatches(new Set(ids));
       }).catch((cause) => {
         if (!cancelled) {
@@ -282,7 +279,7 @@ export function Sidebar({ onRequestHide }: { onRequestHide?: () => void } = {}) 
             </div>
             <MenuButton icon="gear" label={t("settings")} onClick={() => { setSettingsOpen(true); setAccountOpen(false); }} />
             {account?.authenticated ? (
-              <MenuButton icon="external" label={t("upgrade")} onClick={() => void invoke("open_external", { url: "https://grok.com/supergrok?referrer=grok-build" })} />
+              <MenuButton icon="external" label={t("upgrade")} onClick={() => void openExternal("https://grok.com/supergrok?referrer=grok-build")} />
             ) : (
               <MenuButton icon="user" label={t("login")} onClick={() => { setAccountSetupOpen(true); setAccountOpen(false); }} />
             )}
@@ -518,8 +515,18 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
 
   return (
     <div
-      className={`group relative mb-px cursor-pointer rounded-[4px] border-l-2 px-2 py-1.5 ${active ? "border-acc bg-high" : "border-transparent hover:bg-high/60"}`}
+      role="button"
+      tabIndex={0}
+      aria-label={displayTitle}
+      className={`group relative mb-px cursor-pointer rounded-[4px] border-l-2 px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-acc ${active ? "border-acc bg-high" : "border-transparent hover:bg-high/60"}`}
       onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -628,12 +635,9 @@ function MissionRow({ meta, status, completionUnread, active, tokens, onOpen }: 
               },
               recentNotices: state.runtimeNotices.slice(-20),
             });
-            const result = await invoke<{ path: string; officialTraceIncluded: boolean; officialTraceError?: string }>(
-              "export_session_support_bundle",
-              { sessionId: meta.id, clientSnapshot },
-            );
+            const result = await exportSessionSupportBundle<{ path: string; officialTraceIncluded: boolean; officialTraceError?: string }>(meta.id, clientSnapshot);
             await navigator.clipboard.writeText(result.path).catch(() => {});
-            await invoke("reveal_support_bundle", { path: result.path });
+            await revealSupportBundle(result.path);
             setConfirmExport(false);
           }}
         />

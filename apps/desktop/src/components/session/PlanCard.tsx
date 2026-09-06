@@ -16,7 +16,12 @@ export function PlanCard({ block }: { block: PlanBlock }) {
   const openPreview = useDesktop((state) => state.setPlanPreviewOpen);
 
   return (
-    <button onClick={() => openPreview(true)} className="mb-4 block w-full animate-fade-up pl-0.5 text-left" title={language === "zh-CN" ? "在右侧预览计划" : "Preview plan on the right"}>
+    <button
+      onClick={() => openPreview(true)}
+      aria-label={language === "zh-CN" ? `计划 ${done}/${total}，在右侧预览` : `Plan ${done}/${total}, preview on the right`}
+      className="mb-4 block w-full animate-fade-up pl-0.5 text-left"
+      title={language === "zh-CN" ? "在右侧预览计划" : "Preview plan on the right"}
+    >
       <div className="border-l border-gold/50 pl-3">
         <div className="flex items-center gap-2">
           <span className="lbl !text-gold">{language === "zh-CN" ? "计划" : "PLAN"}</span>

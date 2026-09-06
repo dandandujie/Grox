@@ -49,23 +49,26 @@ export function PermissionCard({ block, sessionId }: { block: PermissionBlock; s
     return () => window.removeEventListener("keydown", onKey);
   }, [resolved, isActive, options, block.id, block.req.payload, resolvePermission]);
 
+  const headingLabel =
+    resolved
+      ? resolved === "deny"
+        ? language === "zh-CN" ? "已由用户拒绝" : "DENIED · BY OPERATOR"
+        : language === "zh-CN"
+          ? `已批准 · ${resolved === "allow_always" ? "始终" : "本次"}`
+          : `APPROVED · ${resolved === "allow_always" ? "ALWAYS" : "ONCE"}`
+      : language === "zh-CN" ? "需要用户批准" : "APPROVAL REQUIRED";
+
   return (
     <div
+      role="group"
+      aria-label={headingLabel}
       className={`mb-5 animate-fade-up rounded-[6px] border p-4 transition-opacity ${
         resolved ? "border-line2 bg-raise opacity-60" : "border-focus bg-raise"
       }`}
     >
       <div className="flex items-center gap-2">
         <Icon name="bolt" size={13} className={resolved ? "text-dim" : "text-gold"} />
-        <span className={`lbl ${resolved ? "" : "!text-gold"}`}>
-          {resolved
-            ? resolved === "deny"
-              ? language === "zh-CN" ? "已由用户拒绝" : "DENIED · BY OPERATOR"
-              : language === "zh-CN"
-                ? `已批准 · ${resolved === "allow_always" ? "始终" : "本次"}`
-                : `APPROVED · ${resolved === "allow_always" ? "ALWAYS" : "ONCE"}`
-            : language === "zh-CN" ? "需要用户批准" : "APPROVAL REQUIRED"}
-        </span>
+        <span className={`lbl ${resolved ? "" : "!text-gold"}`}>{headingLabel}</span>
         {!resolved && <span className="h-1 w-1 animate-pulse-dot rounded-full bg-gold" />}
       </div>
 
@@ -75,7 +78,11 @@ export function PermissionCard({ block, sessionId }: { block: PermissionBlock; s
         <div className="mt-2.5 rounded-[5px] border border-line2 bg-void px-3 py-2">
           <pre className={`${expanded ? "max-h-[60vh]" : "max-h-36"} overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-fg2 select-text`}>{block.req.payload}</pre>
           {block.req.payload.length > 240 && (
-            <button onClick={() => setExpanded((value) => !value)} className="mt-2 font-mono text-[9px] text-gold hover:text-fg">
+            <button
+              onClick={() => setExpanded((value) => !value)}
+              aria-expanded={expanded}
+              className="mt-2 font-mono text-[9px] text-gold hover:text-fg"
+            >
               {expanded
                 ? language === "zh-CN" ? "收起完整脚本" : "Collapse script"
                 : language === "zh-CN" ? "展开完整脚本" : "Expand full script"}
@@ -97,6 +104,7 @@ export function PermissionCard({ block, sessionId }: { block: PermissionBlock; s
               <button
                 key={opt}
                 onClick={() => resolvePermission(block.id, opt)}
+                aria-keyshortcuts={String(i + 1)}
                 className={`flex h-7 items-center gap-2 rounded-[4px] px-3 text-[11.5px] transition-colors ${styles}`}
               >
                 {optionLabels[opt]}

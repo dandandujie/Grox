@@ -60,6 +60,7 @@ export function UserMsg({ block, rewindPromptIndex }: { block: UserBlock; rewind
 
 /** Agent message — an editorial transcript with a quiet identity rail. */
 export function AssistantMsg({ block, process = false }: { block: AssistantBlock; process?: boolean }) {
+  const { language } = useI18n();
   const streaming = block.streaming ?? false;
   if (process) {
     return (
@@ -83,7 +84,7 @@ export function AssistantMsg({ block, process = false }: { block: AssistantBlock
         <div className="mb-2 flex items-center gap-2">
           <BlackHole size={15} spin={streaming} />
           <span className="font-mono text-[9px] font-semibold tracking-[0.16em] text-dim">GROX</span>
-          {streaming && <span className="text-[9px] text-faint">正在输出</span>}
+          {streaming && <span className="text-[9px] text-faint">{language === "zh-CN" ? "正在输出" : "STREAMING"}</span>}
         </div>
         <Markdown text={block.text} streaming={streaming} className="assistant-prose text-fg2" />
         {streaming && <span className="stream-caret" />}

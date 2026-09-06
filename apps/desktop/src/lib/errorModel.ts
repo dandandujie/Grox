@@ -8,6 +8,12 @@ export interface ErrorFallback {
   fatal?: boolean;
   holdQueue?: boolean;
   action?: string;
+  /**
+   * 展示分级：红色横幅只留给「任务无法进行」级故障（CLI 缺失、认证失效、
+   * 进程退出、回合失败）；非阻断的能力降级（偏好迁移失败、可选数据读取
+   * 失败）应声明 warning，由金色横幅承载。缺省为 error。
+   */
+  severity?: "error" | "warning";
 }
 
 /** 在异步边界上携带已分类错误，避免退出/超时再次被误判成普通 RPC 错误。 */
@@ -102,11 +108,19 @@ export function formatGroxError(error: GroxError): string {
   return `${errorDomainLabel(error.domain)} · ${error.message}${action}`;
 }
 
-export function runtimeNoticeFromError(error: GroxError): RuntimeNotice {
+function noticeTitle(domain: GroxErrorDomain, level: RuntimeNotice["level"]): string {
+  const label = errorDomainLabel(domain);
+  return level === "warning" ? label.replace("错误", "提示") : label;
+}
+
+export function runtimeNoticeFromError(
+  error: GroxError,
+  level: RuntimeNotice["level"] = "error",
+): RuntimeNotice {
   return {
     id: `error-${error.domain}-${error.code}`,
-    level: "error",
-    title: errorDomainLabel(error.domain),
+    level,
+    title: noticeTitle(error.domain, level),
     message: error.action ? `${error.message}；${error.action}` : error.message,
   };
 }

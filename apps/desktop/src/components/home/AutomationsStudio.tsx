@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDesktop } from "../../state/store";
+import { useAutomationCapability } from "../../state/automationCapabilityStore";
 import { nextAutomationRun, type AutomationFrequency } from "../../lib/automations";
 import type { AutomationRunOutcome } from "../../lib/automationRunHistory";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -48,10 +49,10 @@ function loadAutomationDraft(workspace: string): AutomationDraft | null {
 export function AutomationsStudio() {
   const { language } = useI18n();
   const zh = language === "zh-CN";
-  const automations = useDesktop((state) => state.automations);
-  const runningId = useDesktop((state) => state.automationRunningId);
-  const runHistory = useDesktop((state) => state.automationRunHistory);
-  const lastTickAt = useDesktop((state) => state.automationLastTickAt);
+  const automations = useAutomationCapability((state) => state.automations);
+  const runningId = useAutomationCapability((state) => state.runningId);
+  const runHistory = useAutomationCapability((state) => state.runHistory);
+  const lastTickAt = useAutomationCapability((state) => state.lastTickAt);
   const workspace = useDesktop((state) => state.workspace);
   const model = useDesktop((state) => state.model);
   const effort = useDesktop((state) => state.effort);
@@ -62,7 +63,9 @@ export function AutomationsStudio() {
   const setEnabled = useDesktop((state) => state.setAutomationEnabled);
   const run = useDesktop((state) => state.runAutomation);
   const clearRunHistory = useDesktop((state) => state.clearAutomationRunHistory);
+  const loadCapabilities = useDesktop((state) => state.loadCapabilities);
   const openSession = useDesktop((state) => state.openSession);
+  useEffect(() => { void loadCapabilities(); }, [loadCapabilities]);
   const initialDraft = useRef(loadAutomationDraft(workspace)).current;
   const [title, setTitle] = useState(initialDraft?.title ?? "");
   const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");

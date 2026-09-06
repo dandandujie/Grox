@@ -7,6 +7,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 import type { PreviewFile } from "../../bridge/types";
 import { useDesktop } from "../../state/store";
+import { usePreviewCapability } from "../../state/previewCapabilityStore";
 import { PreviewPane } from "./PreviewPane";
 
 const initialState = useDesktop.getState();
@@ -16,6 +17,7 @@ afterEach(() => {
   invoke.mockReset();
   writeText.mockClear();
   useDesktop.setState(initialState, true);
+  usePreviewCapability.setState({ file: null, loading: false, error: null });
   document.body.replaceChildren();
 });
 
@@ -30,7 +32,8 @@ describe("PreviewPane", () => {
     };
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     invoke.mockResolvedValue("/workspace/src/main.ts");
-    useDesktop.setState({ workspace: "/workspace", previewFile: file, previewLoading: false, previewError: null });
+    useDesktop.setState({ workspace: "/workspace" });
+    usePreviewCapability.setState({ file, loading: false, error: null });
 
     const container = document.createElement("div");
     document.body.append(container);

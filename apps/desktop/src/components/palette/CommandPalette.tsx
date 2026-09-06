@@ -30,6 +30,9 @@ export function CommandPalette() {
   const toggleInspector = useDesktop((s) => s.toggleInspector);
   const setSettingsOpen = useDesktop((s) => s.setSettingsOpen);
   const compact = useDesktop((s) => s.compact);
+  const stop = useDesktop((s) => s.stop);
+  const activeStatus = useDesktop((s) => (s.activeId ? s.sessions[s.activeId]?.status ?? null : null));
+  const turnRunning = activeStatus === "running";
   const model = useDesktop((s) => s.model);
   const models = useDesktop((s) => s.models);
   const setModel = useDesktop((s) => s.setModel);
@@ -55,6 +58,15 @@ export function CommandPalette() {
       fn();
     };
     const actions: Item[] = [
+      ...(turnRunning
+        ? [{
+            id: "stop",
+            icon: "stop" as const,
+            label: language === "zh-CN" ? "停止当前回合" : "Stop current turn",
+            hint: "ESC",
+            run: close(stop),
+          }]
+        : []),
       { id: "new", icon: "plus", label: t("newProject"), hint: "⌘N", run: close(() => void newProject()) },
       { id: "home", icon: "home", label: language === "zh-CN" ? "任务控制台" : "Mission control", hint: "", run: close(goHome) },
       { id: "inspector", icon: "panelRight", label: language === "zh-CN" ? "显示/隐藏检查器" : "Toggle inspector", hint: "⌘J", run: close(toggleInspector) },
@@ -105,7 +117,7 @@ export function CommandPalette() {
     return q
       ? [...actions.filter((item) => item.label.toLowerCase().includes(q)), ...missions]
       : [...actions, ...missions];
-  }, [query, sessionIndex, model, models, effort, newProject, openSession, goHome, toggleInspector, setSettingsOpen, setModel, setEffort, compact, setOpen, language, t]);
+  }, [query, sessionIndex, model, models, effort, turnRunning, stop, newProject, openSession, goHome, toggleInspector, setSettingsOpen, setModel, setEffort, compact, setOpen, language, t]);
 
   useEffect(() => setIdx(0), [query]);
 

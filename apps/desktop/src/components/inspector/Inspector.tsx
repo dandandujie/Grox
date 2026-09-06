@@ -6,17 +6,23 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useDesktop, type InspectorTab } from "../../state/store";
-import type { DiffHunk, PlanStep, PreviewFile, Session, WorkflowRun, WorkspaceEntry } from "../../bridge/types";
+import type { DiffHunk, PlanStep, Session, WorkflowRun, WorkspaceEntry } from "../../bridge/types";
 import { fmtCost, fmtDuration, fmtTokens } from "../../lib/format";
 import { DiffView } from "../session/DiffView";
 import { ResizeHandle } from "../common/ResizeHandle";
 import { usePreferences } from "../../state/preferences";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "../fx/Icon";
-import { openFileWithConfiguredApplication } from "../../lib/defaultOpen";
+import {
+  openFileWithConfiguredApplication,
+  openWorkspaceFileWithDialog,
+  readWorkspacePreviewFile,
+  revealWorkspaceFile,
+  workspaceFilePath,
+} from "../../lib/defaultOpen";
 import { projectPreviewUrl } from "../../lib/projectPreviewUrl";
+import { openExternal } from "../../lib/hostActions";
 
 const EMPTY_WORKFLOWS: WorkflowRun[] = [];
 
@@ -228,12 +234,12 @@ function FileActionMenu({
     }
   };
   const copyPath = () => run(async () => {
-    const fullPath = await invoke<string>("workspace_file_path", { cwd: workspace, path });
+    const fullPath = await workspaceFilePath(workspace, path);
     await navigator.clipboard.writeText(fullPath);
     setNotice(zh ? "已复制路径" : "Path copied");
   }, false);
   const copyContent = () => run(async () => {
-    const file = await invoke<PreviewFile>("read_preview_file", { cwd: workspace, path });
+    const file = await readWorkspacePreviewFile(workspace, path);
     if (["image", "video", "audio", "pdf"].includes(file.kind)) {
       throw new Error(zh ? "二进制媒体没有可复制的文本内容" : "Binary media does not have text content to copy");
     }
@@ -252,8 +258,8 @@ function FileActionMenu({
       {open && <div className="absolute right-0 top-6 z-50 w-40 rounded-[5px] border border-line2 bg-panel p-1 shadow-[0_10px_28px_rgba(0,0,0,0.38)]">
         {previewable && <FileAction label={zh ? "在右侧预览" : "Preview"} icon="panelRight" onClick={() => { onOpen(path); setOpen(false); }} />}
         <FileAction label={zh ? "用默认应用打开" : "Open with default"} icon="external" onClick={() => void run(() => openFileWithConfiguredApplication(workspace, path))} />
-        <FileAction label={zh ? "打开方式…" : "Open with…"} icon="external" onClick={() => void run(() => invoke("open_file_with_dialog", { cwd: workspace, path }))} />
-        <FileAction label={zh ? "在 Finder 中显示" : "Reveal in Finder"} icon="folder" onClick={() => void run(() => invoke("reveal_in_explorer", { cwd: workspace, path }))} />
+        <FileAction label={zh ? "打开方式…" : "Open with…"} icon="external" onClick={() => void run(() => openWorkspaceFileWithDialog(workspace, path))} />
+        <FileAction label={zh ? "在 Finder 中显示" : "Reveal in Finder"} icon="folder" onClick={() => void run(() => revealWorkspaceFile(workspace, path))} />
         <FileAction label={zh ? "复制路径" : "Copy path"} icon="copy" onClick={() => void copyPath()} />
         {previewable && !/\.(png|jpe?g|gif|webp|svg|bmp|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|oga|flac|pdf)$/i.test(path) && <FileAction label={zh ? "复制文件内容" : "Copy contents"} icon="copy" onClick={() => void copyContent()} />}
         {notice && <p className="border-t border-line px-2 py-1.5 font-mono text-[8.5px] leading-relaxed text-red">{notice}</p>}
@@ -522,7 +528,9 @@ function PreviewTab() {
         {preview.url && (
           <button type="button" onClick={() => {
             setNavigationError("");
-            void invoke("open_external", { url: preview.url }).catch((cause) => {
+            const url = preview.url;
+            if (!url) return;
+            void openExternal(url).catch((cause) => {
               setNavigationError(cause instanceof Error ? cause.message : String(cause));
             });
           }} className="flex h-6 w-6 items-center justify-center text-dim hover:text-fg" title={zh ? "在浏览器打开" : "Open in browser"}>

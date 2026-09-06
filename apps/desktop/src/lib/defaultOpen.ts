@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { PreviewFile } from "../bridge/types";
 
 /**
  * An application discovered from the host's installed application registry.
@@ -128,3 +129,15 @@ export async function openFileWithConfiguredApplication(cwd: string, path: strin
     application: application.launchTarget,
   });
 }
+
+export const workspaceFilePath = (cwd: string, path: string) =>
+  invoke<string>("workspace_file_path", { cwd, path });
+
+export const readWorkspacePreviewFile = (cwd: string, path: string) =>
+  invoke<PreviewFile>("read_preview_file", { cwd, path });
+
+export const revealWorkspaceFile = (cwd: string, path: string) =>
+  invoke<void>("reveal_in_explorer", { cwd, path });
+
+export const openWorkspaceFileWithDialog = (cwd: string, path: string) =>
+  invoke<void>("open_file_with_dialog", { cwd, path });

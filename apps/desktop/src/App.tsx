@@ -1,6 +1,6 @@
 /* App shell — window chrome, three-column deck, overlays, keymap. */
 
-import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { useDesktop } from "./state/store";
 import { TitleBar } from "./components/chrome/TitleBar";
 import { StatusBar } from "./components/chrome/StatusBar";
@@ -10,7 +10,6 @@ import { Timeline } from "./components/session/Timeline";
 import { Composer } from "./components/session/Composer";
 import { Inspector } from "./components/inspector/Inspector";
 import { CommandPalette } from "./components/palette/CommandPalette";
-import { SettingsModal } from "./components/settings/SettingsModal";
 import { BlackHole } from "./components/fx/BlackHole";
 import { StageTransition } from "./components/fx/StageTransition";
 import { PreviewPane } from "./components/preview/PreviewPane";
@@ -21,6 +20,8 @@ import { WorkbenchPanel } from "./components/chrome/WorkbenchPanel";
 import { AccountSetup } from "./components/settings/AccountSetup";
 import { UpdateNotice } from "./components/update/UpdateNotice";
 import { RuntimeNotice } from "./components/update/RuntimeNotice";
+
+const SettingsModal = lazy(() => import("./components/settings/SettingsModal").then((module) => ({ default: module.SettingsModal })));
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};
@@ -57,6 +58,7 @@ export default function App() {
   const terminalOpen = useDesktop((s) => s.terminalOpen);
   const previewOpen = useDesktop((s) => s.previewOpen);
   const planPreviewOpen = useDesktop((s) => s.planPreviewOpen);
+  const settingsOpen = useDesktop((s) => s.settingsOpen);
   const sidebarVisible = usePreferences((s) => s.sidebarVisible);
   const sidebarWidth = usePreferences((s) => s.sidebarWidth);
   const setSidebarWidth = usePreferences((s) => s.setSidebarWidth);
@@ -109,8 +111,16 @@ export default function App() {
         e.preventDefault();
         toggleSidebar();
       } else if (e.key === "Escape") {
-        if (s.paletteOpen) s.setPaletteOpen(false);
-        else if (s.settingsOpen) s.setSettingsOpen(false);
+        if (e.isComposing || e.keyCode === 229) return;
+        if (s.paletteOpen) { s.setPaletteOpen(false); return; }
+        if (s.settingsOpen) { s.setSettingsOpen(false); return; }
+        // 覆盖层（确认框、图片预览、更新说明等）优先消费 Esc；只有在干净
+        // 界面下 Esc 才中止运行中的回合，避免误停。
+        if (document.querySelector("[role='dialog'],[role='alertdialog']")) return;
+        if (s.view === "session" && s.activeId && s.sessions[s.activeId]?.status === "running") {
+          e.preventDefault();
+          s.stop();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -164,7 +174,7 @@ export default function App() {
       </div>
       {inSession && <StatusBar />}
       <CommandPalette />
-      <SettingsModal />
+      {settingsOpen && <Suspense fallback={null}><SettingsModal /></Suspense>}
       <AccountSetup />
       <UpdateNotice />
     </div>

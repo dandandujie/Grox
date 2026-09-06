@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { cancelMediaGeneration, mediaGenerationCapabilities, mediaGenerationHistory, openMediaArtifact, releaseMediaReference, saveMediaReference, startMediaGeneration } from "../../lib/hostActions";
 import { listen } from "@tauri-apps/api/event";
 import { Icon } from "../fx/Icon";
 import { ChipSelect } from "../common/ChipSelect";
@@ -150,7 +151,7 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
       try {
         unlisten = await listen<MediaJobSnapshot>("media-generation-changed", ({ payload }) => {
           if (disposed || payload.kind !== mode || payload.workspace !== workspace) return;
-          void invoke<MediaJobSnapshot[]>("media_generation_history", { cwd: workspace, kind: mode, limit: 12 })
+          void mediaGenerationHistory<MediaJobSnapshot[]>(workspace, mode, 12)
             .then((history) => { if (!disposed) setJobs(history); })
             .catch((cause) => { if (!disposed) setError(mediaErrorText(cause, "environment", "MEDIA_STATUS_FAILED")); });
         });
@@ -160,8 +161,8 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
           }
         });
         const [history, contract] = await Promise.all([
-          invoke<MediaJobSnapshot[]>("media_generation_history", { cwd: workspace, kind: mode, limit: 12 }),
-          invoke<MediaGenerationCapabilities>("media_generation_capabilities"),
+          mediaGenerationHistory<MediaJobSnapshot[]>(workspace, mode, 12),
+          mediaGenerationCapabilities<MediaGenerationCapabilities>(),
         ]);
         if (!disposed) {
           const latest = history[0];
@@ -197,7 +198,7 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
       referenceSelectionRef.current += 1;
       const lease = referenceLeaseRef.current;
       referenceLeaseRef.current = null;
-      if (lease) void invoke("release_media_reference", { cwd: lease.cwd, id: lease.id });
+      if (lease) void releaseMediaReference(lease.cwd, lease.id);
     };
   }, [mode, workspace]);
 
@@ -212,12 +213,7 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
 
   const openSelectedArtifact = (action: "open" | "reveal") => {
     if (!job || selectedIndex === null) return Promise.resolve();
-    return invoke<void>("open_media_artifact", {
-      cwd: workspace,
-      id: job.id,
-      artifactIndex: selectedIndex,
-      action,
-    });
+    return openMediaArtifact(workspace, job.id, selectedIndex, action);
   };
 
   const generate = async () => {
@@ -226,8 +222,7 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
     setActionError("");
     setSelectedIndex(null);
     try {
-      const next = await invoke<MediaJobSnapshot>("start_media_generation", {
-        request: {
+      const next = await startMediaGeneration<MediaJobSnapshot>({
           kind: mode,
           prompt: prompt.trim(),
           aspect,
@@ -236,7 +231,6 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
           resolution,
           referenceId: reference?.id,
           cwd: workspace,
-        },
       });
       setJobs((current) => [next, ...current.filter((candidate) => candidate.id !== next.id)].slice(0, 12));
       setSelectedJobId(null);
@@ -249,7 +243,7 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
     if (!activeJob || activeJob.phase === "cancelling") return;
     setError("");
     try {
-      const cancelled = await invoke<MediaJobSnapshot>("cancel_media_generation", { cwd: workspace, id: activeJob.id });
+      const cancelled = await cancelMediaGeneration<MediaJobSnapshot>(workspace, activeJob.id);
       setJobs((current) => current.map((candidate) => candidate.id === cancelled.id ? cancelled : candidate));
     } catch (cause) {
       setError(mediaErrorText(cause, "operation", "MEDIA_CANCEL_FAILED"));
@@ -264,15 +258,15 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
     setError("");
     try {
       const data = await readDataUrl(file);
-      const saved = await invoke<MediaReferenceResponse>("save_media_reference", { cwd, name: file.name, data });
+      const saved = await saveMediaReference<MediaReferenceResponse>(cwd, file.name, data);
       if (selection !== referenceSelectionRef.current || scope !== mediaScopeRef.current) {
-        void invoke("release_media_reference", { cwd, id: saved.id });
+        void releaseMediaReference(cwd, saved.id);
         return;
       }
       const previous = referenceLeaseRef.current;
       referenceLeaseRef.current = { id: saved.id, cwd };
       setReference({ id: saved.id, name: file.name, preview: data });
-      if (previous) void invoke("release_media_reference", { cwd: previous.cwd, id: previous.id });
+      if (previous) void releaseMediaReference(previous.cwd, previous.id);
     } catch (cause) {
       if (selection === referenceSelectionRef.current && scope === mediaScopeRef.current) {
         setError(mediaErrorText(cause, "operation", "MEDIA_REFERENCE_FAILED"));
@@ -285,7 +279,7 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
     const previous = referenceLeaseRef.current;
     referenceLeaseRef.current = null;
     setReference(null);
-    if (previous) void invoke("release_media_reference", { cwd: previous.cwd, id: previous.id });
+    if (previous) void releaseMediaReference(previous.cwd, previous.id);
   };
 
   const ratioClass = useMemo(() => {
