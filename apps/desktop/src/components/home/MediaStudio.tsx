@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { cancelMediaGeneration, mediaGenerationCapabilities, mediaGenerationHistory, openMediaArtifact, releaseMediaReference, saveMediaReference, startMediaGeneration } from "../../lib/hostActions";
-import { listen } from "@tauri-apps/api/event";
+import { cancelMediaGeneration, mediaGenerationCapabilities, mediaGenerationHistory, openMediaArtifact, releaseMediaReference, saveMediaReference, startMediaGeneration,
+  hostListen,
+} from "../../lib/hostActions";
 import { Icon } from "../fx/Icon";
 import { ChipSelect } from "../common/ChipSelect";
 import { errorDomainLabel, formatGroxError, toGroxError } from "../../lib/errorModel";
@@ -149,13 +150,13 @@ export function MediaStudio({ mode }: { mode: MediaMode }) {
     setError("");
     void (async () => {
       try {
-        unlisten = await listen<MediaJobSnapshot>("media-generation-changed", ({ payload }) => {
+        unlisten = await hostListen<MediaJobSnapshot>("media-generation-changed", (payload) => {
           if (disposed || payload.kind !== mode || payload.workspace !== workspace) return;
           void mediaGenerationHistory<MediaJobSnapshot[]>(workspace, mode, 12)
             .then((history) => { if (!disposed) setJobs(history); })
             .catch((cause) => { if (!disposed) setError(mediaErrorText(cause, "environment", "MEDIA_STATUS_FAILED")); });
         });
-        unlistenDiagnostic = await listen<MediaDiagnostic>("media-generation-diagnostic", ({ payload }) => {
+        unlistenDiagnostic = await hostListen<MediaDiagnostic>("media-generation-diagnostic", (payload) => {
           if (!disposed && payload.kind === mode && payload.workspace === workspace) {
             setError(formatGroxError(payload.error));
           }

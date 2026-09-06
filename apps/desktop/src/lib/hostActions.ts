@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { bridge } from "../bridge";
 import type { ConfigDocument } from "../bridge/types";
 
@@ -6,6 +8,13 @@ export const runtimeCall = <T>(method: string, params?: Record<string, unknown>)
 export const readConfigDocuments = (cwd: string) => bridge.readConfigDocuments(cwd);
 export const writeConfigDocument = (document: ConfigDocument, cwd: string) => bridge.writeConfigDocument(document, cwd);
 export const loadRuntimeSession = (id: string) => bridge.loadSession(id);
+
+/** 订阅 Host 事件（如媒体生成进度）；组件经此入口，不直连 Tauri event。 */
+export const hostListen = <T>(event: string, handler: (payload: T) => void) =>
+  listen<T>(event, ({ payload }) => handler(payload));
+
+/** 当前窗口代理（标题栏最小化/最大化/关闭）。仅在 Tauri 环境调用。 */
+export const currentWindow = () => getCurrentWindow();
 
 /** UI 可用的最小 Host 副作用入口；具体命令名不再散落在组件里。 */
 export const openExternal = (url: string) => invoke<void>("open_external", { url });

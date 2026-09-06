@@ -18,13 +18,14 @@ import {
   type OpenApplicationOption,
 } from "../../lib/defaultOpen";
 
+import { currentWindow } from "../../lib/hostActions";
+
 const inTauri = () => "__TAURI_INTERNALS__" in window;
 const isWindows = () => navigator.userAgent.includes("Windows");
 
 async function winCtl(action: "min" | "max" | "close") {
   if (!inTauri()) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const win = getCurrentWindow();
+  const win = currentWindow();
   if (action === "min") await win.minimize();
   else if (action === "max") await win.toggleMaximize();
   else await win.close();

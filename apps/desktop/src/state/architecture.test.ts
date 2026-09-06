@@ -20,6 +20,24 @@ describe("组件运行时边界", () => {
     });
     expect(violations).toEqual([]);
   });
+
+  it("不直接引用 @tauri-apps/api（事件/窗口走 lib/hostActions；仅纯资源 URL 助手登记白名单）", () => {
+    // convertFileSrc 是纯资源 URL 助手（无 IPC、无副作用），允许在消费组件内直接使用。
+    const allowlisted = new Set([
+      join(process.cwd(), "src/components/home/MediaStudio.tsx"),
+      join(process.cwd(), "src/components/session/ToolCallCard.tsx"),
+    ]);
+    const violations = sourceFiles(join(process.cwd(), "src/components")).flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      if (!source.includes("@tauri-apps/api")) return [];
+      if (allowlisted.has(path)) {
+        // 白名单文件也只允许 core 的 convertFileSrc，不允许 event/window。
+        return /@tauri-apps\/api\/(event|window)/.test(source) ? [`${path}（只允许 convertFileSrc）`] : [];
+      }
+      return [path];
+    });
+    expect(violations).toEqual([]);
+  });
 });
 
 describe("IPC 所有权边界", () => {

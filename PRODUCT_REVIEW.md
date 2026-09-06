@@ -94,7 +94,7 @@ Rust 侧出站模型（`session_event_journal.rs:26` 的 `HostSessionEvent`/`Hos
 | P1（2-4 周） | 协议 fixture 互锁测试 → schemars codegen；新命令统一 HostError | A2/A4 | 🔶 合同互锁 + provider DI 反转已完成（2026-09）：`fixtures/acp/` 15 夹具互锁、provider 链零 main.rs 依赖（残留 4 处业务函数已记录）；schemars codegen 与 HostError 存量迁移待办 |
 | P2 | 通知分级落地（迁移失败降级）；i18n lint 规则 | P1/P2 | ✅ 已完成（2026-09）：通知分级（8 处非阻断降级为金色「运行环境提示」）+ i18n 棘轮测试（`i18nRatchet.test.ts` 冻结约 800 处存量、拦新增） |
 | P3 | a11y（决定层卡片、模态焦点陷阱、ChipSelect 键盘）；导航轨 IntersectionObserver | P3/P4 | ✅ 已完成（2026-09）：决定层 aria、ChipSelect 键盘导航、`useModalA11y` 模态焦点陷阱（AccountSetup/反馈框）、导航轨 IntersectionObserver 化（Mock 实测） |
-| 随手 | Mock 回显任务语义 | P5 | 待办 |
+| 随手 | Mock 回显任务语义 | P5 | ✅ 已完成（2026-09）：showcase 仅 `/demo` 触发，普通回合思考与回答引用任务文本（MockBridge 单测 2 项）；架构测试同步封堵组件 `@tauri-apps/api` 直连盲区（事件/窗口迁 hostActions，convertFileSrc 白名单） |
 
 ### A2 后续（schemars codegen）评估结论（2026-09）
 

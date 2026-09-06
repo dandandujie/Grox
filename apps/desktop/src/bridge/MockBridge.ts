@@ -475,6 +475,9 @@ export class MockBridge implements GrokBridge {
     this.turns.set(sessionId, ac);
     const session = this.sessions.get(sessionId);
     const firstTurn = !session?.blocks.some((b) => b.type === "assistant");
+    // 展示回合（完整 agentic 演示）只由 /demo 显式触发；普通任务一律走
+    // 回显任务语义的 genericTurn，避免「发什么都是无关演示内容」。
+    const showcase = firstTurn && /^\/demo\b/i.test(text.trim());
     if (session) {
       session.blocks.push({
         type: "user",
@@ -485,7 +488,7 @@ export class MockBridge implements GrokBridge {
       });
       session.updatedAt = Date.now();
     }
-    this.runTurn(sessionId, text, firstTurn, ac.signal)
+    this.runTurn(sessionId, text, showcase, ac.signal)
       .catch((err) => {
         if ((err as DOMException)?.name !== "AbortError") {
           this.emit({
@@ -918,9 +921,10 @@ One thing worth deciding later: bucket state is in-memory, so limits reset on re
     this.emit({ type: "usage", sessionId, usage: showcaseUsage(true) });
   }
 
-  /** Short generic turn for any prompt after the first. */
+  /** Short generic turn for any prompt: echoes the task into thinking and reply. */
   private async genericTurn(sessionId: string, text: string, signal: AbortSignal) {
     const add = (block: SessionBlock) => this.emit({ type: "block_add", sessionId, block });
+    const snippet = text.length > 120 ? text.slice(0, 120).trimEnd() + "…" : text;
 
     const thinkId = uid();
     const thinkStart = Date.now();
@@ -928,7 +932,7 @@ One thing worth deciding later: bucket state is in-memory, so limits reset on re
     await this.streamText(
       sessionId,
       thinkId,
-      "Working through the request against the current workspace state.",
+      `Let me work through "${snippet}" against the current workspace state.`,
       signal,
       "thinking_append",
       1600,
@@ -943,7 +947,6 @@ One thing worth deciding later: bucket state is in-memory, so limits reset on re
 
     const replyId = uid();
     add({ type: "assistant", id: replyId, text: "", ts: Date.now(), streaming: true });
-    const snippet = text.length > 120 ? text.slice(0, 120).trimEnd() + "…" : text;
     await this.streamText(
       sessionId,
       replyId,
