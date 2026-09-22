@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img" aria-labelledby="title desc">
   <title id="title">dandandujie/Grox Star History</title>
-  <desc id="desc">GitHub Star 历史曲线，当前 80 Stars，数据截至 2026-09-03T11:44:34.000Z</desc>
+  <desc id="desc">GitHub Star 历史曲线，当前 81 Stars，数据截至 2026-09-22T03:33:32.000Z</desc>
   <defs>
     <filter id="rough" x="-4%" y="-4%" width="108%" height="108%">
       <feTurbulence type="fractalNoise" baseFrequency="0.008 0.12" numOctaves="2" seed="17" result="noise"/>
@@ -11,23 +11,24 @@
   <g filter="url(#rough)" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M 86 390 C 225 387, 336 393, 478 390 S 720 393, 926 389" stroke="#111111" stroke-width="4.5"/>
     <path d="M 86 390 C 82 322, 89 254, 85 188 S 89 88, 86 26" stroke="#111111" stroke-width="4.5"/>
-    <path d="M 86.0 390.0 L 97.9 385.4 L 98.0 380.9 L 98.2 376.4 L 98.4 371.8 L 98.5 367.3 L 98.6 362.7 L 101.4 358.1 L 101.4 353.6 L 101.8 349.1 L 102.9 344.5 L 105.5 339.9 L 107.2 335.4 L 109.4 330.9 L 110.8 326.3 L 110.9 321.8 L 112.3 317.2 L 116.2 312.6 L 119.7 308.1 L 122.8 303.6 L 125.8 299.0 L 130.3 294.4 L 132.9 289.9 L 168.0 285.4 L 169.7 280.8 L 187.1 276.3 L 203.2 271.7 L 209.0 267.1 L 209.2 262.6 L 209.2 258.1 L 209.3 253.5 L 223.3 248.9 L 236.7 244.4 L 241.4 239.8 L 247.5 235.3 L 256.6 230.8 L 277.8 226.2 L 278.1 221.7 L 278.4 217.1 L 282.5 212.6 L 282.6 208.0 L 282.8 203.5 L 283.1 198.9 L 283.2 194.3 L 289.4 189.8 L 290.0 185.3 L 297.0 180.7 L 304.0 176.2 L 311.0 171.6 L 312.5 167.0 L 348.3 162.5 L 384.5 158.0 L 384.8 153.4 L 385.4 148.8 L 386.1 144.3 L 387.8 139.8 L 388.9 135.2 L 415.5 130.6 L 432.7 126.1 L 454.3 121.6 L 461.6 117.0 L 467.4 112.4 L 508.6 107.9 L 510.9 103.4 L 540.2 98.8 L 543.4 94.3 L 546.4 89.7 L 549.7 85.1 L 596.7 80.6 L 600.4 76.1 L 632.5 71.5 L 635.3 66.9 L 641.4 62.4 L 758.1 57.9 L 781.4 53.3 L 792.6 48.8 L 835.9 44.2 L 838.5 39.6 L 889.2 35.1 L 896.2 30.6 L 926.0 26.0 L 926.0 26.0" stroke="#e84424" stroke-width="4" opacity="0.98"/>
+    <path d="M 86.0 390.0 L 94.5 386.0 L 94.5 381.9 L 94.7 377.9 L 94.8 373.8 L 94.9 369.8 L 95.0 365.7 L 97.0 361.7 L 97.0 357.6 L 97.3 353.6 L 98.1 349.6 L 99.9 345.5 L 101.2 341.5 L 102.7 337.4 L 103.7 333.4 L 103.8 329.3 L 104.8 325.3 L 107.6 321.2 L 110.1 317.2 L 112.3 313.2 L 114.5 309.1 L 117.7 305.1 L 119.5 301.0 L 144.6 297.0 L 145.9 292.9 L 158.2 288.9 L 169.7 284.8 L 173.9 280.8 L 174.1 276.8 L 174.1 272.7 L 174.1 268.7 L 184.2 264.6 L 193.7 260.6 L 197.0 256.5 L 201.4 252.5 L 207.9 248.4 L 223.1 244.4 L 223.3 240.4 L 223.5 236.3 L 226.4 232.3 L 226.5 228.2 L 226.7 224.2 L 226.9 220.1 L 226.9 216.1 L 231.4 212.0 L 231.8 208.0 L 236.8 204.0 L 241.8 199.9 L 246.8 195.9 L 247.8 191.8 L 273.5 187.8 L 299.4 183.7 L 299.5 179.7 L 300.0 175.6 L 300.5 171.6 L 301.7 167.6 L 302.5 163.5 L 321.5 159.5 L 333.8 155.4 L 349.3 151.4 L 354.4 147.3 L 358.6 143.3 L 388.1 139.2 L 389.7 135.2 L 410.6 131.2 L 412.9 127.1 L 415.1 123.1 L 417.4 119.0 L 451.0 115.0 L 453.6 110.9 L 476.6 106.9 L 478.6 102.8 L 482.9 98.8 L 566.4 94.8 L 583.0 90.7 L 591.0 86.7 L 622.0 82.6 L 623.8 78.6 L 660.1 74.5 L 665.0 70.5 L 686.3 66.4 L 926.0 62.4 L 926.0 62.4" stroke="#e84424" stroke-width="4" opacity="0.98"/>
   </g>
-  <text x="73" y="351.5" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">10</text>
-  <text x="73" y="306.0" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">20</text>
-  <text x="73" y="260.5" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">30</text>
-  <text x="73" y="215.0" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">40</text>
-  <text x="73" y="169.5" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">50</text>
-  <text x="73" y="124.0" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">60</text>
-  <text x="73" y="78.5" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">70</text>
-  <text x="73" y="33.0" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">80</text>
+  <text x="73" y="356.6" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">10</text>
+  <text x="73" y="316.1" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">20</text>
+  <text x="73" y="275.7" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">30</text>
+  <text x="73" y="235.2" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">40</text>
+  <text x="73" y="194.8" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">50</text>
+  <text x="73" y="154.3" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">60</text>
+  <text x="73" y="113.9" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">70</text>
+  <text x="73" y="73.4" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">80</text>
+  <text x="73" y="33.0" text-anchor="end" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="21">90</text>
   <text x="86.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Sat 18</text>
-  <text x="226.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Sun 26</text>
-  <text x="366.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Mon 3</text>
-  <text x="506.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Tue 11</text>
-  <text x="646.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Tue 18</text>
-  <text x="786.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Wed 26</text>
-  <text x="926.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Thu 3</text>
+  <text x="226.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Wed 29</text>
+  <text x="366.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Sun 9</text>
+  <text x="506.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Thu 20</text>
+  <text x="646.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Mon 31</text>
+  <text x="786.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Fri 11</text>
+  <text x="926.0" y="419" text-anchor="middle" fill="#242424" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="17">Tue 22</text>
   <text x="480" y="462" text-anchor="middle" fill="#111111" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="22">Date</text>
   <text x="29" y="208" text-anchor="middle" fill="#111111" font-family="'Comic Sans MS','Segoe Print','Bradley Hand',cursive" font-size="22" transform="rotate(-90 29 208)">GitHub Stars</text>
   <polygon points="746.0,438.0 748.8,446.1 757.4,446.3 750.6,451.5 753.1,459.7 746.0,454.8 738.9,459.7 741.4,451.5 734.6,446.3 743.2,446.1" fill="none" stroke="#70d42c" stroke-width="3" stroke-linejoin="round" filter="url(#rough)"/>
