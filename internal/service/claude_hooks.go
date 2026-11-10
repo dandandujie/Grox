@@ -41,6 +41,8 @@ func (s *Service) startApprovalServer() {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/claude-hook/", s.handleClaudeHook)
+	mux.HandleFunc("/hook/", s.handleToolHook)
+	mux.HandleFunc("/mcp/", s.handleMCP)
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 8 * time.Second}
 	s.approvalListener = listener
 	s.approvalServer = server
@@ -87,9 +89,6 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.URL.Path, "/claude-hook/")
 	s.approvalMu.Lock()
 	target, ok := s.approvalTokens[token]
-	if ok {
-		delete(s.approvalTokens, token)
-	}
 	s.approvalMu.Unlock()
 	if !ok || target.ThreadID == "" {
 		http.Error(w, "unknown approval hook", http.StatusNotFound)

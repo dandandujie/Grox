@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+All four CLI engines now get tool-level approvals and connected-app tools.
+
+- Grok, Codex and Gemini Ask mode install per-turn local tool hooks (Grok PreToolUse HTTP, Codex
+  PreToolUse command, Gemini BeforeTool command) that raise real Grox approval cards and block until the
+  person answers.
+- Every CLI turn receives a tokenized streamable-HTTP MCP endpoint exposing cached Composio tools; Claude,
+  Grok, Codex and Gemini are configured per turn to use it.
+- Claude Code keeps its PermissionRequest hook and now also gets the MCP endpoint.
+- Ask modes are adjusted so the hook is the gate; Auto/Full keep provider policy.
+- Tests for the generic tool hook and the MCP initialize/tools-list path.
+- Command hooks for Codex/Gemini use curl; platforms without curl only have the HTTP-hook CLIs fully gated.
+- Still not implemented: hosted VM provisioning, cloud sync, organization billing, and a native store app.
+
 ## 0.4.0
 
 Agent tools and real Claude Code approvals.

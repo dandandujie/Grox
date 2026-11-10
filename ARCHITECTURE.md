@@ -199,21 +199,37 @@ timestamp. Four operations exist:
 - Deny: mark denied and continue with a stopped explanation.
 - The card is settled in place; the follow-up is a normal bot turn.
 
-Claude Code is special in Ask mode: Grox starts a loopback HTTP approval server, passes an inline
---settings JSON with a PermissionRequest http hook, and runs Claude with manual mode. When Claude pauses
-for a tool, the hook POSTs tool_name/tool_input to Grox, Grox appends a real approval card to the turn, and
-the HTTP request stays open until the person chooses Allow/Always/Deny. The decision goes back to Claude,
-which continues or denies. The hook URL carries a random per-turn token; the server listens on 127.0.0.1
-and is closed with the service.
+Every CLI engine gets a per-turn tool gate in Ask mode. Grox starts a loopback HTTP server, mints a random
+token, registers the current bot/thread (or channel/thread), and installs a provider-specific hook:
 
-Other CLIs are mode-only:
+- Claude Code: an inline --settings PermissionRequest http hook, run with --permission-mode manual.
+- Grok: an environment JSON overlay (GROK_CONFIG) with a PreToolUse http hook, run with auto mode.
+- Codex: a TOML -c hooks override with a temporary command hook that curls Grox, plus
+  --dangerously-bypass-hook-trust and workspace-write.
+- Gemini: a temporary GEMINI_CLI_HOME with settings.json BeforeTool command hook, run with yolo.
 
-- Ask → read-only / dontAsk / plan (nothing destructive should be approved automatically),
-- Auto → accept edits / auto,
-- Full → bypass.
+The hook input carries the tool name and input. Grox appends a normal approval card to the active
+transcript and keeps the hook request/script open. Allow/Always/Deny is sent back in the provider's expected
+JSON shape; a timeout, app close, or deny fails closed. The server binds 127.0.0.1 only. Tests cover the
+Claude endpoint and the generic hook endpoint.
 
 API engine tool calls are separate: Auto/Full API bots receive cached Composio tools and execute them with
 activity chips; Ask bots receive no tools. This is a deliberate boundary, not a simulated approval.
+
+### Per-turn MCP gateway
+
+Each CLI turn also gets a tokenized /mcp/<token> URL. The same loopback server speaks a small streamable
+HTTP MCP subset: initialize, tools/list, tools/call, ping. Tools are the cached Composio tool list, and
+tools/call executes through the Composio tool-router session. The CLIs are configured per turn:
+
+- Claude: --mcp-config inline JSON.
+- Grok: GROK_CONFIG.mcp_servers.
+- Codex: -c mcp_servers.grox.url.
+- Gemini: temporary GEMINI_CLI_HOME settings.json mcpServers.
+
+This gives all four CLIs the same connected-app tools without an API key or a separate proxy process. The
+CLI's Ask hook still sees the MCP tool call and gates it; in Auto/Full the provider policy applies.
+
 
 ## 7. Routines and the scheduler
 
@@ -379,9 +395,11 @@ cannot open approval cards or the Computer panel. Stop the server from Settings,
   a URL token and only works while the desktop app is open.
 - Hosted cloud provisioning, managed remote desktops, cloud sync, organization billing, and a native app
   store client are not implemented.
-- Composio tools are automatic only for Auto/Full API bots; Ask API bots and non-API engines do not get
-  them. The manual Tools runner is always available when a key is set.
-- Claude Code Ask-mode tool prompts are brokered through a loopback hook; Grok/Codex/Gemini prompts are not.
+- Ask hooks and the MCP gateway are injected per turn; if a CLI rejects its config, the configured
+  provider mode still applies. Check the CLI's own logs if a turn does not show an expected card.
+- Ask API bots still receive no tools; only Auto/Full API bots run the built-in function loop.
+- Command hooks for Codex/Gemini use curl. On platforms without curl, only the HTTP-hook CLIs (Claude/Grok)
+  are fully usable in Ask mode.
 - The browser preview uses a separate in-memory mock, not the Go backend.
 - The demo engine is a deterministic scripted engine, not a model. It is labelled as such.
 - The activity calendar is a week planner, not a minute-by-minute scheduler UI.

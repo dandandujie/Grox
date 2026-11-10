@@ -691,3 +691,74 @@ func TestClaudePermissionHook(t *testing.T) {
 		t.Fatal("hook did not receive the decision")
 	}
 }
+
+func TestMCPAndGenericToolHook(t *testing.T) {
+	svc, _, events := newTestService(t)
+	svc.composioToolsMu.Lock()
+	svc.composioTools = []model.ComposioTool{{Slug: "GITHUB_GET_REPO", Name: "Get repo", Description: "Read a repo", Toolkit: "github", InputSchema: map[string]any{"type": "object"}}}
+	svc.composioToolsAt = time.Now()
+	svc.composioToolsMu.Unlock()
+	target := claudeHookTarget{BotID: "bot-brody", ThreadID: "thread-brody-home"}
+	mcpURL, hookURL, err := svc.newToolURLs(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialize, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-06-18"}})
+	resp, err := http.Post(mcpURL, "application/json", bytes.NewReader(initialize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "grox") {
+		t.Fatalf("initialize = %d %s", resp.StatusCode, body)
+	}
+	list, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+	resp, err = http.Post(mcpURL, "application/json", bytes.NewReader(list))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "GITHUB_GET_REPO") {
+		t.Fatalf("tools/list = %s", body)
+	}
+	hookPayload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": "ls"}})
+	type hookResult struct {
+		Body []byte
+		Err  error
+	}
+	result := make(chan hookResult, 1)
+	go func() {
+		response, err := http.Post(hookURL+"?style=codex", "application/json", bytes.NewReader(hookPayload))
+		if err != nil {
+			result <- hookResult{Err: err}
+			return
+		}
+		defer response.Body.Close()
+		data, _ := io.ReadAll(response.Body)
+		result <- hookResult{Body: data}
+	}()
+	messageID := ""
+	waitFor(t, events, 3*time.Second, "the generic hook approval", func(ev model.Event) bool {
+		if ev.Type == "message" && ev.Message != nil && ev.Message.Kind == model.KindApproval && ev.Message.Status == model.StatusPending {
+			messageID = ev.Message.ID
+			return true
+		}
+		return false
+	})
+	if err := svc.Decide("bot-brody", "thread-brody-home", messageID, "allow"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case hook := <-result:
+		if hook.Err != nil {
+			t.Fatal(hook.Err)
+		}
+		if strings.TrimSpace(string(hook.Body)) != "{}" {
+			t.Fatalf("codex hook response = %s", hook.Body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("generic hook did not reply")
+	}
+}

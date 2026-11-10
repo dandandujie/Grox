@@ -62,6 +62,10 @@ type Request struct {
 	ExecuteTool ToolExecutor
 	// PermissionHookURL is the local Claude Code PermissionRequest hook.
 	PermissionHookURL string
+	// MCPURL is a per-turn streamable-HTTP MCP endpoint for connected tools.
+	MCPURL string
+	// HookURL is the per-turn PreToolUse approval hook for non-Claude CLIs.
+	HookURL string
 }
 
 // Result is a finished turn.

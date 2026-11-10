@@ -129,13 +129,13 @@ The table below is intentionally blunt.
 | Channels, multi-agent group chat, @mention routing | **Working** locally |
 | Phone companion (LAN web page, QR pairing, same roster and chats) | **Working** while the desktop app is open; plain HTTP + private token on your network |
 | Cloud sync, enterprise admin, organization billing, native App Store client | **Not included** |
-| Claude Code tool-level approvals | **Working in Ask mode** via a local PermissionRequest HTTP hook and the normal approval card; Allow/Always/Deny answers the waiting hook |
-| Grok / Codex / Gemini tool-level approvals | **Mode-only.** Their permission modes are passed; their internal prompts are not brokered |
-| Composio tools inside agent turns | **Working for Auto/Full API bots** from the cached tool list; Ask never receives tools, and the manual Tools runner still works |
+| Tool-level approvals for Grok, Claude, Codex and Gemini | **Working in Ask mode.** Each CLI gets a per-turn local hook (HTTP or a tiny command that calls Grox); its tool calls become approval cards and block until Allow/Always/Deny |
+| Composio tools inside CLI turns | **Working for all four CLIs** through a per-turn streamable-HTTP MCP endpoint; tool calls also pass the CLI's Ask hook |
+| Composio tools inside API turns | **Working for Auto/Full API bots** from the cached tool list; Ask API bots receive no tools; the manual Tools runner still works |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
-> phone companion, routines and Composio connections are real. Hosted VM provisioning, cloud sync,
-> organization billing, a native store app, and CLI tool-level approval brokering are deliberately absent
+> phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.
+> Hosted VM provisioning, cloud sync, organization billing and a native store app are deliberately absent
 > and labelled rather than mocked.
 > This repository is an independent project; it is not affiliated with xAI, Anthropic, OpenAI, Google,
 > Manus, Meta, or the OpenMausBot project.
@@ -227,7 +227,9 @@ To put a real model behind a bot:
    only turns green after Composio reports an ACTIVE connected account.
 3. **Connected apps → Tools** opens a live tool-router session. Pick a tool, edit its JSON arguments and
    run it; the result is returned inline. This is a real third-party call, not a mock. Once the tool list is
-   cached, Auto/Full API bots can call these tools automatically inside a turn; Ask bots never do.
+   cached, Auto/Full API bots can call these tools automatically inside a turn; Ask bots never do. Every
+   CLI turn also receives a per-turn MCP endpoint, so Claude/Grok/Codex/Gemini can use the same tools and
+   their Ask hooks gate the calls.
 4. **Agent profile → Computer → Runs on → SSH box** accepts host, user, port, remote root and a private
    key path. Save and test opens a real SSH connection. Screen, Files and Terminal then use that box.
 
@@ -272,13 +274,20 @@ Turn it off from Settings → Phone when not needed. The link uses plain HTTP on
 
 | Grox | Grok CLI | Claude Code | Codex CLI | Gemini CLI |
 | --- | --- | --- | --- | --- |
-| Ask | --permission-mode dontAsk | manual + PermissionRequest hook (fallback plan) | -s read-only | --approval-mode plan |
+| Ask | auto + PreToolUse hook | manual + PermissionRequest hook | workspace-write + PreToolUse hook | yolo + BeforeTool hook |
 | Auto | --permission-mode auto | auto + prompts none | -s workspace-write | --approval-mode auto_edit |
 | Full | --permission-mode bypassPermissions | bypassPermissions | --dangerously-bypass-approvals-and-sandbox | --approval-mode yolo |
 
-The demo engine implements the inline allow/deny card. Claude Code's Ask mode additionally installs a local
-PermissionRequest hook, so its tool prompts appear as Grox cards and are answered by the person. Grok,
-Codex and Gemini are still mode-only; their internal prompts are not brokered.
+In Ask mode all four CLIs are launched with a local tool gate: Claude uses its PermissionRequest hook, Grok
+uses a PreToolUse HTTP hook, Codex uses a PreToolUse command hook, and Gemini uses a BeforeTool command
+hook. The hook creates a normal Grox approval card and waits for Allow/Always/Deny; its HTTP/script bridge
+returns the decision to the CLI. Codex and Gemini command hooks call the loopback approval endpoint with a
+per-turn token. The demo engine implements the inline card without a CLI.
+
+Auto/Full keep the provider's own permission policy. Ask runs Grok in auto, Codex in workspace-write and
+Gemini in yolo so that the injected hook is the gate; the hook timeout and deny path fail closed. The
+per-turn MCP endpoint is also supplied to every CLI, so connected-app tools appear as normal MCP tools and
+pass through the same Ask hook.
 
 ## Development
 

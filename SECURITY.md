@@ -67,13 +67,22 @@ panel, but code or a CLI that the person already approved can still act within i
 Screen capture may require macOS Screen Recording permission; microphone use requires Microphone permission.
 The phone page cannot open the Computer panel or approval cards.
 
-## Claude Code permission hook
+## CLI tool gate and MCP gateway
 
-In Ask mode Grox starts a loopback HTTP server, generates a random per-turn URL token, and passes an inline
-settings JSON with a PermissionRequest http hook to Claude Code. Claude POSTs the tool name and input; Grox
-adds an approval card to the current thread and keeps the HTTP request open until the person chooses
-Allow/Always/Deny. Only 127.0.0.1 is bound. The hook returns a deny decision on timeout or when the app is
-closed. This is a real broker for Claude Code, not a simulated card. Other CLIs remain mode-only.
+In Ask mode Grox starts a loopback HTTP server, mints a random per-turn token, and installs a provider hook:
+Claude Code PermissionRequest, Grok PreToolUse HTTP, Codex PreToolUse command, or Gemini BeforeTool command.
+The hook carries tool name/input to Grox; Grox appends an approval card and keeps the request open until
+the person chooses Allow/Always/Deny. Codex and Gemini hooks run a tiny temporary curl script with the
+per-turn URL; they are not given a general command execution endpoint. The server binds 127.0.0.1 only and
+fails closed on timeout or app close.
+
+The same loopback server exposes a tokenized streamable-HTTP MCP endpoint for that turn. It lists cached
+Composio tools and executes tool calls through Composio. The CLI's Ask hook sees the MCP tool call and gates
+it; in Auto/Full the provider's policy applies. This is a real MCP server, not a local fake tool result.
+
+The Ask modes are intentionally adjusted so the hook is the gate: Grok runs auto, Codex runs
+workspace-write, and Gemini runs yolo with the hook installed. If a CLI rejects the injected config, its
+mode still applies; review the CLI's own logs before relying on the gate.
 
 ## Prompt injection and untrusted content
 
@@ -83,11 +92,11 @@ that is exactly why the default is Ask and why Full is explicit.
 
 ## Known limitations
 
-- Claude Code Ask-mode tool prompts are brokered through a loopback PermissionRequest HTTP hook. Grok,
-  Codex and Gemini internal prompts are still not brokered.
+- Ask-mode CLI tool prompts are brokered through per-turn loopback hooks. If a CLI rejects its injected
+  hook config, the provider mode still applies.
 - The phone companion uses plain HTTP on the local network; it is not a hardened remote-access service.
-- Composio OAuth, the manual live tool runner, and automatic tools for Auto/Full API bots are implemented.
-  Ask API bots never receive tools.
+- Composio OAuth, the manual live tool runner, per-turn MCP tools for CLI engines, and automatic tools
+  for Auto/Full API bots are implemented. Ask API bots never receive tools.
 - Hosted cloud provisioning, cloud sync, organization billing, and a native mobile app are not implemented.
 - The demo engine is local and does no network or file work, but its approval cards are scripted.
 - The browser preview uses an in-memory mock; do not put real secrets into it.

@@ -379,9 +379,18 @@ func (s *Service) startGroupTurn(groupID, threadID, botID, agentText, extraConte
 	bot.LastActiveAt = now
 	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext)
 	req.GroupID = groupID
-	if sel.Kind == "cli" && req.Model.Provider == "claude" && bot.Approval == model.ApprovalAsk {
-		if hookURL, err := s.newClaudeHookURL(claudeHookTarget{BotID: botID, GroupID: groupID, ThreadID: threadID}); err == nil {
-			req.PermissionHookURL = hookURL
+	if sel.Kind == "cli" {
+		target := claudeHookTarget{BotID: botID, GroupID: groupID, ThreadID: threadID}
+		if mcpURL, hookURL, err := s.newToolURLs(target); err == nil {
+			req.MCPURL = mcpURL
+			if bot.Approval == model.ApprovalAsk {
+				req.HookURL = hookURL
+			}
+		}
+		if req.Model.Provider == "claude" && bot.Approval == model.ApprovalAsk {
+			if hookURL, err := s.newClaudeHookURL(target); err == nil {
+				req.PermissionHookURL = hookURL
+			}
 		}
 	}
 	s.touchLocked()

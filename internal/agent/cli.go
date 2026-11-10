@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +38,13 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 
 	var args []string
 	var stdin string
+	envExtras := map[string]string{}
+	cleanups := []func(){}
+	defer func() {
+		for _, cleanup := range cleanups {
+			cleanup()
+		}
+	}()
 	switch provider {
 	case "grok":
 		mode := "dontAsk"
@@ -45,6 +53,25 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 			mode = "auto"
 		case "full":
 			mode = "bypassPermissions"
+		case "ask":
+			if req.HookURL != "" {
+				mode = "auto"
+			}
+		}
+		grokConfig := map[string]any{}
+		if req.MCPURL != "" {
+			grokConfig["mcp_servers"] = map[string]any{"grox": map[string]any{"url": req.MCPURL, "enabled": true}}
+		}
+		if req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
+			grokConfig["hooks"] = map[string]any{"PreToolUse": []any{map[string]any{
+				"matcher": "*",
+				"hooks":   []any{map[string]any{"type": "http", "url": req.HookURL + "?style=grok", "timeout": 300}},
+			}}}
+		}
+		if len(grokConfig) > 0 {
+			if data, err := json.Marshal(grokConfig); err == nil {
+				envExtras["GROK_CONFIG"] = string(data)
+			}
 		}
 		args = []string{
 			"--permission-mode", mode,
@@ -90,10 +117,19 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 				args = append(args, "--settings", string(data))
 			}
 		}
+		if req.MCPURL != "" {
+			if path, cleanup, err := writeMCPConfig(req.MCPURL); err == nil {
+				cleanups = append(cleanups, cleanup)
+				args = append(args, "--mcp-config", path, "--strict-mcp-config")
+			}
+		}
 		stdin = prompt
 	case "openai":
 		sandbox := "read-only"
 		if approvalMode(req.Bot.Approval) == "auto" {
+			sandbox = "workspace-write"
+		}
+		if approvalMode(req.Bot.Approval) == "ask" && req.HookURL != "" {
 			sandbox = "workspace-write"
 		}
 		args = []string{"exec", "--json", "--skip-git-repo-check", "--color", "never", "-C", workdir, "-m", req.Model.ID}
@@ -101,6 +137,19 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		} else {
 			args = append(args, "-s", sandbox)
+		}
+		if req.MCPURL != "" {
+			args = append(args, "-c", fmt.Sprintf("mcp_servers.grox.url=%q", req.MCPURL))
+		}
+		if req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
+			script, cleanup, scriptErr := makeToolHookScript(req.HookURL, "codex")
+			if scriptErr == nil {
+				cleanups = append(cleanups, cleanup)
+				args = append(args,
+					"-c", fmt.Sprintf("hooks.PreToolUse=[{matcher=\"*\",hooks=[{type=\"command\",command=%q,timeout=300}]}]", script),
+					"--dangerously-bypass-hook-trust",
+				)
+			}
 		}
 		args = append(args, "-")
 		stdin = prompt
@@ -111,13 +160,29 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 			mode = "auto_edit"
 		case "full":
 			mode = "yolo"
+		case "ask":
+			if req.HookURL != "" {
+				mode = "yolo"
+			}
 		}
 		args = []string{"-p", prompt, "-m", req.Model.ID, "-o", "stream-json", "--skip-trust", "--approval-mode", mode}
+		if req.MCPURL != "" || req.HookURL != "" {
+			if home, cleanup, err := prepareGeminiHome(req.MCPURL, req.HookURL); err == nil {
+				envExtras["GEMINI_CLI_HOME"] = home
+				cleanups = append(cleanups, cleanup)
+				if req.MCPURL != "" {
+					args = append(args, "--allowed-mcp-server-names", "grox")
+				}
+			}
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "FORCE_COLOR=0")
+	for key, value := range envExtras {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -423,4 +488,103 @@ func str(v any) string {
 	default:
 		return fmt.Sprint(value)
 	}
+}
+
+func makeToolHookScript(hookURL, style string) (string, func(), error) {
+	file, err := os.CreateTemp("", "grox-hook-*.sh")
+	if err != nil {
+		return "", func() {}, err
+	}
+	path := file.Name()
+	endpoint := hookURL + "?style=" + style
+	script := "#!/bin/sh\ncurl -sS --max-time 300 -X POST " + shellQuote(endpoint) + " -H 'Content-Type: application/json' --data-binary @-\n"
+	if _, err := file.WriteString(script); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", func() {}, err
+	}
+	_ = file.Close()
+	if err := os.Chmod(path, 0o700); err != nil {
+		_ = os.Remove(path)
+		return "", func() {}, err
+	}
+	return path, func() { _ = os.Remove(path) }, nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func prepareGeminiHome(mcpURL, hookURL string) (string, func(), error) {
+	home, err := os.MkdirTemp("", "grox-gemini-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(home) }
+	realHome, err := os.UserHomeDir()
+	if err == nil {
+		realDir := filepath.Join(realHome, ".gemini")
+		if entries, readErr := os.ReadDir(realDir); readErr == nil {
+			for _, entry := range entries {
+				if entry.Name() == "settings.json" {
+					continue
+				}
+				_ = os.Symlink(filepath.Join(realDir, entry.Name()), filepath.Join(home, entry.Name()))
+			}
+		}
+	}
+	settings := map[string]any{}
+	if data, readErr := os.ReadFile(filepath.Join(home, "settings.json")); readErr == nil {
+		_ = json.Unmarshal(data, &settings)
+	}
+	// Merge the real user settings file when it exists (the symlink loop skipped it).
+	if realHome != "" {
+		if data, readErr := os.ReadFile(filepath.Join(realHome, ".gemini", "settings.json")); readErr == nil {
+			var realSettings map[string]any
+			if json.Unmarshal(data, &realSettings) == nil {
+				for key, value := range realSettings {
+					if _, exists := settings[key]; !exists {
+						settings[key] = value
+					}
+				}
+			}
+		}
+	}
+	if mcpURL != "" {
+		servers, _ := settings["mcpServers"].(map[string]any)
+		if servers == nil {
+			servers = map[string]any{}
+		}
+		servers["grox"] = map[string]any{"url": mcpURL, "type": "http"}
+		settings["mcpServers"] = servers
+	}
+	if hookURL != "" {
+		script, scriptCleanup, scriptErr := makeToolHookScript(hookURL, "gemini")
+		if scriptErr != nil {
+			cleanup()
+			return "", func() {}, scriptErr
+		}
+		hooks, _ := settings["hooks"].(map[string]any)
+		if hooks == nil {
+			hooks = map[string]any{}
+		}
+		hooks["BeforeTool"] = []any{map[string]any{
+			"matcher": "*",
+			"hooks":   []any{map[string]any{"type": "command", "command": script, "timeout": 300}},
+		}}
+		settings["hooks"] = hooks
+		// The script must outlive this helper; put its cleanup on the home cleanup.
+		previous := cleanup
+		cleanup = func() { scriptCleanup(); previous() }
+	}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), data, 0o600); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return home, cleanup, nil
 }
