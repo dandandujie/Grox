@@ -1,0 +1,990 @@
+{
+  "state": {
+    "version": 1,
+    "revision": 1,
+    "bots": [
+      {
+        "id": "bot-brody",
+        "name": "Brody",
+        "title": "Research \u0026 data",
+        "description": "Market maps, diligence, and clean sources.",
+        "soul": "You are Brody, a research analyst. Lead with the finding, keep sources close, and say when the data is weak. Prefer tables and short, decisive prose over a wall of caveats.",
+        "color": "coral",
+        "mascotShape": "cursor",
+        "expression": "idle",
+        "modelId": "grok-4.6",
+        "approval": "ask",
+        "notifications": true,
+        "speakReplies": false,
+        "pinned": false,
+        "hidden": false,
+        "archived": false,
+        "createdAt": "2026-10-11T01:28:30.010801-04:00",
+        "updatedAt": "2026-11-09T22:58:30.010801-05:00",
+        "lastActiveAt": "2026-11-09T22:58:30.010801-05:00",
+        "threads": [
+          {
+            "id": "thread-brody-home",
+            "botId": "bot-brody",
+            "title": "The AI market map",
+            "kind": "chat",
+            "pinned": false,
+            "unread": 0,
+            "busy": false,
+            "createdAt": "2026-11-08T22:28:30.010801-05:00",
+            "updatedAt": "2026-11-09T22:58:30.010801-05:00",
+            "messages": [
+              {
+                "id": "m-brody-1",
+                "role": "user",
+                "kind": "text",
+                "text": "Rebuild my AI market map. Last time the sheet was stale, and I want sources and a confidence column this time.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-08T22:28:30.010801-05:00",
+                "updatedAt": "2026-11-08T22:28:30.010801-05:00"
+              },
+              {
+                "id": "m-brody-2",
+                "role": "bot",
+                "kind": "text",
+                "text": "I rebuilt the list around the gap you flagged: the old sheet was six months stale and missed the entire agent wave.\n\n**What changed**\n- Added 24 companies, removed 9 that have been acquired or wound down.\n- Every row now carries source, last checked, and confidence.\n- The big gap is agents: Anthropic, OpenAI, Cursor, Cognition, and Sierra all moved.\n\n**Four things to know**\n- **Coordinates differ by source.** The original rows have exact HQ coordinates; new rows are city-level. There is a precision column so you can filter.\n- **Valuations are a cross-row trap.** They are as-of dates, not a snapshot. Do not sort by them.\n- **Private coverage is thin.** Wikipedia keeps public companies tidy and private ones messy. Confidence below 0.7 is flagged.\n- **Defunct companies are included on purpose.** They explain why a category looks less crowded than it really is.\n\nThe sheet is called **AI market map — Nov 2026**, with Companies, Summary, and Notes tabs. I would spend the next pass on the private agents list rather than refreshing public caps; that is where the decision is actually moving.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-09T22:58:30.010801-05:00",
+                "updatedAt": "2026-11-09T22:58:30.010801-05:00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bot-gitscout",
+        "name": "GitScout",
+        "title": "Code review",
+        "description": "Reads the diff before it types.",
+        "soul": "You are GitScout, a senior engineer who reviews code. Be direct, rank findings by risk, and always separate a correctness problem from a style preference.",
+        "color": "green",
+        "mascotShape": "cursor",
+        "expression": "working",
+        "modelId": "gpt-5.2-codex",
+        "approval": "ask",
+        "notifications": true,
+        "speakReplies": false,
+        "pinned": false,
+        "hidden": false,
+        "archived": false,
+        "createdAt": "2026-10-11T21:28:30.010801-04:00",
+        "updatedAt": "2026-11-09T19:28:30.010801-05:00",
+        "lastActiveAt": "2026-11-09T19:28:30.010801-05:00",
+        "threads": [
+          {
+            "id": "thread-gitscout-home",
+            "botId": "bot-gitscout",
+            "title": "Auth refactor review",
+            "kind": "chat",
+            "pinned": false,
+            "unread": 1,
+            "busy": false,
+            "createdAt": "2026-11-09T17:28:30.010801-05:00",
+            "updatedAt": "2026-11-09T19:28:30.010801-05:00",
+            "messages": [
+              {
+                "id": "m-git-1",
+                "role": "user",
+                "kind": "text",
+                "text": "Review the auth refactor on the open branch. I care more about the session edge cases than style.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-09T17:28:30.010801-05:00",
+                "updatedAt": "2026-11-09T17:28:30.010801-05:00"
+              },
+              {
+                "id": "m-git-2",
+                "role": "bot",
+                "kind": "text",
+                "text": "Reviewed the diff and ran the suite. Nothing is on fire, but two session edge cases would bite in production:\n\n- **Refresh during a revoke race.** The refresh token is rotated before the old session is revoked. A concurrent retry can revive a session you just killed. Move the revoke into the same transaction as the rotation.\n- **Clock skew on the 5-minute grace window.** The window is computed with server time only; clients behind by more than a minute see a one-time 401. Prefer the token's iat with a small skew allowance.\n\nThe rest is solid. I would ship the transaction fix before the grace window; it is the one with a security consequence.",
+                "pending": false,
+                "error": false,
+                "activities": [
+                  {
+                    "label": "Reading diff",
+                    "detail": "14 files · +312 −188",
+                    "status": "ok",
+                    "startedAt": "2026-11-09T19:27:50.010801-05:00"
+                  },
+                  {
+                    "label": "Running tests",
+                    "detail": "auth · 48 passed",
+                    "status": "ok",
+                    "startedAt": "2026-11-09T19:28:10.010801-05:00"
+                  }
+                ],
+                "createdAt": "2026-11-09T19:28:30.010801-05:00",
+                "updatedAt": "2026-11-09T19:28:30.010801-05:00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bot-emaily",
+        "name": "Emaily",
+        "title": "Inbox chief",
+        "description": "Drafts in your voice. Never sends without you.",
+        "soul": "You are Emaily, an inbox chief. Triage by what needs a human decision, draft replies that sound like the person you work for, and never send or delete without approval.",
+        "color": "teal",
+        "mascotShape": "blob",
+        "expression": "curious",
+        "modelId": "claude-sonnet-5",
+        "approval": "ask",
+        "notifications": true,
+        "speakReplies": false,
+        "pinned": false,
+        "hidden": false,
+        "archived": false,
+        "createdAt": "2026-10-13T23:28:30.010801-04:00",
+        "updatedAt": "2026-11-09T22:28:30.010801-05:00",
+        "lastActiveAt": "2026-11-09T22:28:30.010801-05:00",
+        "threads": [
+          {
+            "id": "thread-emaily-home",
+            "botId": "bot-emaily",
+            "title": "Morning inbox sweep",
+            "kind": "chat",
+            "pinned": false,
+            "unread": 2,
+            "busy": false,
+            "createdAt": "2026-11-09T21:28:30.010801-05:00",
+            "updatedAt": "2026-11-09T22:28:30.010801-05:00",
+            "messages": [
+              {
+                "id": "m-mail-1",
+                "role": "user",
+                "kind": "text",
+                "text": "Sweep the inbox. Draft anything that needs a reply and tell me what can be archived.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-09T21:28:30.010801-05:00",
+                "updatedAt": "2026-11-09T21:28:30.010801-05:00"
+              },
+              {
+                "id": "m-mail-2",
+                "role": "bot",
+                "kind": "text",
+                "text": "Three messages need you today, and the rest is noise.\n\n- **Alex · contract redlines** — replies with two questions. A draft is ready.\n- **Nina · Thursday offsite** — she needs a headcount by noon. A draft is ready.\n- **Stripe · failed payout** — this one looks like a real action item. I did not touch it.\n\nThere are 41 newsletters and 12 notifications I can archive.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-09T22:08:30.010801-05:00",
+                "updatedAt": "2026-11-09T22:08:30.010801-05:00"
+              },
+              {
+                "id": "m-mail-3",
+                "role": "bot",
+                "kind": "approval",
+                "text": "",
+                "status": "pending",
+                "pending": false,
+                "error": false,
+                "approval": {
+                  "title": "Archive 53 low-value messages?",
+                  "command": "gmail archive --query \"category:promotions OR category:updates\" --older-than 7d",
+                  "reason": "Keeps the three messages that need you and clears the rest from the inbox.",
+                  "risk": "Reversible for 30 days",
+                  "decidedAt": "0001-01-01T00:00:00Z"
+                },
+                "createdAt": "2026-11-09T22:28:30.010801-05:00",
+                "updatedAt": "2026-11-09T22:28:30.010801-05:00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bot-omiii",
+        "name": "Omiii",
+        "title": "Operations",
+        "description": "Turns plans into owners and dates.",
+        "soul": "You are Omiii, an operations lead. When asked to prioritize, force a tradeoff, name an owner, and end with a single next action.",
+        "color": "green",
+        "mascotShape": "circle",
+        "expression": "happy",
+        "modelId": "gemini-3-pro",
+        "approval": "auto",
+        "notifications": true,
+        "speakReplies": false,
+        "pinned": false,
+        "hidden": false,
+        "archived": false,
+        "createdAt": "2026-10-16T01:28:30.010801-04:00",
+        "updatedAt": "2026-11-08T21:28:30.010801-05:00",
+        "lastActiveAt": "2026-11-08T21:28:30.010801-05:00",
+        "threads": [
+          {
+            "id": "thread-omiii-home",
+            "botId": "bot-omiii",
+            "title": "This week's priorities",
+            "kind": "chat",
+            "pinned": false,
+            "unread": 1,
+            "busy": false,
+            "createdAt": "2026-11-08T00:28:30.010801-05:00",
+            "updatedAt": "2026-11-08T21:28:30.010801-05:00",
+            "messages": [
+              {
+                "id": "m-ops-1",
+                "role": "user",
+                "kind": "text",
+                "text": "Help me choose the one thing the team should finish this week.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-08T00:28:30.010801-05:00",
+                "updatedAt": "2026-11-08T00:28:30.010801-05:00"
+              },
+              {
+                "id": "m-ops-2",
+                "role": "bot",
+                "kind": "text",
+                "text": "The week is carrying three \"musts\" and none of them has an owner. Before I recommend a winner, what is the actual constraint: shipping the beta, keeping the launch date, or protecting the team's focus?",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-08T21:28:30.010801-05:00",
+                "updatedAt": "2026-11-08T21:28:30.010801-05:00"
+              },
+              {
+                "id": "m-ops-3",
+                "role": "bot",
+                "kind": "options",
+                "text": "What should this week optimize for?",
+                "status": "pending",
+                "pending": false,
+                "error": false,
+                "options": [
+                  {
+                    "id": "a",
+                    "label": "Ship the beta",
+                    "description": "Cut everything that does not unblock external testers."
+                  },
+                  {
+                    "id": "b",
+                    "label": "Hold the launch date",
+                    "description": "Protect the date, trade scope instead."
+                  },
+                  {
+                    "id": "c",
+                    "label": "Protect focus",
+                    "description": "One priority, everything else waits."
+                  },
+                  {
+                    "id": "d",
+                    "label": "A bit of everything",
+                    "description": "Keep every thread moving, accept slower progress."
+                  }
+                ],
+                "createdAt": "2026-11-08T21:28:30.010801-05:00",
+                "updatedAt": "2026-11-08T21:28:30.010801-05:00"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bot-onyx",
+        "name": "Onyx",
+        "title": "Personal",
+        "description": "A second brain for the week.",
+        "soul": "You are Onyx, a warm, concise personal assistant. Learn how the person likes to work, remember it, and keep the week honest without adding pressure.",
+        "color": "blue",
+        "mascotShape": "cursor",
+        "expression": "curious",
+        "modelId": "claude-sonnet-5",
+        "approval": "ask",
+        "notifications": true,
+        "speakReplies": false,
+        "pinned": false,
+        "hidden": false,
+        "archived": false,
+        "createdAt": "2026-11-09T04:28:30.010801-05:00",
+        "updatedAt": "2026-11-10T00:19:30.010801-05:00",
+        "lastActiveAt": "2026-11-10T00:19:30.010801-05:00",
+        "threads": [
+          {
+            "id": "thread-onyx-home",
+            "botId": "bot-onyx",
+            "title": "Getting to know you",
+            "kind": "chat",
+            "pinned": false,
+            "unread": 0,
+            "busy": false,
+            "createdAt": "2026-11-10T00:18:30.010801-05:00",
+            "updatedAt": "2026-11-10T00:19:30.010801-05:00",
+            "messages": [
+              {
+                "id": "m-onyx-1",
+                "role": "bot",
+                "kind": "text",
+                "text": "Hey — I'm Onyx. Nice to meet you.",
+                "pending": false,
+                "error": false,
+                "createdAt": "2026-11-10T00:18:30.010801-05:00",
+                "updatedAt": "2026-11-10T00:18:30.010801-05:00"
+              },
+              {
+                "id": "m-onyx-2",
+                "role": "bot",
+                "kind": "options",
+                "text": "What do you mostly want help with?",
+                "status": "pending",
+                "pending": false,
+                "error": false,
+                "options": [
+                  {
+                    "id": "a",
+                    "label": "Work \u0026 projects",
+                    "description": "Research, writing, code, and planning."
+                  },
+                  {
+                    "id": "b",
+                    "label": "Writing \u0026 research",
+                    "description": "Long-form thinking, sources, and first drafts."
+                  },
+                  {
+                    "id": "c",
+                    "label": "Life admin",
+                    "description": "Inbox, calendar, travel, and the small stuff."
+                  },
+                  {
+                    "id": "d",
+                    "label": "A bit of everything",
+                    "description": "Start broad and let the shape emerge."
+                  }
+                ],
+                "createdAt": "2026-11-10T00:19:30.010801-05:00",
+                "updatedAt": "2026-11-10T00:19:30.010801-05:00"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "routines": [
+      {
+        "id": "routine-brody-brief",
+        "botId": "bot-brody",
+        "name": "Morning research brief",
+        "prompt": "Scan the last 24 hours in AI infrastructure. Send me three things that changed and one thing I should read in full.",
+        "cadence": "weekdays",
+        "timeOfDay": "08:00",
+        "weekday": 0,
+        "enabled": true,
+        "nextRun": "2026-11-10T08:00:00-05:00",
+        "lastRun": "0001-01-01T00:00:00Z",
+        "createdAt": "2026-10-28T13:28:30.010801-04:00",
+        "updatedAt": "2026-10-28T13:28:30.010801-04:00"
+      },
+      {
+        "id": "routine-emaily-sweep",
+        "botId": "bot-emaily",
+        "name": "Inbox sweep",
+        "prompt": "Triage the inbox. Draft replies for anything that needs me, and list what can be archived.",
+        "cadence": "weekdays",
+        "timeOfDay": "09:00",
+        "weekday": 0,
+        "enabled": true,
+        "nextRun": "2026-11-10T09:00:00-05:00",
+        "lastRun": "0001-01-01T00:00:00Z",
+        "createdAt": "2026-10-29T09:28:30.010801-04:00",
+        "updatedAt": "2026-10-29T09:28:30.010801-04:00"
+      },
+      {
+        "id": "routine-gitscout-health",
+        "botId": "bot-gitscout",
+        "name": "Repo health check",
+        "prompt": "Check open pull requests and failing CI. Summarize what needs a human today.",
+        "cadence": "weekly",
+        "timeOfDay": "10:00",
+        "weekday": 1,
+        "enabled": false,
+        "nextRun": "2026-11-16T10:00:00-05:00",
+        "lastRun": "0001-01-01T00:00:00Z",
+        "createdAt": "2026-10-30T05:28:30.010801-04:00",
+        "updatedAt": "2026-10-30T05:28:30.010801-04:00"
+      },
+      {
+        "id": "routine-omiii-week",
+        "botId": "bot-omiii",
+        "name": "Weekly plan",
+        "prompt": "Look at the week ahead and name the single constraint. Give me one priority and the tradeoff.",
+        "cadence": "weekly",
+        "timeOfDay": "09:30",
+        "weekday": 1,
+        "enabled": true,
+        "nextRun": "2026-11-16T09:30:00-05:00",
+        "lastRun": "0001-01-01T00:00:00Z",
+        "createdAt": "2026-10-31T01:28:30.010801-04:00",
+        "updatedAt": "2026-10-31T01:28:30.010801-04:00"
+      }
+    ],
+    "runs": [
+      {
+        "id": "run-seed-1",
+        "routineId": "routine-brody-brief",
+        "botId": "bot-brody",
+        "threadId": "thread-brody-home",
+        "title": "Morning research brief",
+        "status": "completed",
+        "startedAt": "2026-11-08T22:28:30.010801-05:00",
+        "finishedAt": "2026-11-08T22:32:30.010801-05:00",
+        "summary": "Rebuilt the AI market map and wrote the notes tab."
+      },
+      {
+        "id": "run-seed-2",
+        "routineId": "routine-emaily-sweep",
+        "botId": "bot-emaily",
+        "threadId": "thread-emaily-home",
+        "title": "Inbox sweep",
+        "status": "completed",
+        "startedAt": "2026-11-09T21:28:30.010801-05:00",
+        "finishedAt": "2026-11-09T21:30:30.010801-05:00",
+        "summary": "Triaged 56 messages, drafted 2 replies."
+      }
+    ],
+    "connections": {
+      "cloudflare": {
+        "id": "cloudflare",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "discord": {
+        "id": "discord",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "figma": {
+        "id": "figma",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "github": {
+        "id": "github",
+        "connected": true,
+        "account": "workspace",
+        "connectedAt": "2026-11-01T16:28:30.010801-05:00"
+      },
+      "gmail": {
+        "id": "gmail",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "google-calendar": {
+        "id": "google-calendar",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "google-docs": {
+        "id": "google-docs",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "google-drive": {
+        "id": "google-drive",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "google-sheets": {
+        "id": "google-sheets",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "linear": {
+        "id": "linear",
+        "connected": true,
+        "account": "workspace",
+        "connectedAt": "2026-11-01T16:28:30.010801-05:00"
+      },
+      "notion": {
+        "id": "notion",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "postgres": {
+        "id": "postgres",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "sentry": {
+        "id": "sentry",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "slack": {
+        "id": "slack",
+        "connected": true,
+        "account": "workspace",
+        "connectedAt": "2026-11-01T16:28:30.010801-05:00"
+      },
+      "spotify": {
+        "id": "spotify",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "stripe": {
+        "id": "stripe",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "telegram": {
+        "id": "telegram",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "vercel": {
+        "id": "vercel",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "x": {
+        "id": "x",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      },
+      "zapier": {
+        "id": "zapier",
+        "connected": false,
+        "connectedAt": "0001-01-01T00:00:00Z"
+      }
+    },
+    "settings": {
+      "theme": "midnight",
+      "language": "en",
+      "sidebarWidth": 312,
+      "advanced": true,
+      "reduceMotion": false,
+      "notifications": true,
+      "sounds": false,
+      "engineMode": "auto",
+      "apiBaseUrl": "",
+      "apiModel": ""
+    },
+    "activeBotId": "bot-brody",
+    "activeThreadId": "thread-brody-home",
+    "createdAt": "2026-11-10T00:28:30.010801-05:00",
+    "updatedAt": "2026-11-10T00:28:30.010801-05:00"
+  },
+  "providers": [
+    {
+      "id": "grok",
+      "name": "xAI",
+      "kind": "cli",
+      "accent": "#f2f2f2",
+      "status": "ready",
+      "detail": "",
+      "signedIn": false,
+      "models": [
+        {
+          "id": "grok-4.6",
+          "name": "Grok 4.6",
+          "provider": "grok",
+          "providerName": "xAI",
+          "accent": "#f2f2f2",
+          "description": "Frontier reasoning · long context",
+          "default": true,
+          "available": true
+        },
+        {
+          "id": "grok-4.5",
+          "name": "Grok 4.5",
+          "provider": "grok",
+          "providerName": "xAI",
+          "accent": "#f2f2f2",
+          "description": "Fast, balanced generalist",
+          "default": false,
+          "available": true
+        },
+        {
+          "id": "grok-code-fast",
+          "name": "Grok Code Fast",
+          "provider": "grok",
+          "providerName": "xAI",
+          "accent": "#f2f2f2",
+          "description": "Built for agentic coding",
+          "default": false,
+          "available": true
+        },
+        {
+          "id": "grok-3-mini",
+          "name": "Grok 3 Mini",
+          "provider": "grok",
+          "providerName": "xAI",
+          "accent": "#f2f2f2",
+          "description": "Cheap and quick for small jobs",
+          "default": false,
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "claude",
+      "name": "Anthropic",
+      "kind": "cli",
+      "accent": "#d97757",
+      "status": "ready",
+      "detail": "",
+      "signedIn": false,
+      "models": [
+        {
+          "id": "claude-sonnet-5",
+          "name": "Claude Sonnet 5",
+          "provider": "claude",
+          "providerName": "Anthropic",
+          "accent": "#d97757",
+          "description": "Everyday workhorse",
+          "default": true,
+          "available": true
+        },
+        {
+          "id": "claude-opus-4-6",
+          "name": "Claude Opus 4.6",
+          "provider": "claude",
+          "providerName": "Anthropic",
+          "accent": "#d97757",
+          "description": "Deepest reasoning",
+          "default": false,
+          "available": true
+        },
+        {
+          "id": "claude-haiku-4-5",
+          "name": "Claude Haiku 4.5",
+          "provider": "claude",
+          "providerName": "Anthropic",
+          "accent": "#d97757",
+          "description": "Fastest replies",
+          "default": false,
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "kind": "cli",
+      "accent": "#74aa9c",
+      "status": "ready",
+      "detail": "",
+      "signedIn": false,
+      "models": [
+        {
+          "id": "gpt-5.2",
+          "name": "GPT-5.2",
+          "provider": "openai",
+          "providerName": "OpenAI",
+          "accent": "#74aa9c",
+          "description": "General reasoning",
+          "default": true,
+          "available": true
+        },
+        {
+          "id": "gpt-5.2-codex",
+          "name": "GPT-5.2 Codex",
+          "provider": "openai",
+          "providerName": "OpenAI",
+          "accent": "#74aa9c",
+          "description": "Agentic coding",
+          "default": false,
+          "available": true
+        },
+        {
+          "id": "gpt-5-mini",
+          "name": "GPT-5 Mini",
+          "provider": "openai",
+          "providerName": "OpenAI",
+          "accent": "#74aa9c",
+          "description": "Small and fast",
+          "default": false,
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "kind": "cli",
+      "accent": "#4285f4",
+      "status": "ready",
+      "detail": "",
+      "signedIn": false,
+      "models": [
+        {
+          "id": "gemini-3-pro",
+          "name": "Gemini 3 Pro",
+          "provider": "google",
+          "providerName": "Google",
+          "accent": "#4285f4",
+          "description": "Multimodal reasoning",
+          "default": true,
+          "available": true
+        },
+        {
+          "id": "gemini-3-flash",
+          "name": "Gemini 3 Flash",
+          "provider": "google",
+          "providerName": "Google",
+          "accent": "#4285f4",
+          "description": "Low latency",
+          "default": false,
+          "available": true
+        }
+      ]
+    },
+    {
+      "id": "local",
+      "name": "On this Mac",
+      "kind": "local",
+      "accent": "#38bdf8",
+      "status": "builtin",
+      "detail": "Always available",
+      "signedIn": false,
+      "models": [
+        {
+          "id": "grox-demo",
+          "name": "Grox Demo",
+          "provider": "local",
+          "providerName": "On this Mac",
+          "accent": "#38bdf8",
+          "description": "Scripted local engine · no account needed",
+          "default": true,
+          "available": true
+        }
+      ]
+    }
+  ],
+  "apps": [
+    {
+      "id": "slack",
+      "name": "Slack",
+      "description": "Post updates and read channels",
+      "category": "Communication",
+      "color": "#4A154B",
+      "icon": "slack",
+      "connected": true,
+      "account": "workspace"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Issues, pull requests, and code",
+      "category": "Developer",
+      "color": "#181717",
+      "icon": "github",
+      "connected": true,
+      "account": "workspace"
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "description": "Read and send email",
+      "category": "Communication",
+      "color": "#EA4335",
+      "icon": "gmail",
+      "connected": false
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google Calendar",
+      "description": "Read and create events",
+      "category": "Productivity",
+      "color": "#4285F4",
+      "icon": "googlecalendar",
+      "connected": false
+    },
+    {
+      "id": "google-sheets",
+      "name": "Google Sheets",
+      "description": "Read and update spreadsheets",
+      "category": "Productivity",
+      "color": "#34A853",
+      "icon": "googlesheets",
+      "connected": false
+    },
+    {
+      "id": "google-docs",
+      "name": "Google Docs",
+      "description": "Read and write documents",
+      "category": "Productivity",
+      "color": "#4285F4",
+      "icon": "googledocs",
+      "connected": false
+    },
+    {
+      "id": "google-drive",
+      "name": "Google Drive",
+      "description": "Browse and manage files",
+      "category": "Productivity",
+      "color": "#FBBC04",
+      "icon": "googledrive",
+      "connected": false
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "description": "Pages and databases",
+      "category": "Productivity",
+      "color": "#111111",
+      "icon": "notion",
+      "connected": false
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "description": "Issues and project tracking",
+      "category": "Developer",
+      "color": "#5E6AD2",
+      "icon": "linear",
+      "connected": true,
+      "account": "workspace"
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "description": "Errors and alerts",
+      "category": "Developer",
+      "color": "#362D59",
+      "icon": "sentry",
+      "connected": false
+    },
+    {
+      "id": "figma",
+      "name": "Figma",
+      "description": "Designs and comments",
+      "category": "Design",
+      "color": "#F24E1E",
+      "icon": "figma",
+      "connected": false
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "description": "Customers, invoices, and payments",
+      "category": "Finance",
+      "color": "#635BFF",
+      "icon": "stripe",
+      "connected": false
+    },
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "description": "Playlists and what is playing",
+      "category": "Lifestyle",
+      "color": "#1DB954",
+      "icon": "spotify",
+      "connected": false
+    },
+    {
+      "id": "x",
+      "name": "X",
+      "description": "Posts, mentions, and trends",
+      "category": "Social",
+      "color": "#111111",
+      "icon": "x",
+      "connected": false
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "description": "Servers and messages",
+      "category": "Communication",
+      "color": "#5865F2",
+      "icon": "discord",
+      "connected": false
+    },
+    {
+      "id": "telegram",
+      "name": "Telegram",
+      "description": "Chats and channels",
+      "category": "Communication",
+      "color": "#26A5E4",
+      "icon": "telegram",
+      "connected": false
+    },
+    {
+      "id": "postgres",
+      "name": "Postgres",
+      "description": "Query your databases",
+      "category": "Developer",
+      "color": "#4169E1",
+      "icon": "postgresql",
+      "connected": false
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "description": "Deployments and domains",
+      "category": "Developer",
+      "color": "#111111",
+      "icon": "vercel",
+      "connected": false
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "description": "Zones, DNS, and Workers",
+      "category": "Developer",
+      "color": "#F38020",
+      "icon": "cloudflare",
+      "connected": false
+    },
+    {
+      "id": "zapier",
+      "name": "Zapier",
+      "description": "Connect 7,000 more apps",
+      "category": "Automation",
+      "color": "#FF4F00",
+      "icon": "zapier",
+      "connected": false
+    }
+  ],
+  "engines": [
+    {
+      "providerId": "grok",
+      "command": "grok",
+      "version": "1.0.13",
+      "status": "ready",
+      "detail": "Installed"
+    },
+    {
+      "providerId": "claude",
+      "command": "claude",
+      "version": "2.1.311",
+      "status": "ready",
+      "detail": "Installed"
+    },
+    {
+      "providerId": "openai",
+      "command": "codex",
+      "version": "0.164.0",
+      "status": "ready",
+      "detail": "Installed"
+    },
+    {
+      "providerId": "google",
+      "command": "gemini",
+      "version": "0.34.0",
+      "status": "ready",
+      "detail": "Installed"
+    }
+  ],
+  "secrets": {
+    "configured": {
+      "openai": true,
+      "xai": true
+    },
+    "hints": {
+      "openai": "••••7def",
+      "xai": "••••9abc"
+    }
+  },
+  "version": "0.1.0",
+  "platform": "darwin",
+  "dataDir": "~/Library/Application Support/Grox",
+  "demoMode": false
+}

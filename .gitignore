@@ -1,0 +1,10 @@
+node_modules/
+/dist/
+/build/
+/.mygo/
+.DS_Store
+*.log
+mygo_windows_*.syso
+*.syso
+coverage.out
+.lingma/

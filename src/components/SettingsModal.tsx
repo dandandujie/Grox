@@ -1,0 +1,500 @@
+import { useEffect, useState } from "react";
+import {
+  ChevronRight, Cloud, Database, Eye, EyeOff, FolderOpen, Globe, Info, KeyRound, Laptop,
+  Languages, MonitorSpeaker, Palette, Play, RefreshCw, Save, ShieldCheck, Sparkles, Trash2,
+  Volume2, X,
+} from "lucide-react";
+import { useApp, type SettingsSection } from "@/state/store";
+import { Segmented, Switch, Spinner } from "@/components/ui";
+import { GroxLogo, ProviderMark } from "@/components/Icons";
+import { cn } from "@/lib/cn";
+import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
+import type { Settings } from "@/lib/bridge";
+
+const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
+  { id: "general", label: "General", icon: <Palette size={16} /> },
+  { id: "connections", label: "Connections", icon: <KeyRound size={16} /> },
+  { id: "engines", label: "Engines", icon: <Sparkles size={16} /> },
+  { id: "computer", label: "Computers", icon: <Laptop size={16} /> },
+  { id: "voice", label: "Voice", icon: <Volume2 size={16} /> },
+  { id: "data", label: "Data & privacy", icon: <Database size={16} /> },
+  { id: "about", label: "About", icon: <Info size={16} /> },
+];
+
+const SKINS = [
+  { id: "midnight", label: "Midnight", colors: ["#0e0e0e", "#202020", "#1084fe"] },
+  { id: "daylight", label: "Daylight", colors: ["#f5f5f5", "#ffffff", "#126fd4"] },
+  { id: "atelier", label: "Atelier", colors: ["#fbf8f2", "#ffffff", "#a05f25"] },
+  { id: "foundry", label: "Foundry", colors: ["#171410", "#262019", "#d99a3e"] },
+];
+
+const KEY_FIELDS = [
+  { name: "xai", label: "xAI API key", hint: "For Grok models over the xAI API.", placeholder: "xai-…" },
+  { name: "anthropic", label: "Anthropic API key", hint: "Used by the Claude engine.", placeholder: "sk-ant-…" },
+  { name: "openai", label: "OpenAI API key", hint: "Used by the Codex engine.", placeholder: "sk-…" },
+  { name: "google", label: "Google AI API key", hint: "Used by Gemini models.", placeholder: "AIza…" },
+  { name: "composio", label: "Composio project key", hint: "For connected apps. OAuth is not wired in this build.", placeholder: "ak_…" },
+  { name: "api", label: "Custom API key", hint: "For an OpenAI-compatible gateway or a local model.", placeholder: "Optional" },
+];
+
+const ENGINE_LABEL: Record<string, string> = {
+  grok: "Grok CLI",
+  claude: "Claude Code",
+  openai: "Codex CLI",
+  google: "Gemini CLI",
+};
+
+function SectionCard({ title, hint, children, action }: { title: string; hint?: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <section className="settings-card">
+      <div className="settings-card-head">
+        <div>
+          <h3>{title}</h3>
+          {hint && <p>{hint}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function GeneralSection() {
+  const { state, patchSettings } = useApp();
+  const settings = state.settings;
+  return (
+    <>
+      <SectionCard title="Appearance" hint="The skin changes every surface, including menus and the transcript.">
+        <div className="skin-grid">
+          {SKINS.map((skin) => (
+            <button
+              key={skin.id}
+              type="button"
+              className={cn("skin-option", settings.theme === skin.id && "is-selected")}
+              onClick={() => void patchSettings({ theme: skin.id })}
+            >
+              <span className="skin-preview" style={{ background: skin.colors[0] }}>
+                <span className="skin-side" style={{ background: skin.colors[1] }} />
+                <span className="skin-dot" style={{ background: skin.colors[2] }} />
+              </span>
+              <span>{skin.label}</span>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Interface" hint="Grox starts with the whole surface visible. Advanced mode adds engine and routing detail.">
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Advanced mode</span>
+            <span className="row-sub">Show model routing, engine detail, and activity panels.</span>
+          </span>
+          <Switch checked={settings.advanced} label="Advanced mode" onChange={(advanced) => void patchSettings({ advanced })} />
+        </div>
+        <div className="row-divider" />
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Reduce motion</span>
+            <span className="row-sub">Stop the message arrival and mascot animations.</span>
+          </span>
+          <Switch checked={settings.reduceMotion} label="Reduce motion" onChange={(reduceMotion) => void patchSettings({ reduceMotion })} />
+        </div>
+        <div className="row-divider" />
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Notifications</span>
+            <span className="row-sub">Notify you when a background task finishes.</span>
+          </span>
+          <Switch checked={settings.notifications} label="Notifications" onChange={(notifications) => {
+            if (notifications && "Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+            void patchSettings({ notifications });
+          }} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Sidebar" hint="Drag the edge of the sidebar at any time.">
+        <div className="settings-inline">
+          <span className="settings-inline-label">Width</span>
+          <input
+            type="range"
+            min={252}
+            max={420}
+            value={settings.sidebarWidth}
+            onChange={(event) => void patchSettings({ sidebarWidth: Number(event.target.value) })}
+          />
+          <span className="settings-inline-value">{settings.sidebarWidth}px</span>
+        </div>
+        <div className="row-divider" />
+        <div className="settings-inline">
+          <span className="settings-inline-label">Accent</span>
+          <span className="settings-inline-value">Follows the skin</span>
+        </div>
+      </SectionCard>
+    </>
+  );
+}
+
+function ConnectionsSection() {
+  const { secrets, saveSecret, clearSecret } = useApp();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [show, setShow] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const save = async (name: string) => {
+    const value = values[name]?.trim();
+    if (!value) return;
+    setBusy(name);
+    const ok = await saveSecret(name, value);
+    setBusy(null);
+    if (ok) setValues((previous) => ({ ...previous, [name]: "" }));
+  };
+
+  return (
+    <>
+      <SectionCard title="Keys" hint="Stored locally in your Grox workspace. The page only ever sees whether a key exists.">
+        <div className="key-list">
+          {KEY_FIELDS.map((field) => {
+            const configured = secrets.configured[field.name];
+            return (
+              <div className="key-row" key={field.name}>
+                <div className="key-head">
+                  <div className="key-title">
+                    <span className={cn("key-dot", configured && "is-on")} />
+                    <span>{field.label}</span>
+                    <span className="key-optional">optional</span>
+                    {configured && <span className="key-configured">Configured {secrets.hints[field.name]}</span>}
+                  </div>
+                  {configured && (
+                    <button type="button" className="link-button danger-text" onClick={() => void clearSecret(field.name)}>Clear</button>
+                  )}
+                </div>
+                <p className="key-hint">{field.hint}</p>
+                <div className="key-input-row">
+                  <div className="input-with-icon">
+                    <KeyRound size={14} />
+                    <input
+                      type={show[field.name] ? "text" : "password"}
+                      value={values[field.name] ?? ""}
+                      onChange={(event) => setValues((previous) => ({ ...previous, [field.name]: event.target.value }))}
+                      onKeyDown={(event) => { if (event.key === "Enter") void save(field.name); }}
+                      placeholder={configured ? "Paste a new key to replace" : field.placeholder}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={show[field.name] ? "Hide key" : "Show key"}
+                    onClick={() => setShow((previous) => ({ ...previous, [field.name]: !previous[field.name] }))}
+                  >
+                    {show[field.name] ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                  <button type="button" className="btn btn-secondary" disabled={!values[field.name]?.trim() || busy === field.name} onClick={() => void save(field.name)}>
+                    {busy === field.name ? <Spinner size={13} /> : <Save size={13} />} Save
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+      <SectionCard title="Connected apps" hint="Composio OAuth is not part of this build. The Connected apps page records local toggles; your bots do not receive a live app session yet.">
+        <p className="settings-note">Keys never leave this machine. For a real app session, add the Composio key above and wire the connector in a later iteration.</p>
+      </SectionCard>
+    </>
+  );
+}
+
+function EnginesSection() {
+  const { engines, state, patchSettings, refreshCatalog, providers } = useApp();
+  const [refreshing, setRefreshing] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(state.settings.apiBaseUrl);
+  const [apiModel, setApiModel] = useState(state.settings.apiModel);
+
+  useEffect(() => {
+    setBaseUrl(state.settings.apiBaseUrl);
+    setApiModel(state.settings.apiModel);
+  }, [state.settings.apiBaseUrl, state.settings.apiModel]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await refreshCatalog();
+    setRefreshing(false);
+  };
+
+  const saveAPI = () => {
+    void patchSettings({ apiBaseUrl: baseUrl.trim(), apiModel: apiModel.trim() });
+  };
+
+  return (
+    <>
+      <SectionCard
+        title="Local engines"
+        hint="Grox uses the agent CLIs installed on this Mac, with their own logins. An installed CLI may still need signing in."
+        action={<button type="button" className="btn btn-ghost" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />} Refresh</button>}
+      >
+        <div className="engine-list">
+          {["grok", "claude", "openai", "google"].map((provider) => {
+            const engine = engines.find((item) => item.providerId === provider);
+            const ready = engine?.status === "ready";
+            return (
+              <div className="engine-row" key={provider}>
+                <span className="engine-mark"><ProviderMark provider={provider} size={18} /></span>
+                <span className="engine-copy">
+                  <span className="engine-name">{ENGINE_LABEL[provider]}</span>
+                  <span className="engine-detail">{ready ? (engine?.version || engine?.command) : "Not installed · connect a key or install the CLI"}</span>
+                </span>
+                <span className={cn("engine-status", ready ? "is-ready" : "is-missing")}>{ready ? "Installed" : "Missing"}</span>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Engine preference" hint="Auto uses the engine behind the bot's model. Pick one engine to route every bot there.">
+        <Segmented
+          label="Engine preference"
+          value={state.settings.engineMode}
+          options={[
+            { value: "auto", label: "Auto" },
+            { value: "demo", label: "Demo" },
+            { value: "grok", label: "Grok" },
+            { value: "claude", label: "Claude" },
+            { value: "codex", label: "Codex" },
+            { value: "gemini", label: "Gemini" },
+            { value: "api", label: "API" },
+          ]}
+          onChange={(engineMode) => void patchSettings({ engineMode })}
+        />
+        <p className="settings-note">
+          Approval stays honest: Ask uses each CLI's read-only mode, Auto accepts edits, Full bypasses the CLI's own checks. The app itself also asks before the demo engine touches anything.
+        </p>
+      </SectionCard>
+
+      <SectionCard title="OpenAI-compatible API" hint="Use a gateway, a local Ollama/LM Studio server, or an OpenAI/xAI key.">
+        <div className="settings-form">
+          <label className="panel-field">
+            <span>Base URL</span>
+            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:11434/v1" spellCheck={false} />
+          </label>
+          <label className="panel-field">
+            <span>Model ID</span>
+            <input value={apiModel} onChange={(event) => setApiModel(event.target.value)} placeholder="qwen3.5:8b" spellCheck={false} />
+          </label>
+          <div className="settings-form-actions">
+            <button type="button" className="btn btn-primary" onClick={saveAPI}><Save size={14} /> Save API settings</button>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Model catalog" hint="Every model in the picker. A dimmed provider is not connected.">
+        <div className="catalog-list">
+          {providers.map((provider) => (
+            <div className="catalog-group" key={provider.id}>
+              <div className="catalog-head"><ProviderMark provider={provider.id} size={15} /> {provider.name}<span>{provider.models.length} models</span></div>
+              <div className="catalog-models">
+                {provider.models.map((model) => (
+                  <span key={model.id} className={cn("catalog-chip", !model.available && "is-dim")}>{model.name}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+    </>
+  );
+}
+
+function ComputerSection() {
+  const { boot, revealDataFolder } = useApp();
+  return (
+    <>
+      <SectionCard title="This Mac" hint="Agents run as local processes under your account. Grox does not upload your files.">
+        <div className="computer-info">
+          <span className="computer-info-icon"><Laptop size={22} /></span>
+          <div>
+            <div className="row-title">Local workspace</div>
+            <div className="panel-mono">{boot.dataDir}</div>
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={revealDataFolder}><FolderOpen size={14} /> Reveal</button>
+        </div>
+      </SectionCard>
+      <SectionCard title="Cloud computers" hint="Not included in this build.">
+        <div className="empty-cloud">
+          <Cloud size={24} />
+          <div>
+            <strong>Cloud computers are intentionally absent.</strong>
+            <p>The original product this UI is modeled on spins up a remote desktop for each bot. Grox is local-first: the CLI runs on your machine, with your login and your folder. A hosted computer would need a separate service and is not faked here.</p>
+          </div>
+        </div>
+      </SectionCard>
+      <SectionCard title="Safety" hint="The boundaries the app enforces today.">
+        <ul className="settings-bullets">
+          <li><ShieldCheck size={14} /> Approval mode is passed to the CLI; the demo engine asks in-app.</li>
+          <li><ShieldCheck size={14} /> API keys are written to a 0600 file and never sent back to the page.</li>
+          <li><ShieldCheck size={14} /> The app never opens a browser or executes a network tool on its own.</li>
+        </ul>
+      </SectionCard>
+    </>
+  );
+}
+
+function VoiceSection() {
+  const { toast } = useApp();
+  const [voiceName, setVoiceName] = useState("");
+  const voices = typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis.getVoices() : [];
+  const test = () => {
+    if (!("speechSynthesis" in window)) {
+      toast({ kind: "error", title: "No system voice available" });
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance("This is how a Grox reply sounds on this machine.");
+    const voice = voices.find((item) => item.name === voiceName);
+    if (voice) utterance.voice = voice;
+    window.speechSynthesis.speak(utterance);
+  };
+  return (
+    <>
+      <SectionCard title="System voice" hint="Grox uses the voices already installed on your machine. Each bot can read its replies aloud.">
+        <div className="settings-form">
+          <label className="panel-field">
+            <span>Voice</span>
+            <select value={voiceName} onChange={(event) => setVoiceName(event.target.value)}>
+              <option value="">System default</option>
+              {voices.map((voice) => <option key={voice.name} value={voice.name}>{voice.name} · {voice.lang}</option>)}
+            </select>
+          </label>
+          <div className="settings-form-actions">
+            <button type="button" className="btn btn-secondary" onClick={test}><Play size={14} /> Test voice</button>
+          </div>
+        </div>
+      </SectionCard>
+      <SectionCard title="Voice calls" hint="Live call transport is not part of this build.">
+        <p className="settings-note">Replies can be spoken from the speaker icon beside any message. A real-time call needs a microphone pipeline and a streaming speech service; that is not wired here.</p>
+      </SectionCard>
+    </>
+  );
+}
+
+function DataSection() {
+  const { boot, exportWorkspace, resetWorkspace, revealDataFolder } = useApp();
+  return (
+    <>
+      <SectionCard title="Workspace" hint="The single JSON document that holds bots, conversations, routines, and connections.">
+        <div className="data-row">
+          <span className="data-label">Location</span>
+          <span className="panel-mono">{boot.dataDir}</span>
+          <button type="button" className="btn btn-secondary" onClick={revealDataFolder}><FolderOpen size={14} /> Reveal</button>
+        </div>
+        <div className="row-divider" />
+        <div className="data-row">
+          <span className="data-label">Version</span>
+          <span>{boot.version}</span>
+        </div>
+        <div className="row-divider" />
+        <div className="data-row">
+          <span className="data-label">Export</span>
+          <span className="data-hint">A readable JSON copy, without keys.</span>
+          <button type="button" className="btn btn-secondary" onClick={() => void exportWorkspace()}>Export workspace</button>
+        </div>
+      </SectionCard>
+      <SectionCard title="Reset" hint="Replace the workspace with the first-run team. Keys are kept.">
+        <div className="data-row">
+          <span className="data-label">Danger zone</span>
+          <span className="data-hint">This removes every conversation and routine you have made.</span>
+          <button type="button" className="btn btn-danger" onClick={() => resetWorkspace()}><Trash2 size={14} /> Reset workspace</button>
+        </div>
+      </SectionCard>
+    </>
+  );
+}
+
+function AboutSection() {
+  const { boot } = useApp();
+  return (
+    <div className="about">
+      <GroxLogo size={64} />
+      <h2>Grox</h2>
+      <p className="about-version">Version {boot.version} · {boot.platform}</p>
+      <p className="about-copy">
+        A local-first chat app for a team of AI agents. Each bot has a personality, a model, its own conversations,
+        and an approval boundary. Built with Go and MyGo; the interface follows the shape of OpenMausBot, the
+        open-source Grok Bot alternative.
+      </p>
+      <div className="about-meta">
+        <div><span>Runtime</span><span>Go · MyGo</span></div>
+        <div><span>Frontend</span><span>React · Vite</span></div>
+        <div><span>License</span><span>Apache-2.0</span></div>
+        <div><span>Data</span><span>On this machine</span></div>
+      </div>
+      <p className="about-note">Not affiliated with xAI, Anthropic, OpenAI, or the OpenMausBot project. Mascot silhouette adapted from OpenMausBot under Apache-2.0.</p>
+    </div>
+  );
+}
+
+export function SettingsModal() {
+  const { ui, setUI, state, boot, refreshCatalog } = useApp();
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (!ui.settingsOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setUI({ settingsOpen: false });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ui.settingsOpen, setUI]);
+
+  if (!ui.settingsOpen) return null;
+  const section = ui.settingsSection;
+  const sectionLabel = SECTIONS.find((item) => item.id === section)?.label ?? "Settings";
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await refreshCatalog();
+    setRefreshing(false);
+  };
+
+  return (
+    <div className="modal-layer settings-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setUI({ settingsOpen: false }); }}>
+      <div className="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
+        <aside className="settings-nav">
+          <h2>Settings</h2>
+          <nav>
+            {SECTIONS.map((item) => (
+              <button key={item.id} type="button" className={cn("settings-nav-row", section === item.id && "is-active")} onClick={() => setUI({ settingsSection: item.id })}>
+                {item.icon}
+                <span>{item.label}</span>
+                <ChevronRight size={14} className="settings-nav-chevron" />
+              </button>
+            ))}
+          </nav>
+          <div className="settings-nav-foot">
+            <GroxLogo size={22} />
+            <span>Grox {boot.version}</span>
+            <button type="button" className="icon-button" title="Refresh engines" aria-label="Refresh engines" onClick={() => void refresh()} disabled={refreshing}>
+              {refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />}
+            </button>
+          </div>
+        </aside>
+        <section className="settings-content">
+          <header className="settings-head">
+            <h1>{sectionLabel}</h1>
+            <button type="button" className="icon-button" aria-label="Close settings" onClick={() => setUI({ settingsOpen: false })}><X size={18} /></button>
+          </header>
+          <div className="settings-scroll">
+            {section === "general" && <GeneralSection />}
+            {section === "connections" && <ConnectionsSection />}
+            {section === "engines" && <EnginesSection />}
+            {section === "computer" && <ComputerSection />}
+            {section === "voice" && <VoiceSection />}
+            {section === "data" && <DataSection />}
+            {section === "about" && <AboutSection />}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}

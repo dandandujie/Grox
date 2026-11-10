@@ -1,0 +1,38 @@
+Grox
+Copyright 2026 Grox contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+## OpenMausBot attribution
+
+Grox's bot mascot silhouette is adapted from the Maus mascot body set in OpenMausBot
+(shared/mascot-bodies.ts), and the information architecture and interaction vocabulary of the app are
+inspired by OpenMausBot.
+
+    OpenMausBot
+    Copyright Milind Soni and OpenMausBot contributors
+    https://github.com/milind-soni/OpenMausBot
+    Licensed under the Apache License, Version 2.0
+
+The adapted SVG path remains under the Apache License, Version 2.0. The full license text is in LICENSE.
+Grox is an independent project and is not affiliated with, endorsed by, or sponsored by OpenMausBot or its
+maintainers.
+
+## Runtime and frontend dependencies
+
+- MyGo (github.com/egoist/mygo), MIT
+- React, React DOM, react-markdown, remark-gfm, lucide-react, Vite, TypeScript: MIT
+- Simple Icons: CC0 1.0 (brand marks remain trademarks of their owners)
+- Inter and Geist fonts: SIL Open Font License 1.1
+- Go standard library and golang.org/x modules: BSD-style licenses
+
+Each dependency's upstream license applies to that dependency. This NOTICE does not alter those terms.
+
+## Trademarks
+
+Grok, xAI, Claude, Anthropic, OpenAI, ChatGPT, Codex, Gemini, Google, Slack, GitHub, Gmail, Notion,
+Linear, Figma, Stripe, Spotify, Discord, Telegram, Cloudflare, Vercel, Composio, OpenMausBot and other
+names are trademarks or registered trademarks of their respective owners. Use of a name here describes
+compatibility or an integration surface; it does not imply endorsement.
+
+This project is not affiliated with xAI, Anthropic, OpenAI, Google, Meta, Manus, or OpenMausBot.
