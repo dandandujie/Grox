@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.1.0"
+	AppVersion = "0.2.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -35,11 +35,13 @@ type AppState struct {
 	Version        int                   `json:"version"`
 	Revision       int64                 `json:"revision"`
 	Bots           []Bot                 `json:"bots"`
+	Groups         []Group               `json:"groups"`
 	Routines       []Routine             `json:"routines"`
 	Runs           []Run                 `json:"runs"`
 	Connections    map[string]Connection `json:"connections"`
 	Settings       Settings              `json:"settings"`
 	ActiveBotID    string                `json:"activeBotId"`
+	ActiveGroupID  string                `json:"activeGroupId"`
 	ActiveThreadID string                `json:"activeThreadId"`
 	CreatedAt      time.Time             `json:"createdAt"`
 	UpdatedAt      time.Time             `json:"updatedAt"`
@@ -61,6 +63,7 @@ type Bot struct {
 	WorkingDir    string    `json:"workingDir,omitempty"`
 	Notifications bool      `json:"notifications"`
 	SpeakReplies  bool      `json:"speakReplies"`
+	Voice         string    `json:"voice,omitempty"`
 	Pinned        bool      `json:"pinned"`
 	Hidden        bool      `json:"hidden"`
 	Archived      bool      `json:"archived"`
@@ -88,20 +91,34 @@ type Thread struct {
 // Message is one line in a transcript. Tool runs live in Activities, so a
 // single bot message can show the work above its answer.
 type Message struct {
-	ID         string     `json:"id"`
-	Role       string     `json:"role"`
-	Kind       string     `json:"kind"`
-	Text       string     `json:"text"`
-	Status     string     `json:"status,omitempty"`
-	Pending    bool       `json:"pending"`
-	Error      bool       `json:"error"`
-	Engine     string     `json:"engine,omitempty"`
-	Model      string     `json:"model,omitempty"`
-	Options    []Option   `json:"options,omitempty"`
-	Approval   *Approval  `json:"approval,omitempty"`
-	Activities []Activity `json:"activities,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
+	ID          string       `json:"id"`
+	Role        string       `json:"role"`
+	Kind        string       `json:"kind"`
+	Text        string       `json:"text"`
+	Status      string       `json:"status,omitempty"`
+	Pending     bool         `json:"pending"`
+	Error       bool         `json:"error"`
+	SenderID    string       `json:"senderId,omitempty"`
+	SenderName  string       `json:"senderName,omitempty"`
+	Engine      string       `json:"engine,omitempty"`
+	Model       string       `json:"model,omitempty"`
+	Options     []Option     `json:"options,omitempty"`
+	Approval    *Approval    `json:"approval,omitempty"`
+	Activities  []Activity   `json:"activities,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	UpdatedAt   time.Time    `json:"updatedAt"`
+}
+
+// Attachment is a file copied into the Grox workspace and referenced by a message.
+// The bytes live in <workspace>/attachments; only the metadata is in state.json.
+type Attachment struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Mime      string    `json:"mime"`
+	Kind      string    `json:"kind"`
+	Size      int64     `json:"size"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Option is one answer in a question card.
@@ -127,6 +144,61 @@ type Activity struct {
 	Detail    string    `json:"detail,omitempty"`
 	Status    string    `json:"status"`
 	StartedAt time.Time `json:"startedAt"`
+}
+
+// Group is a channel: a shared conversation with a roster of bots. The lead
+// answers by default; @mentions route a message to another member.
+type Group struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Color       string    `json:"color"`
+	MemberIDs   []string  `json:"memberIds"`
+	LeadID      string    `json:"leadId"`
+	Pinned      bool      `json:"pinned"`
+	Unread      int       `json:"unread"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	Threads     []Thread  `json:"threads"`
+}
+
+// FileEntry is one item in a bot's local working folder.
+type FileEntry struct {
+	Name     string    `json:"name"`
+	Path     string    `json:"path"`
+	Dir      bool      `json:"dir"`
+	Size     int64     `json:"size"`
+	Modified time.Time `json:"modified"`
+	Mime     string    `json:"mime,omitempty"`
+}
+
+// FolderListing is one directory inside a bot's local computer.
+type FolderListing struct {
+	Root    string      `json:"root"`
+	Path    string      `json:"path"`
+	Entries []FileEntry `json:"entries"`
+}
+
+// FilePreview is a bounded read of one local file.
+type FilePreview struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Mime      string `json:"mime,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Data      string `json:"data,omitempty"`
+	Size      int64  `json:"size"`
+	Truncated bool   `json:"truncated"`
+}
+
+// CommandResult is the output of a command the person ran in the Computer
+// panel. It is not an agent tool call; the person explicitly typed it.
+type CommandResult struct {
+	Command    string `json:"command"`
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	ExitCode   int    `json:"exitCode"`
+	DurationMS int64  `json:"durationMs"`
 }
 
 // Routine is a recurring task: a prompt sent to a bot on a schedule.
@@ -170,6 +242,9 @@ type Connection struct {
 // Settings are app-wide preferences.
 type Settings struct {
 	Theme         string `json:"theme"`
+	VoiceName     string `json:"voiceName,omitempty"`
+	PhoneEnabled  bool   `json:"phoneEnabled,omitempty"`
+	PhoneToken    string `json:"phoneToken,omitempty"`
 	Language      string `json:"language"`
 	SidebarWidth  int    `json:"sidebarWidth"`
 	Advanced      bool   `json:"advanced"`
@@ -232,6 +307,17 @@ type EngineInfo struct {
 	Detail     string `json:"detail"`
 }
 
+// PhoneInfo describes the local web companion. The token is part of the URL;
+// anyone on the same network with it can read and send this workspace's chats.
+type PhoneInfo struct {
+	Enabled   bool   `json:"enabled"`
+	URL       string `json:"url"`
+	Token     string `json:"token"`
+	Error     string `json:"error,omitempty"`
+	Port      int    `json:"port"`
+	Connected int    `json:"connected"`
+}
+
 // Bootstrap is everything the frontend needs for its first paint.
 type Bootstrap struct {
 	State     AppState     `json:"state"`
@@ -239,6 +325,7 @@ type Bootstrap struct {
 	Apps      []AppEntry   `json:"apps"`
 	Engines   []EngineInfo `json:"engines"`
 	Secrets   SecretStatus `json:"secrets"`
+	Phone     PhoneInfo    `json:"phone"`
 	Version   string       `json:"version"`
 	Platform  string       `json:"platform"`
 	DataDir   string       `json:"dataDir"`
@@ -248,6 +335,7 @@ type Bootstrap struct {
 // Turn describes the transient state of a bot working in a thread.
 type Turn struct {
 	BotID    string `json:"botId"`
+	GroupID  string `json:"groupId,omitempty"`
 	ThreadID string `json:"threadId"`
 	Busy     bool   `json:"busy"`
 	Status   string `json:"status,omitempty"`
@@ -268,6 +356,7 @@ type Event struct {
 	Revision  int64     `json:"revision"`
 	State     *AppState `json:"state,omitempty"`
 	BotID     string    `json:"botId,omitempty"`
+	GroupID   string    `json:"groupId,omitempty"`
 	ThreadID  string    `json:"threadId,omitempty"`
 	MessageID string    `json:"messageId,omitempty"`
 	Message   *Message  `json:"message,omitempty"`
@@ -301,6 +390,7 @@ type BotPatch struct {
 	WorkingDir    *string `json:"workingDir,omitempty"`
 	Notifications *bool   `json:"notifications,omitempty"`
 	SpeakReplies  *bool   `json:"speakReplies,omitempty"`
+	Voice         *string `json:"voice,omitempty"`
 	Pinned        *bool   `json:"pinned,omitempty"`
 	Hidden        *bool   `json:"hidden,omitempty"`
 	Archived      *bool   `json:"archived,omitempty"`
@@ -330,6 +420,26 @@ type RoutinePatch struct {
 // SendResult points at the user message and the bot reply it started.
 type SendResult struct {
 	BotID     string `json:"botId"`
+	GroupID   string `json:"groupId,omitempty"`
 	ThreadID  string `json:"threadId"`
 	MessageID string `json:"messageId"`
+}
+
+// CreateGroupInput is the New channel form.
+type CreateGroupInput struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Color       string   `json:"color"`
+	MemberIDs   []string `json:"memberIds"`
+	LeadID      string   `json:"leadId"`
+}
+
+// GroupPatch edits only the fields it sets.
+type GroupPatch struct {
+	Name        *string   `json:"name,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	Color       *string   `json:"color,omitempty"`
+	MemberIDs   *[]string `json:"memberIds,omitempty"`
+	LeadID      *string   `json:"leadId,omitempty"`
+	Pinned      *bool     `json:"pinned,omitempty"`
 }

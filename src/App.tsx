@@ -7,6 +7,9 @@ import { ChatView } from "@/components/ChatView";
 import { BotPanel } from "@/components/BotPanel";
 import { SettingsModal } from "@/components/SettingsModal";
 import { NewBotDialog } from "@/components/NewBotDialog";
+import { NewChannelDialog } from "@/components/NewChannelDialog";
+import { GroupPanel } from "@/components/GroupPanel";
+import { CallSheet } from "@/components/CallSheet";
 import { RoutinesPage } from "@/components/RoutinesPage";
 import { AppsPage } from "@/components/AppsPage";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -17,7 +20,7 @@ import { cn } from "@/lib/cn";
 
 function Shell() {
   const {
-    state, ui, setUI, activeBot, selectBot, newTask,
+    state, ui, setUI, activeBot, activeGroup, selectBot, newTask,
   } = useApp();
 
   useEffect(() => {
@@ -29,9 +32,10 @@ function Shell() {
   }, [state.settings.theme, state.settings.reduceMotion]);
 
   useEffect(() => {
-    if (activeBot) document.title = activeBot.name + " · Grox";
+    if (activeGroup) document.title = "# " + activeGroup.name + " · Grox";
+    else if (activeBot) document.title = activeBot.name + " · Grox";
     else document.title = "Grox";
-  }, [activeBot]);
+  }, [activeBot, activeGroup]);
 
   useEffect(() => {
     if (ui.sidebarWidth !== state.settings.sidebarWidth) {
@@ -84,6 +88,8 @@ function Shell() {
         if (ui.settingsOpen) setUI({ settingsOpen: false });
         else if (ui.paletteOpen) setUI({ paletteOpen: false });
         else if (ui.newBotOpen) setUI({ newBotOpen: false });
+        else if (ui.newChannelOpen) setUI({ newChannelOpen: false });
+        else if (ui.callOpen) setUI({ callOpen: false });
         else if (ui.shortcutsOpen) setUI({ shortcutsOpen: false });
         else if (ui.modelPickerOpen) setUI({ modelPickerOpen: false });
         else if (ui.threadMenuOpen) setUI({ threadMenuOpen: false });
@@ -91,7 +97,7 @@ function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ui.settingsOpen, ui.paletteOpen, ui.newBotOpen, ui.shortcutsOpen, ui.modelPickerOpen, ui.threadMenuOpen, state.bots, selectBot, newTask, setUI]);
+  }, [ui.settingsOpen, ui.paletteOpen, ui.newBotOpen, ui.newChannelOpen, ui.callOpen, ui.shortcutsOpen, ui.modelPickerOpen, ui.threadMenuOpen, state.bots, selectBot, newTask, setUI]);
 
   return (
     <div
@@ -104,12 +110,14 @@ function Shell() {
         {ui.view === "routines" && <RoutinesPage />}
         {ui.view === "apps" && <AppsPage />}
       </main>
-      {ui.view === "chat" && ui.panel && <BotPanel />}
+      {ui.view === "chat" && ui.panel && (activeGroup ? <GroupPanel /> : <BotPanel />)}
       <SettingsModal />
       <NewBotDialog />
+      <NewChannelDialog />
       <CommandPalette />
       <ConfirmDialog />
       <ShortcutsModal />
+      <CallSheet />
       <Toasts />
     </div>
   );

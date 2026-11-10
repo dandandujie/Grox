@@ -15,12 +15,18 @@ import (
 
 // Send appends a user message and starts a bot turn.
 func (s *Service) Send(botID, threadID, text string) (model.SendResult, error) {
-	return s.sendInternal(botID, threadID, text, "", true)
+	return s.sendInternal(botID, threadID, text, nil, "", true)
 }
 
-func (s *Service) sendInternal(botID, threadID, text, runID string, appendUser bool) (model.SendResult, error) {
+// SendWithAttachments sends a message with files previously stored by
+// SaveAttachment.
+func (s *Service) SendWithAttachments(botID, threadID, text string, attachments []model.Attachment) (model.SendResult, error) {
+	return s.sendInternal(botID, threadID, text, attachments, "", true)
+}
+
+func (s *Service) sendInternal(botID, threadID, text string, attachments []model.Attachment, runID string, appendUser bool) (model.SendResult, error) {
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && len(attachments) == 0 {
 		return model.SendResult{}, fmt.Errorf("write a message first")
 	}
 	s.mu.Lock()
@@ -41,16 +47,20 @@ func (s *Service) sendInternal(botID, threadID, text, runID string, appendUser b
 		s.mu.Unlock()
 		return model.SendResult{}, fmt.Errorf("%s is still working on the last message", bot.Name)
 	}
+	if err := s.validateAttachments(attachments); err != nil {
+		s.mu.Unlock()
+		return model.SendResult{}, err
+	}
 	now := time.Now()
 	userMsgID := ""
 	if appendUser {
 		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleUser, Kind: model.KindText, Text: text,
+			ID: newID("msg"), Role: model.RoleUser, Kind: model.KindText, Text: text, Attachments: attachments,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		thread.Messages = append(thread.Messages, msg)
 		userMsgID = msg.ID
-		if thread.Title == "" || thread.Title == "New conversation" || thread.Title == "New task" {
+		if text != "" && (thread.Title == "" || thread.Title == "New conversation" || thread.Title == "New task") {
 			thread.Title = titleFromText(text)
 		}
 	}
@@ -65,7 +75,7 @@ func (s *Service) sendInternal(botID, threadID, text, runID string, appendUser b
 	s.emitStateLocked()
 	s.mu.Unlock()
 
-	if err := s.startTurn(botID, threadID, text, runID); err != nil {
+	if err := s.startTurn(botID, threadID, text, s.attachmentContext(attachments), runID); err != nil {
 		return model.SendResult{}, err
 	}
 	return model.SendResult{BotID: botID, ThreadID: threadID, MessageID: userMsgID}, nil
@@ -81,7 +91,7 @@ func titleFromText(text string) string {
 
 // startTurn prepares the request and runs the selected engine in the
 // background. It must be called without s.mu held.
-func (s *Service) startTurn(botID, threadID, agentText, runID string) error {
+func (s *Service) startTurn(botID, threadID, agentText, extraContext, runID string) error {
 	s.mu.Lock()
 	bot := s.findBotLocked(botID)
 	if bot == nil {
@@ -106,6 +116,22 @@ func (s *Service) startTurn(botID, threadID, agentText, runID string) error {
 	thread.Status = "Thinking"
 	bot.LastActiveAt = now
 	thread.UpdatedAt = now
+	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext)
+	s.touchLocked()
+	turn := &model.Turn{BotID: botID, ThreadID: threadID, Busy: true, Status: "Thinking", Engine: sel.Engine}
+	s.mu.Unlock()
+
+	s.emitEvent(model.Event{Type: "turn", BotID: botID, ThreadID: threadID, Turn: turn})
+	if sel.Note != "" {
+		s.emitEvent(model.Event{Type: "toast", BotID: botID, ThreadID: threadID, Toast: &model.Toast{Kind: "info", Title: sel.Note}})
+	}
+	go s.runTurn(ctx, key, req, sel, runID)
+	return nil
+}
+
+// engineRequestLocked builds the provider request for a turn. It runs under
+// s.mu and does not touch thread busy state.
+func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agentText, extraContext string) (agent.Request, agent.Selection) {
 	botCopy := cloneBot(*bot)
 	threadCopy := cloneThread(*thread)
 	settings := s.st.State.Settings
@@ -164,19 +190,14 @@ func (s *Service) startTurn(botID, threadID, agentText, runID string) error {
 		Bot: botCopy, Thread: threadCopy, UserText: agentText, History: threadCopy.Messages,
 		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
+		ExtraContext: extraContext,
 	}
 	req.Prompt = agent.Compose(botCopy, threadCopy, agentText)
-	sel := agent.Select(req)
-	s.touchLocked()
-	turn := &model.Turn{BotID: botID, ThreadID: threadID, Busy: true, Status: "Thinking", Engine: sel.Engine}
-	s.mu.Unlock()
-
-	s.emitEvent(model.Event{Type: "turn", BotID: botID, ThreadID: threadID, Turn: turn})
-	if sel.Note != "" {
-		s.emitEvent(model.Event{Type: "toast", BotID: botID, ThreadID: threadID, Toast: &model.Toast{Kind: "info", Title: sel.Note}})
+	if extraContext != "" {
+		req.Prompt += "\n\n" + extraContext
 	}
-	go s.runTurn(ctx, key, req, sel, runID)
-	return nil
+	sel := agent.Select(req)
+	return req, sel
 }
 
 func providerForEngineMode(mode string) string {
@@ -212,187 +233,15 @@ func (s *Service) defaultModelForProviderLocked(provider string) model.Model {
 	return model.Model{}
 }
 
-type turnSink struct {
-	svc      *Service
-	key      string
-	botID    string
-	threadID string
-	engine   string
-	model    model.Model
-	message  string
-	created  bool
-	canceled bool
-}
-
-func (t *turnSink) Text(delta string) {
-	t.svc.mu.Lock()
-	bot := t.svc.findBotLocked(t.botID)
-	if bot == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	thread := t.svc.findThreadLocked(bot, t.threadID)
-	if thread == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	now := time.Now()
-	if t.message == "" {
-		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText,
-			Pending: true, Engine: t.engine, Model: t.model.Name,
-			CreatedAt: now, UpdatedAt: now,
-		}
-		thread.Messages = append(thread.Messages, msg)
-		t.message = msg.ID
-	}
-	msg := t.svc.findMessageLocked(thread, t.message)
-	if msg == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	msg.Text += delta
-	msg.UpdatedAt = now
-	thread.Status = "Writing"
-	thread.UpdatedAt = now
-	t.svc.touchLocked()
-	created := !t.created
-	t.created = true
-	msgCopy := cloneMessage(*msg)
-	engine := t.engine
-	modelID := t.model.Name
-	t.svc.mu.Unlock()
-
-	if created {
-		base := msgCopy
-		base.Text = ""
-		t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, ThreadID: t.threadID, MessageID: base.ID, Message: &base})
-	}
-	_ = engine
-	_ = modelID
-	t.svc.emitEvent(model.Event{Type: "delta", BotID: t.botID, ThreadID: t.threadID, MessageID: t.message, Delta: delta})
-}
-
-func (t *turnSink) Status(status string) {
-	t.svc.mu.Lock()
-	bot := t.svc.findBotLocked(t.botID)
-	if bot == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	thread := t.svc.findThreadLocked(bot, t.threadID)
-	if thread == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	thread.Status = status
-	turn := &model.Turn{BotID: t.botID, ThreadID: t.threadID, Busy: true, Status: status, Engine: t.engine}
-	t.svc.mu.Unlock()
-	t.svc.emitEvent(model.Event{Type: "turn", BotID: t.botID, ThreadID: t.threadID, Turn: turn})
-}
-
-func (t *turnSink) Activity(activity model.Activity) {
-	t.svc.mu.Lock()
-	bot := t.svc.findBotLocked(t.botID)
-	if bot == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	thread := t.svc.findThreadLocked(bot, t.threadID)
-	if thread == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	if t.message == "" {
-		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Pending: true,
-			Engine: t.engine, Model: t.model.Name, CreatedAt: time.Now(), UpdatedAt: time.Now(),
-		}
-		thread.Messages = append(thread.Messages, msg)
-		t.message = msg.ID
-	}
-	msg := t.svc.findMessageLocked(thread, t.message)
-	if msg == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	if activity.StartedAt.IsZero() {
-		activity.StartedAt = time.Now()
-	}
-	msg.Activities = append(msg.Activities, activity)
-	msg.UpdatedAt = time.Now()
-	thread.UpdatedAt = msg.UpdatedAt
-	t.svc.touchLocked()
-	out := cloneMessage(*msg)
-	t.svc.mu.Unlock()
-	t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
-}
-
-func (t *turnSink) Approval(approval model.Approval) {
-	t.svc.mu.Lock()
-	bot := t.svc.findBotLocked(t.botID)
-	if bot == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	thread := t.svc.findThreadLocked(bot, t.threadID)
-	if thread == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	now := time.Now()
-	msg := model.Message{
-		ID: newID("msg"), Role: model.RoleBot, Kind: model.KindApproval,
-		Status: model.StatusPending, Approval: &approval, CreatedAt: now, UpdatedAt: now,
-	}
-	thread.Messages = append(thread.Messages, msg)
-	thread.Status = "Waiting for you"
-	thread.UpdatedAt = now
-	t.svc.touchLocked()
-	out := cloneMessage(msg)
-	turn := &model.Turn{BotID: t.botID, ThreadID: t.threadID, Busy: true, Status: "Waiting for you", Engine: t.engine}
-	t.svc.mu.Unlock()
-	t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
-	t.svc.emitEvent(model.Event{Type: "turn", BotID: t.botID, ThreadID: t.threadID, Turn: turn})
-}
-
-func (t *turnSink) Options(text string, options []model.Option) {
-	t.svc.mu.Lock()
-	bot := t.svc.findBotLocked(t.botID)
-	if bot == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	thread := t.svc.findThreadLocked(bot, t.threadID)
-	if thread == nil {
-		t.svc.mu.Unlock()
-		return
-	}
-	now := time.Now()
-	msg := model.Message{
-		ID: newID("msg"), Role: model.RoleBot, Kind: model.KindOptions,
-		Text: text, Status: model.StatusPending, Options: options, CreatedAt: now, UpdatedAt: now,
-	}
-	thread.Messages = append(thread.Messages, msg)
-	thread.Status = "Waiting for you"
-	thread.UpdatedAt = now
-	t.svc.touchLocked()
-	out := cloneMessage(msg)
-	turn := &model.Turn{BotID: t.botID, ThreadID: t.threadID, Busy: true, Status: "Waiting for you", Engine: t.engine}
-	t.svc.mu.Unlock()
-	t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
-	t.svc.emitEvent(model.Event{Type: "turn", BotID: t.botID, ThreadID: t.threadID, Turn: turn})
-}
-
 func (s *Service) runTurn(ctx context.Context, key string, req agent.Request, sel agent.Selection, runID string) {
-	sink := &turnSink{svc: s, key: key, botID: req.Bot.ID, threadID: req.Thread.ID, engine: sel.Engine, model: req.Model}
+	sink := &turnSink{svc: s, key: key, botID: req.Bot.ID, groupID: req.GroupID, threadID: req.Thread.ID, engine: sel.Engine, model: req.Model}
 	_, err := agent.Run(ctx, sel, req, sink)
 	if err != nil && sel.Kind == "cli" && !errors.Is(err, context.Canceled) && isConnectionError(err) {
 		// A CLI that is installed but signed out should not make the app
 		// silent. Use the local demo for this reply and say so.
 		fallback := agent.Selection{Kind: "demo", Engine: "Grox Demo"}
 		sink.engine = fallback.Engine
-		s.emitEvent(model.Event{Type: "toast", BotID: req.Bot.ID, ThreadID: req.Thread.ID, Toast: &model.Toast{
+		s.emitEvent(model.Event{Type: "toast", BotID: req.Bot.ID, GroupID: req.GroupID, ThreadID: req.Thread.ID, Toast: &model.Toast{
 			Kind: "info", Title: freshConnectionNote(err), Body: "This reply came from the built-in demo engine. Connect the CLI or add a key in Settings → Engines.",
 		}})
 		if _, demoErr := agent.Run(ctx, fallback, req, sink); demoErr == nil {
@@ -418,106 +267,6 @@ func freshConnectionNote(err error) string {
 		return "That CLI is not signed in"
 	}
 	return "That engine is not available"
-}
-
-func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID string) {
-	s.mu.Lock()
-	bot := s.findBotLocked(sink.botID)
-	if bot == nil {
-		delete(s.turns, key)
-		s.mu.Unlock()
-		return
-	}
-	thread := s.findThreadLocked(bot, sink.threadID)
-	if thread == nil {
-		delete(s.turns, key)
-		s.mu.Unlock()
-		return
-	}
-	now := time.Now()
-	canceled := errors.Is(runErr, context.Canceled) || sink.canceled
-	var final *model.Message
-	if sink.message != "" {
-		msg := s.findMessageLocked(thread, sink.message)
-		if msg != nil {
-			msg.Pending = false
-			msg.UpdatedAt = now
-			if runErr != nil && !canceled {
-				msg.Error = true
-				if strings.TrimSpace(msg.Text) != "" {
-					msg.Text += "\n\n"
-				}
-				msg.Text += fmt.Sprintf("**Couldn't finish this turn**\n\n%s\n\nOpen **Settings → Engines** to check the connection.", runErr.Error())
-			}
-			if canceled && strings.TrimSpace(msg.Text) == "" {
-				msg.Text = "_Stopped._"
-			}
-			final = ptr(cloneMessage(*msg))
-		}
-	} else if runErr != nil && !canceled {
-		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Error: true,
-			Text:      fmt.Sprintf("**Couldn't finish this turn**\n\n%s\n\nOpen **Settings → Engines** to check the connection.", runErr.Error()),
-			CreatedAt: now, UpdatedAt: now, Engine: sink.engine, Model: sink.model.Name,
-		}
-		thread.Messages = append(thread.Messages, msg)
-		final = ptr(cloneMessage(msg))
-	} else if canceled {
-		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText,
-			Text: "_Stopped._", CreatedAt: now, UpdatedAt: now, Engine: sink.engine, Model: sink.model.Name,
-		}
-		thread.Messages = append(thread.Messages, msg)
-		final = ptr(cloneMessage(msg))
-	}
-	thread.Busy = false
-	thread.Status = ""
-	thread.UpdatedAt = now
-	bot.LastActiveAt = now
-	bot.UpdatedAt = now
-	if !(s.st.State.ActiveBotID == sink.botID && s.st.State.ActiveThreadID == sink.threadID) {
-		thread.Unread++
-	}
-	status := "completed"
-	summary := ""
-	if runErr != nil && !canceled {
-		status = "failed"
-	}
-	if canceled {
-		status = "stopped"
-	}
-	if summaryText := messageSummary(thread, sink.message); summaryText != "" {
-		summary = summaryText
-	}
-	if runID != "" {
-		for i := range s.st.State.Runs {
-			if s.st.State.Runs[i].ID == runID {
-				s.st.State.Runs[i].Status = status
-				s.st.State.Runs[i].FinishedAt = now
-				s.st.State.Runs[i].Summary = summary
-				break
-			}
-		}
-		for i := range s.st.State.Routines {
-			if s.st.State.Routines[i].ID == runRoutineID(s, runID) {
-				s.st.State.Routines[i].LastStatus = status
-				break
-			}
-		}
-	}
-	delete(s.turns, key)
-	s.touchLocked()
-	s.saveLocked()
-	state := s.snapshotLocked()
-	rev := state.Revision
-	turn := &model.Turn{BotID: sink.botID, ThreadID: sink.threadID, Busy: false, Engine: sink.engine}
-	s.mu.Unlock()
-
-	if final != nil {
-		s.emitEvent(model.Event{Type: "message", BotID: sink.botID, ThreadID: sink.threadID, MessageID: final.ID, Message: final})
-	}
-	s.emitEvent(model.Event{Type: "turn", BotID: sink.botID, ThreadID: sink.threadID, Turn: turn})
-	s.emitEvent(model.Event{Type: "state", Revision: rev, State: &state})
 }
 
 func runRoutineID(s *Service, runID string) string {
@@ -635,7 +384,7 @@ func (s *Service) Decide(botID, threadID, messageID, decision string) error {
 	if decision != "deny" {
 		prompt = "[approval:allowed] " + command
 	}
-	return s.startTurn(botID, threadID, prompt, "")
+	return s.startTurn(botID, threadID, prompt, "", "")
 }
 
 // Answer settles an options card, adds the chosen answer as a user message,
@@ -698,7 +447,7 @@ func (s *Service) Answer(botID, threadID, messageID, answer string) error {
 	s.emitStateLocked()
 	s.mu.Unlock()
 
-	return s.startTurn(botID, threadID, "My answer: "+visible, "")
+	return s.startTurn(botID, threadID, "My answer: "+visible, "", "")
 }
 
 func homeDir() string {

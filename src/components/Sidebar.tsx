@@ -5,7 +5,7 @@ import {
   Pencil, Pin, PinOff, Plug, Plus, Search, Settings, Trash2, Users,
 } from "lucide-react";
 import { useApp, botUnread } from "@/state/store";
-import type { Bot, Thread } from "@/lib/bridge";
+import type { Bot, Group, Thread } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { cn } from "@/lib/cn";
 import { initials, sidebarTime, truncate } from "@/lib/format";
@@ -13,6 +13,21 @@ import { IconButton } from "@/components/ui";
 
 function latestThreadOf(bot: Bot): Thread | undefined {
   return [...bot.threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+}
+
+function latestGroupThreadOf(group: Group): Thread | undefined {
+  return [...group.threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+}
+
+function groupPreview(group: Group): string {
+  const thread = latestGroupThreadOf(group);
+  if (!thread) return "Start a conversation";
+  if (thread.busy) return thread.status ? thread.status + "…" : "Working…";
+  const pending = [...thread.messages].reverse().find((message) => message.status === "pending");
+  if (pending?.kind === "approval") return "Waiting for your approval";
+  if (pending?.kind === "options") return "Waiting for your answer";
+  const last = [...thread.messages].reverse().find((message) => message.text.trim());
+  return last ? truncate(cleanPreview(last.text), 48) : "Start a conversation";
 }
 
 function cleanPreview(text: string): string {
@@ -51,7 +66,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 export function Sidebar() {
   const {
-    state, activeBot, activeThread, ui, setUI, selectBot, openThread, updateBot, duplicateBot, deleteBot,
+    state, activeBot, activeGroup, activeThread, ui, setUI, selectBot, selectGroup, openThread, updateBot, duplicateBot, deleteBot,
     backend, toast, patchSettings, markUnread,
   } = useApp();
   const [menu, setMenu] = useState<{ bot: Bot; x: number; y: number } | null>(null);
@@ -144,7 +159,8 @@ export function Sidebar() {
     window.addEventListener("pointerup", onUp);
   };
 
-  const totalUnread = visible.reduce((sum, bot) => sum + botUnread(bot), 0);
+  const totalUnread = visible.reduce((sum, bot) => sum + botUnread(bot), 0)
+    + state.groups.reduce((sum, group) => sum + group.unread, 0);
 
   return (
     <aside className="sidebar" style={{ width: ui.sidebarWidth }} data-sidebar-root>
@@ -182,6 +198,17 @@ export function Sidebar() {
       <div className="sidebar-scroll">
         {query ? (
           <div className="search-results">
+            {state.groups.filter((group) => group.name.toLowerCase().includes(query.toLowerCase())).length > 0 && (
+              <>
+                <div className="sidebar-section-label">Channels</div>
+                {state.groups.filter((group) => group.name.toLowerCase().includes(query.toLowerCase())).map((group) => (
+                  <button type="button" key={group.id} className="search-result" onClick={() => { selectGroup(group.id); setUI({ sidebarSearch: "" }); }}>
+                    <span className="search-channel-icon">#</span>
+                    <span className="search-result-body"><span className="search-result-title"><Highlight text={group.name} query={query} /></span><span className="search-result-sub">{group.memberIds.length} bots</span></span>
+                  </button>
+                ))}
+              </>
+            )}
             <div className="sidebar-section-label">Bots</div>
             {botMatches.length === 0 && <div className="search-empty">No bots match “{query}”.</div>}
             {botMatches.map((bot) => (
@@ -228,6 +255,49 @@ export function Sidebar() {
           </div>
         ) : (
           <div className="bot-list">
+            {!query && state.groups.length > 0 && (
+              <>
+                <div className="sidebar-section-label channels-label">
+                  <span>Channels</span>
+                  <button type="button" className="section-add" aria-label="New channel" onClick={() => setUI({ newChannelOpen: true })}>
+                    <Plus size={13} />
+                  </button>
+                </div>
+                {state.groups.map((group) => {
+                  const thread = latestGroupThreadOf(group);
+                  const selected = activeGroup?.id === group.id && ui.view === "chat";
+                  const members = group.memberIds.map((id) => state.bots.find((bot) => bot.id === id)).filter((bot): bot is Bot => Boolean(bot));
+                  return (
+                    <button
+                      type="button"
+                      key={group.id}
+                      className={cn("bot-row group-row", selected && "is-selected", group.unread > 0 && "has-unread")}
+                      onClick={() => selectGroup(group.id)}
+                    >
+                      <span className="group-avatar-stack" aria-hidden="true">
+                        {members.slice(0, 3).map((member) => (
+                          <Mascot key={member.id} color={member.color} shape={member.mascotShape} expression={member.expression} size={22} title={member.name} />
+                        ))}
+                        {members.length === 0 && <span className="group-empty-avatar">#</span>}
+                      </span>
+                      <span className="bot-row-body">
+                        <span className="bot-row-top">
+                          <span className="bot-name"># {group.name}</span>
+                          {group.unread > 0 ? <span className="unread-dot" aria-label={group.unread + " unread"} /> : (
+                            <span className="bot-time">{sidebarTime(thread?.updatedAt ?? group.updatedAt)}</span>
+                          )}
+                        </span>
+                        <span className={cn("bot-preview", thread?.busy && "is-working")}>
+                          {thread?.busy && <span className="working-pip" aria-hidden="true" />}
+                          {groupPreview(group)}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="sidebar-section-label bots-label">Bots</div>
+              </>
+            )}
             {ordered.map((bot) => {
               const thread = latestThreadOf(bot);
               const selected = activeBot?.id === bot.id && ui.view === "chat";

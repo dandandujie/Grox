@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#101010" />
+  <title>Grox</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --app: #101010;
+      --panel: #161616;
+      --raised: #222;
+      --edge: #ffffff14;
+      --ink: #f4f4f4;
+      --ink-2: #f4f4f4b8;
+      --ink-3: #f4f4f470;
+      --accent: #1084fe;
+      --bubble: #5a5a5a;
+      --good: #38d591;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--app); color: var(--ink); }
+    body { display: flex; flex-direction: column; min-height: 100dvh; }
+    header {
+      display: flex; align-items: center; gap: 10px;
+      padding: max(12px, env(safe-area-inset-top)) 16px 10px;
+      border-bottom: 1px solid var(--edge);
+      background: color-mix(in srgb, var(--app) 92%, transparent);
+      backdrop-filter: blur(16px);
+      position: sticky; top: 0; z-index: 3;
+    }
+    .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(145deg,#42c68a,#0b7a48); display: grid; place-items: center; color: #07120c; font-weight: 800; font-size: 12px; }
+    header strong { font-size: 15px; letter-spacing: -0.01em; }
+    header .sub { color: var(--ink-3); font-size: 10.5px; margin-left: auto; display: flex; align-items: center; gap: 5px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+    .dot.off { background: #ff5667; }
+    .picker { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--edge); overflow-x: auto; }
+    .picker select {
+      flex: 0 0 auto; max-width: 70vw; border: 1px solid var(--edge); background: var(--panel);
+      color: var(--ink); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 12.5px;
+    }
+    .messages { flex: 1; overflow-y: auto; padding: 16px 14px 120px; display: flex; flex-direction: column; gap: 12px; }
+    .empty { color: var(--ink-3); text-align: center; margin: auto; font-size: 13px; line-height: 1.5; padding: 30px; }
+    .msg { max-width: 86%; display: flex; flex-direction: column; gap: 3px; }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .who { color: var(--ink-3); font-size: 10px; padding: 0 3px; }
+    .bubble { padding: 9px 12px; border-radius: 15px; background: var(--panel); border: 1px solid var(--edge); font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.user .bubble { background: var(--bubble); border-color: transparent; color: #fff; border-bottom-right-radius: 5px; }
+    .msg.bot .bubble { border-bottom-left-radius: 5px; }
+    .bubble.pending { opacity: 0.8; }
+    .bubble strong { color: #fff; font-weight: 650; }
+    .bubble code { background: #ffffff12; border-radius: 4px; padding: 1px 4px; font-size: 0.92em; }
+    .meta { color: var(--ink-3); font-size: 9.5px; padding: 0 4px; }
+    .note { color: var(--ink-3); font-size: 10.5px; border: 1px dashed var(--edge); border-radius: 9px; padding: 7px 9px; }
+    .composer {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      display: flex; gap: 7px; align-items: flex-end;
+      padding: 10px 12px max(12px, env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, color-mix(in srgb, var(--app) 96%, transparent) 22%);
+    }
+    .composer textarea {
+      flex: 1; resize: none; min-height: 38px; max-height: 110px;
+      border: 1px solid var(--edge); background: var(--panel); color: var(--ink);
+      border-radius: 13px; padding: 10px 12px; font: inherit; font-size: 13.5px; line-height: 1.35; outline: none;
+    }
+    .composer textarea:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--edge)); }
+    .composer button {
+      width: 38px; height: 38px; flex: 0 0 auto; border: 0; border-radius: 50%;
+      background: var(--ink); color: #101010; font-size: 16px; font-weight: 700;
+    }
+    .composer button:disabled { opacity: 0.3; }
+    .toast { position: fixed; left: 16px; right: 16px; bottom: 76px; background: #2a2a2a; border: 1px solid var(--edge); border-radius: 10px; padding: 9px 12px; color: var(--ink-2); font-size: 11.5px; opacity: 0; transition: opacity 160ms; pointer-events: none; z-index: 5; }
+    .toast.show { opacity: 1; }
+    @media (prefers-color-scheme: light) { :root { color-scheme: dark; } }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="mark">G</span>
+    <strong>Grox</strong>
+    <span class="sub"><span id="status-dot" class="dot"></span><span id="status">On this Mac</span></span>
+  </header>
+  <div class="picker">
+    <select id="owner" aria-label="Bot or channel"></select>
+    <select id="thread" aria-label="Conversation"></select>
+  </div>
+  <main id="messages" class="messages"></main>
+  <form id="composer" class="composer">
+    <textarea id="text" rows="1" placeholder="Message" aria-label="Message"></textarea>
+    <button id="send" type="submit" aria-label="Send">↑</button>
+  </form>
+  <div id="toast" class="toast"></div>
+  <script>
+    (function () {
+      var token = location.pathname.split("/").filter(Boolean).pop() || "";
+      var base = "/api/";
+      var state = null;
+      var owner = localStorage.getItem("grox.phone.owner") || "";
+      var thread = localStorage.getItem("grox.phone.thread") || "";
+      var eventSource = null;
+      var statusEl = document.getElementById("status");
+      var dotEl = document.getElementById("status-dot");
+      var ownerEl = document.getElementById("owner");
+      var threadEl = document.getElementById("thread");
+      var messagesEl = document.getElementById("messages");
+      var formEl = document.getElementById("composer");
+      var textEl = document.getElementById("text");
+      var sendEl = document.getElementById("send");
+      var toastEl = document.getElementById("toast");
+      var toastTimer = 0;
+
+      function api(path) { return base + path + "?token=" + encodeURIComponent(token); }
+      function showToast(text) {
+        toastEl.textContent = text;
+        toastEl.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 3200);
+      }
+      function escapeHTML(value) {
+        return String(value).replace(/[&<>"']/g, function (char) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char];
+        });
+      }
+      function renderMarkdown(value) {
+        var text = escapeHTML(value || "");
+        text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+        text = text.replace(/^### (.+)$/gm, "<strong>$1</strong>");
+        text = text.replace(/^## (.+)$/gm, "<strong>$1</strong>");
+        text = text.replace(/^# (.+)$/gm, "<strong>$1</strong>");
+        text = text.replace(/^- /gm, "• ");
+        return text;
+      }
+      function fmtTime(value) {
+        try { return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+        catch (e) { return ""; }
+      }
+      function owners() {
+        if (!state) return [];
+        var list = [];
+        (state.bots || []).forEach(function (bot) {
+          if (bot.hidden || bot.archived) return;
+          list.push({ kind: "bot", id: bot.id, name: bot.name, threads: bot.threads || [] });
+        });
+        (state.groups || []).forEach(function (group) {
+          list.push({ kind: "group", id: group.id, name: "# " + group.name, threads: group.threads || [] });
+        });
+        return list;
+      }
+      function currentOwner() {
+        var list = owners();
+        for (var i = 0; i < list.length; i += 1) {
+          if (list[i].kind + ":" + list[i].id === owner) return list[i];
+        }
+        owner = list[0] ? list[0].kind + ":" + list[0].id : "";
+        return list[0] || null;
+      }
+      function currentThread(entry) {
+        if (!entry) return null;
+        var list = entry.threads || [];
+        for (var i = 0; i < list.length; i += 1) {
+          if (list[i].id === thread) return list[i];
+        }
+        list = list.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+        thread = list[0] ? list[0].id : "";
+        return list[0] || null;
+      }
+      function renderPicker() {
+        var list = owners();
+        ownerEl.innerHTML = "";
+        list.forEach(function (entry) {
+          var option = document.createElement("option");
+          option.value = entry.kind + ":" + entry.id;
+          option.textContent = entry.name;
+          ownerEl.appendChild(option);
+        });
+        ownerEl.value = owner;
+        var entry = currentOwner();
+        var active = currentThread(entry);
+        threadEl.innerHTML = "";
+        (entry ? entry.threads : []).slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); }).forEach(function (item) {
+          var option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.title || "New conversation";
+          threadEl.appendChild(option);
+        });
+        threadEl.value = active ? active.id : "";
+        textEl.placeholder = entry ? "Message " + entry.name : "Message";
+      }
+      function renderMessages() {
+        var entry = currentOwner();
+        var active = currentThread(entry);
+        messagesEl.innerHTML = "";
+        if (!active || !active.messages || active.messages.length === 0) {
+          var empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = entry ? "No messages yet. Start the conversation." : "Open Grox on your Mac to create a bot or channel.";
+          messagesEl.appendChild(empty);
+          return;
+        }
+        active.messages.forEach(function (message) {
+          if (message.kind === "notice") {
+            var notice = document.createElement("div");
+            notice.className = "note";
+            notice.textContent = message.text;
+            messagesEl.appendChild(notice);
+            return;
+          }
+          var row = document.createElement("div");
+          row.className = "msg " + (message.role === "user" ? "user" : "bot");
+          if (message.senderName && entry.kind === "group" && message.role === "bot") {
+            var who = document.createElement("div");
+            who.className = "who";
+            who.textContent = message.senderName;
+            row.appendChild(who);
+          }
+          var bubble = document.createElement("div");
+          bubble.className = "bubble" + (message.pending ? " pending" : "");
+          bubble.innerHTML = message.text ? renderMarkdown(message.text) : (message.pending ? "…" : "");
+          row.appendChild(bubble);
+          if (message.kind === "approval" || message.kind === "options") {
+            var note = document.createElement("div");
+            note.className = "note";
+            note.textContent = message.kind === "approval" ? "Waiting for approval in Grox on your Mac." : "A question is waiting in Grox on your Mac.";
+            row.appendChild(note);
+          }
+          if (message.text || message.pending) {
+            var meta = document.createElement("div");
+            meta.className = "meta";
+            meta.textContent = fmtTime(message.createdAt);
+            row.appendChild(meta);
+          }
+          messagesEl.appendChild(row);
+        });
+        requestAnimationFrame(function () { messagesEl.scrollTop = messagesEl.scrollHeight; });
+      }
+      function render() {
+        renderPicker();
+        renderMessages();
+      }
+      function select(id, nextThread) {
+        owner = id;
+        thread = nextThread || "";
+        localStorage.setItem("grox.phone.owner", owner);
+        localStorage.setItem("grox.phone.thread", thread);
+        var entry = currentOwner();
+        var active = currentThread(entry);
+        render();
+        if (entry && active) {
+          fetch(api("read"), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry.kind === "group" ? { groupId: entry.id, threadId: active.id } : { botId: entry.id, threadId: active.id })
+          }).catch(function () {});
+        }
+      }
+      async function load() {
+        try {
+          var response = await fetch(api("state"), { cache: "no-store" });
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          var data = await response.json();
+          state = data.state;
+          var entry = currentOwner();
+          var active = currentThread(entry);
+          if (entry && active) {
+            localStorage.setItem("grox.phone.owner", owner);
+            localStorage.setItem("grox.phone.thread", active.id);
+          }
+          statusEl.textContent = "Connected";
+          dotEl.classList.remove("off");
+          render();
+        } catch (error) {
+          statusEl.textContent = "Reconnecting…";
+          dotEl.classList.add("off");
+          showToast("Could not reach Grox. Keep the app open on the same Wi-Fi.");
+        }
+      }
+      ownerEl.addEventListener("change", function () {
+        var entry = owners().filter(function (item) { return item.kind + ":" + item.id === ownerEl.value; })[0];
+        select(ownerEl.value, entry && entry.threads[0] ? entry.threads[0].id : "");
+      });
+      threadEl.addEventListener("change", function () { select(owner, threadEl.value); });
+      formEl.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        var value = textEl.value.trim();
+        var entry = currentOwner();
+        var active = currentThread(entry);
+        if (!value || !entry || !active) return;
+        sendEl.disabled = true;
+        textEl.value = "";
+        try {
+          var response = await fetch(api("send"), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry.kind === "group"
+              ? { groupId: entry.id, threadId: active.id, text: value }
+              : { botId: entry.id, threadId: active.id, text: value })
+          });
+          if (!response.ok) throw new Error(await response.text());
+        } catch (error) {
+          textEl.value = value;
+          showToast(String(error.message || error));
+        } finally {
+          sendEl.disabled = false;
+          textEl.focus();
+        }
+      });
+      textEl.addEventListener("input", function () {
+        textEl.style.height = "auto";
+        textEl.style.height = Math.min(110, textEl.scrollHeight) + "px";
+      });
+      function connectEvents() {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource(api("events"));
+        eventSource.onmessage = function (event) {
+          try {
+            var payload = JSON.parse(event.data);
+            if (payload.type === "state" && payload.state) {
+              state = payload.state;
+              render();
+            } else if (payload.type === "message" && payload.message) {
+              var target = payload.groupId
+                ? (state.groups || []).filter(function (group) { return group.id === payload.groupId; })[0]
+                : (state.bots || []).filter(function (bot) { return bot.id === payload.botId; })[0];
+              var list = target ? (payload.groupId ? target.threads : target.threads) : null;
+              if (list) {
+                list = list.filter(function (item) { return item.id === payload.threadId; })[0];
+                if (list) {
+                  var exists = false;
+                  list.messages = (list.messages || []).map(function (item) {
+                    if (item.id === payload.message.id) { exists = true; return payload.message; }
+                    return item;
+                  });
+                  if (!exists) list.messages.push(payload.message);
+                }
+              }
+              renderMessages();
+            } else if (payload.type === "delta") {
+              var entry = currentOwner();
+              var active = currentThread(entry);
+              if (active && active.messages && payload.threadId === active.id) {
+                var found = false;
+                active.messages = active.messages.map(function (item) {
+                  if (item.id === payload.messageId) { found = true; return Object.assign({}, item, { text: (item.text || "") + (payload.delta || ""), pending: true }); }
+                  return item;
+                });
+                if (!found) active.messages.push({ id: payload.messageId, role: "bot", kind: "text", text: payload.delta || "", pending: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+                renderMessages();
+              }
+            } else if (payload.type === "turn" && payload.turn) {
+              render();
+            }
+          } catch (error) { /* ignore malformed event */ }
+        };
+        eventSource.onerror = function () {
+          statusEl.textContent = "Reconnecting…";
+          dotEl.classList.add("off");
+        };
+      }
+      load();
+      if (!new URLSearchParams(location.search).has("static")) connectEvents();
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) load();
+      });
+    }());
+  </script>
+</body>
+</html>

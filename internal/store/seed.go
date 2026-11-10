@@ -176,8 +176,35 @@ There are 41 newsletters and 12 notifications I can archive.`,
 		},
 	}
 
+	launchThread := model.Thread{
+		ID: "thread-launch-home", BotID: "", Title: "Thursday launch", Kind: "group",
+		CreatedAt: now.Add(-5 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour), Unread: 1,
+		Messages: []model.Message{
+			seedMsg("m-launch-1", model.RoleUser, model.KindText,
+				"Where are we on the Thursday launch? Give me the short version.", now.Add(-5*time.Hour)),
+			{
+				ID: "m-launch-2", Role: model.RoleBot, Text: "The checklist is at 9 of 12. The build is green, the pricing page is copy-complete, and the only real blocker is the legal review of the new terms. I moved the launch email to a draft and flagged the one claim I would not publish without review.",
+				SenderID: "bot-omiii", SenderName: "Omiii",
+				CreatedAt: now.Add(-4*time.Hour - 20*time.Minute), UpdatedAt: now.Add(-4*time.Hour - 20*time.Minute),
+			},
+			{
+				ID: "m-launch-3", Role: model.RoleBot, Text: "Positioning is ready. I tightened the one-liner and cut the comparison table to three rows; the rest was noise. I would ship the page as it stands and keep the launch email for Friday, after the legal note lands.",
+				SenderID: "bot-brody", SenderName: "Brody",
+				Activities: []model.Activity{
+					{Label: "Reviewed the launch page", Detail: "7 edits proposed", Status: model.StatusOK, StartedAt: now.Add(-4*time.Hour - 10*time.Minute)},
+				},
+				CreatedAt: now.Add(-4 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour),
+			},
+		},
+	}
+
 	state := model.AppState{
 		Version: 1, Bots: bots, Connections: map[string]model.Connection{},
+		Groups: []model.Group{{
+			ID: "group-launch", Name: "Launch room", Description: "Brody, Omiii and Emaily keep the launch moving.", Color: "purple",
+			MemberIDs: []string{"bot-brody", "bot-omiii", "bot-emaily"}, LeadID: "bot-brody", Unread: 1,
+			CreatedAt: now.Add(-120 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour), Threads: []model.Thread{launchThread},
+		}},
 		Settings: model.Settings{
 			Theme: "midnight", Language: "en", SidebarWidth: 312, Advanced: true,
 			Notifications: true, Sounds: false, EngineMode: "auto",

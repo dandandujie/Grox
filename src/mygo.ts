@@ -32,11 +32,13 @@ export interface AppState {
   version: number;
   revision: number;
   bots: Bot[];
+  groups: Group[];
   routines: Routine[];
   runs: Run[];
   connections: Record<string, Connection>;
   settings: Settings;
   activeBotId: string;
+  activeGroupId: string;
   activeThreadId: string;
   createdAt: string;
   updatedAt: string;
@@ -52,6 +54,19 @@ export interface Approval {
   decidedAt?: string;
 }
 
+/**
+ * Attachment is a file copied into the Grox workspace and referenced by a message.
+ * The bytes live in <workspace>/attachments; only the metadata is in state.json.
+ */
+export interface Attachment {
+  id: string;
+  name: string;
+  mime: string;
+  kind: string;
+  size: number;
+  createdAt: string;
+}
+
 /** Bootstrap is everything the frontend needs for its first paint. */
 export interface Bootstrap {
   state: AppState;
@@ -59,6 +74,7 @@ export interface Bootstrap {
   apps: AppEntry[];
   engines: EngineInfo[];
   secrets: SecretStatus;
+  phone: PhoneInfo;
   version: string;
   platform: string;
   dataDir: string;
@@ -81,6 +97,7 @@ export interface Bot {
   workingDir?: string;
   notifications: boolean;
   speakReplies: boolean;
+  voice?: string;
   pinned: boolean;
   hidden: boolean;
   archived: boolean;
@@ -105,9 +122,22 @@ export interface BotPatch {
   workingDir?: string;
   notifications?: boolean;
   speakReplies?: boolean;
+  voice?: string;
   pinned?: boolean;
   hidden?: boolean;
   archived?: boolean;
+}
+
+/**
+ * CommandResult is the output of a command the person ran in the Computer
+ * panel. It is not an agent tool call; the person explicitly typed it.
+ */
+export interface CommandResult {
+  command: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
 }
 
 /** Connection is one app from the marketplace. */
@@ -128,6 +158,15 @@ export interface CreateBotInput {
   modelId: string;
 }
 
+/** CreateGroupInput is the New channel form. */
+export interface CreateGroupInput {
+  name: string;
+  description: string;
+  color: string;
+  memberIds: string[];
+  leadId: string;
+}
+
 /** EngineInfo reports one detected CLI. */
 export interface EngineInfo {
   providerId: string;
@@ -146,12 +185,70 @@ export interface Event {
   revision: number;
   state?: AppState;
   botId?: string;
+  groupId?: string;
   threadId?: string;
   messageId?: string;
   message?: Message;
   delta?: string;
   turn?: Turn;
   toast?: Toast;
+}
+
+/** FileEntry is one item in a bot's local working folder. */
+export interface FileEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  size: number;
+  modified: string;
+  mime?: string;
+}
+
+/** FilePreview is a bounded read of one local file. */
+export interface FilePreview {
+  path: string;
+  name: string;
+  kind: string;
+  mime?: string;
+  text?: string;
+  data?: string;
+  size: number;
+  truncated: boolean;
+}
+
+/** FolderListing is one directory inside a bot's local computer. */
+export interface FolderListing {
+  root: string;
+  path: string;
+  entries: FileEntry[];
+}
+
+/**
+ * Group is a channel: a shared conversation with a roster of bots. The lead
+ * answers by default; @mentions route a message to another member.
+ */
+export interface Group {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  memberIds: string[];
+  leadId: string;
+  pinned: boolean;
+  unread: number;
+  createdAt: string;
+  updatedAt: string;
+  threads: Thread[];
+}
+
+/** GroupPatch edits only the fields it sets. */
+export interface GroupPatch {
+  name?: string;
+  description?: string;
+  color?: string;
+  memberIds?: string[];
+  leadId?: string;
+  pinned?: boolean;
 }
 
 /**
@@ -166,11 +263,14 @@ export interface Message {
   status?: string;
   pending: boolean;
   error: boolean;
+  senderId?: string;
+  senderName?: string;
   engine?: string;
   model?: string;
   options?: Option[];
   approval?: Approval;
   activities?: Activity[];
+  attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -192,6 +292,19 @@ export interface Option {
   id: string;
   label: string;
   description?: string;
+}
+
+/**
+ * PhoneInfo describes the local web companion. The token is part of the URL;
+ * anyone on the same network with it can read and send this workspace's chats.
+ */
+export interface PhoneInfo {
+  enabled: boolean;
+  url: string;
+  token: string;
+  error?: string;
+  port: number;
+  connected: number;
 }
 
 /** Provider groups models by the engine that serves them. */
@@ -266,6 +379,7 @@ export interface SecretStatus {
 /** SendResult points at the user message and the bot reply it started. */
 export interface SendResult {
   botId: string;
+  groupId?: string;
   threadId: string;
   messageId: string;
 }
@@ -273,6 +387,9 @@ export interface SendResult {
 /** Settings are app-wide preferences. */
 export interface Settings {
   theme: string;
+  voiceName?: string;
+  phoneEnabled?: boolean;
+  phoneToken?: string;
   language: string;
   sidebarWidth: number;
   advanced: boolean;
@@ -309,6 +426,7 @@ export interface Toast {
 /** Turn describes the transient state of a bot working in a thread. */
 export interface Turn {
   botId: string;
+  groupId?: string;
   threadId: string;
   busy: boolean;
   status?: string;
@@ -326,9 +444,20 @@ export const Grox = {
   answer(botID: string, threadID: string, messageID: string, answer: string): Promise<void> {
     return call("Grox.Answer", botID, threadID, messageID, answer);
   },
+  /** AnswerGroup settles an option card in a channel. */
+  answerGroup(groupID: string, threadID: string, messageID: string, answer: string): Promise<void> {
+    return call("Grox.AnswerGroup", groupID, threadID, messageID, answer);
+  },
   /** Bootstrap loads everything the page needs for its first paint. */
   bootstrap(): Promise<Bootstrap> {
     return call("Grox.Bootstrap");
+  },
+  /**
+   * CaptureComputerScreen takes a PNG screenshot of the local desktop. The OS
+   * may ask for screen-recording permission the first time.
+   */
+  captureComputerScreen(): Promise<string> {
+    return call("Grox.CaptureComputerScreen");
   },
   clearSecret(name: string): Promise<SecretStatus> {
     return call("Grox.ClearSecret", name);
@@ -336,6 +465,14 @@ export const Grox = {
   /** CreateBot adds a contact and opens its first conversation. */
   createBot(input: CreateBotInput): Promise<Bot> {
     return call("Grox.CreateBot", input);
+  },
+  /** CreateGroup adds a channel and opens it. */
+  createGroup(input: CreateGroupInput): Promise<Group> {
+    return call("Grox.CreateGroup", input);
+  },
+  /** CreateGroupThread starts a fresh channel conversation. */
+  createGroupThread(groupID: string, title: string): Promise<Thread> {
+    return call("Grox.CreateGroupThread", groupID, title);
   },
   /** CreateRoutine adds a scheduled task. */
   createRoutine(input: RoutineInput): Promise<Routine> {
@@ -349,9 +486,21 @@ export const Grox = {
   decide(botID: string, threadID: string, messageID: string, decision: string): Promise<void> {
     return call("Grox.Decide", botID, threadID, messageID, decision);
   },
+  /** DecideGroup settles an approval card in a channel. */
+  decideGroup(groupID: string, threadID: string, messageID: string, decision: string): Promise<void> {
+    return call("Grox.DecideGroup", groupID, threadID, messageID, decision);
+  },
   /** DeleteBot removes a contact and every conversation it owns. */
   deleteBot(id: string): Promise<void> {
     return call("Grox.DeleteBot", id);
+  },
+  /** DeleteGroup removes a channel. */
+  deleteGroup(groupID: string): Promise<void> {
+    return call("Grox.DeleteGroup", groupID);
+  },
+  /** DeleteGroupThread removes a channel conversation, keeping one empty one. */
+  deleteGroupThread(groupID: string, threadID: string): Promise<void> {
+    return call("Grox.DeleteGroupThread", groupID, threadID);
   },
   /**
    * DeleteRoutine removes a schedule. Runs that already happened stay in the
@@ -371,6 +520,14 @@ export const Grox = {
   exportWorkspace(): Promise<string> {
     return call("Grox.ExportWorkspace");
   },
+  /** ListComputerFiles returns one folder inside the bot's local computer. */
+  listComputerFiles(botID: string, path: string): Promise<FolderListing> {
+    return call("Grox.ListComputerFiles", botID, path);
+  },
+  /** MarkGroupRead clears the channel's unread count. */
+  markGroupRead(groupID: string): Promise<void> {
+    return call("Grox.MarkGroupRead", groupID);
+  },
   /** MarkRead clears a conversation's unread count without opening it. */
   markRead(botID: string, threadID: string): Promise<void> {
     return call("Grox.MarkRead", botID, threadID);
@@ -378,6 +535,29 @@ export const Grox = {
   /** MarkUnread puts a conversation back in the unread list. */
   markUnread(botID: string, threadID: string): Promise<void> {
     return call("Grox.MarkUnread", botID, threadID);
+  },
+  /** OpenAttachment opens the attachment with the system's default application. */
+  openAttachment(id: string): Promise<void> {
+    return call("Grox.OpenAttachment", id);
+  },
+  /** OpenComputerPath opens a local file or folder with the system handler. */
+  openComputerPath(botID: string, path: string): Promise<void> {
+    return call("Grox.OpenComputerPath", botID, path);
+  },
+  /**
+   * PhoneInfo reports the local web companion's address. It never starts the
+   * server as a side effect.
+   */
+  phoneInfo(): Promise<PhoneInfo> {
+    return call("Grox.PhoneInfo");
+  },
+  /** ReadAttachment returns a base64 payload for the page to render a preview. */
+  readAttachment(id: string): Promise<string> {
+    return call("Grox.ReadAttachment", id);
+  },
+  /** ReadComputerFile returns a bounded text or image preview. */
+  readComputerFile(botID: string, path: string): Promise<FilePreview> {
+    return call("Grox.ReadComputerFile", botID, path);
   },
   /** RefreshCatalog re-probes the local CLIs and returns a fresh bootstrap. */
   refreshCatalog(): Promise<Bootstrap> {
@@ -393,20 +573,58 @@ export const Grox = {
   revealWorkingFolder(botID: string): Promise<string> {
     return call("Grox.RevealWorkingFolder", botID);
   },
+  /**
+   * RunComputerCommand runs a command the person typed in the Computer panel.
+   * It is intentionally not exposed to the agent as an unattended tool.
+   */
+  runComputerCommand(botID: string, command: string): Promise<CommandResult> {
+    return call("Grox.RunComputerCommand", botID, command);
+  },
   /** RunRoutine starts a routine now, as a fresh task thread. */
   runRoutine(id: string): Promise<SendResult> {
     return call("Grox.RunRoutine", id);
+  },
+  /**
+   * SaveAttachment copies a file into the workspace and returns its metadata.
+   * The page sends base64 because the MyGo binding is JSON; bytes never go into
+   * state.json.
+   */
+  saveAttachment(name: string, mimeType: string, dataBase64: string): Promise<Attachment> {
+    return call("Grox.SaveAttachment", name, mimeType, dataBase64);
   },
   /** Select opens a conversation and marks it read. */
   select(botID: string, threadID: string): Promise<void> {
     return call("Grox.Select", botID, threadID);
   },
+  /** SelectGroup opens a channel and marks it read. */
+  selectGroup(groupID: string, threadID: string): Promise<void> {
+    return call("Grox.SelectGroup", groupID, threadID);
+  },
   /** Send appends a user message and starts a bot turn. */
   send(botID: string, threadID: string, text: string): Promise<SendResult> {
     return call("Grox.Send", botID, threadID, text);
   },
+  /** SendGroup sends a message to a channel. */
+  sendGroup(groupID: string, threadID: string, text: string): Promise<SendResult> {
+    return call("Grox.SendGroup", groupID, threadID, text);
+  },
+  /** SendGroupWithAttachments sends a message with files to a channel. */
+  sendGroupWithAttachments(groupID: string, threadID: string, text: string, attachments: Attachment[]): Promise<SendResult> {
+    return call("Grox.SendGroupWithAttachments", groupID, threadID, text, attachments);
+  },
+  /**
+   * SendWithAttachments sends a message with files previously stored by
+   * SaveAttachment.
+   */
+  sendWithAttachments(botID: string, threadID: string, text: string, attachments: Attachment[]): Promise<SendResult> {
+    return call("Grox.SendWithAttachments", botID, threadID, text, attachments);
+  },
   setConnection(appID: string, connected: boolean): Promise<AppEntry> {
     return call("Grox.SetConnection", appID, connected);
+  },
+  /** SetPhoneEnabled starts or stops the LAN companion server. */
+  setPhoneEnabled(enabled: boolean): Promise<PhoneInfo> {
+    return call("Grox.SetPhoneEnabled", enabled);
   },
   setSecret(name: string, value: string): Promise<SecretStatus> {
     return call("Grox.SetSecret", name, value);
@@ -415,9 +633,21 @@ export const Grox = {
   stop(botID: string, threadID: string): Promise<void> {
     return call("Grox.Stop", botID, threadID);
   },
+  /** StopGroup interrupts a channel turn. */
+  stopGroup(groupID: string, threadID: string): Promise<void> {
+    return call("Grox.StopGroup", groupID, threadID);
+  },
   /** UpdateBot edits the fields in the patch. */
   updateBot(botID: string, patch: BotPatch): Promise<Bot> {
     return call("Grox.UpdateBot", botID, patch);
+  },
+  /** UpdateGroup edits the channel's identity or roster. */
+  updateGroup(groupID: string, patch: GroupPatch): Promise<Group> {
+    return call("Grox.UpdateGroup", groupID, patch);
+  },
+  /** UpdateGroupThread renames a channel conversation. */
+  updateGroupThread(groupID: string, threadID: string, title: string): Promise<Thread> {
+    return call("Grox.UpdateGroupThread", groupID, threadID, title);
   },
   /** UpdateRoutine edits a routine and recomputes its next run. */
   updateRoutine(id: string, patch: RoutinePatch): Promise<Routine> {

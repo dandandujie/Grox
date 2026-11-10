@@ -74,9 +74,9 @@ One event type is published as the MyGo event "app":
 | type | payload | meaning |
 | --- | --- | --- |
 | state | full AppState | structural change or first-paint refresh |
-| message | Message | create/replace one message (base, activity, card, final) |
-| delta | messageId + text | append streaming text to a message |
-| turn | Turn | busy/status/engine for one thread |
+| message | Message | create/replace one message (base, activity, card, final); carries botId or groupId |
+| delta | messageId + text | append streaming text to a message; carries botId or groupId |
+| turn | Turn | busy/status/engine for one bot thread or one channel thread |
 | toast | Toast | transient notice, e.g. engine fallback |
 
 The page applies message/delta/turn incrementally and replaces the document on state. State snapshots are
@@ -93,19 +93,26 @@ The workspace is a single JSON document:
       version, revision, createdAt, updatedAt
       bots: []Bot
         id, name, title, description, soul, color, mascotShape, expression, avatarUrl
-        modelId, approval, workingDir, notifications, speakReplies
+        modelId, approval, workingDir, notifications, speakReplies, voice
         pinned, hidden, archived
         threads: []Thread
           id, title, kind, unread, busy, status
           messages: []Message
             role, kind, text, status, pending, error
+            senderId, senderName
             engine, model
-            options, approval, activities
+            options, approval, activities, attachments
+      groups: []Group
+        id, name, description, color, memberIds, leadId, pinned, unread
+        threads: []Thread (same message shape; kind = group)
       routines: []Routine
       runs: []Run
       connections: map[appId]Connection
       settings: Settings
-      activeBotId, activeThreadId
+        theme, language, sidebarWidth, advanced, reduceMotion
+        notifications, sounds, engineMode, apiBaseUrl, apiModel, voiceName
+        phoneEnabled, phoneToken
+      activeBotId, activeGroupId, activeThreadId
 
 Kinds and roles are strings by design: the frontend and the wire type stay easy to extend. The constants
 live in internal/model.
@@ -292,17 +299,68 @@ Computer panel imply a live desktop when one is not connected.
 The screenshots in docs/screenshots are captured from the built app via a macOS window capture; the
 GROX_DEBUG_QUERY deep links make each state reproducible.
 
-## 13. Known limitations
+## 13. Local surfaces
 
-- No cloud computers, Composio OAuth sessions, live app tool calls, group chats, channels, file
-  attachments, microphone calls, mobile companion, or admin surfaces.
+### Channels
+
+A Group owns its own Thread list. The send path chooses a responder by scanning member names for an
+@mention, then falls back to the lead. The turn uses the same engine selector and sink as a direct bot
+turn; the sink resolves its owner through either a bot id or a group id. Bot messages carry senderId and
+senderName, and Compose labels history by sender rather than by the current responder.
+
+### Attachments
+
+The composer reads a File as a data URL, sends the base64 payload to SaveAttachment, and the Go service
+copies bytes into <dataDir>/attachments with a generated id and a sanitized name. State stores only
+metadata. ReadAttachment returns base64 for previews; OpenAttachment hands the path to the OS. The agent
+prompt receives the local paths, MIME type, and size. The cap is 32 MB per file, previews cap at 12 MB, and
+the workspace reset removes the attachments directory.
+
+### Voice
+
+Dictation and call mode use SpeechRecognition (webkit-prefixed where necessary) in the webview. CallSheet
+runs recognition continuously, sends final transcripts through the normal Send path, and watches the
+thread for new bot messages. The auto-speak branch in the store speaks replies during a call or when a bot
+has Read replies aloud enabled. Voice selection is per bot, with a global default in Settings. The Go
+backend stores the preference and never handles audio.
+
+### Computer
+
+ListComputerFiles, ReadComputerFile, OpenComputerPath, RunComputerCommand, and CaptureComputerScreen are
+methods on the service. All paths are resolved against the bot's working directory (or the home directory
+when unset); symlinks are resolved and a path outside the root is rejected. Reads are bounded, images are
+returned as base64, and the terminal has a 60-second deadline with capped output. CaptureComputerScreen
+uses screencapture on macOS, grim/scrot on Linux, and is explicit in the UI; macOS may require Screen
+Recording permission.
+
+### Phone companion
+
+SetPhoneEnabled opens a net/http server on the first free port in 4870-4880. The handler serves an embedded
+phone.html and four JSON endpoints: state, send, read, and an SSE event stream. Every request is
+authenticated by a 48-hex-character token stored in settings.phoneToken and compared in constant time.
+The service fans every event out to phone subscribers with a non-blocking send. The phone page is a small
+vanilla JS chat: it can read the roster and channels, send messages, and follow streaming replies. It
+cannot open approval cards or the Computer panel. Stop the server from Settings, Phone.
+
+## 14. Known limitations
+
+- No cloud computers, hosted remote desktops, Composio OAuth sessions, live third-party tool calls, or
+  admin surfaces.
+- Voice uses the webview's speech recognition and the OS speech voice; there is no WebRTC/cloud call
+  transport. Live listening depends on the webview and microphone permission.
+- The local Computer panel is not exposed to an agent as an unattended tool. It runs only what the person
+  types in the panel.
+- The phone companion is a LAN page, not a native app or cloud-synced client; it is plain HTTP protected by
+  a URL token and only works while the desktop app is open.
+- The connected-app catalog and key field are real, but no OAuth connection is faked.
+- Organization admin, cloud sync, billing, and a mobile app store build are not implemented.
 - Real CLI tool permissions are not brokered; approval mode is passed through.
 - The browser preview uses a separate in-memory mock, not the Go backend.
 - The demo engine is a deterministic scripted engine, not a model. It is labelled as such.
 - The activity calendar is a week planner, not a minute-by-minute scheduler UI.
 - The app is single-window by design.
 
-## 14. Attribution
+## 15. Attribution
 
 The mascot silhouette and the broad interaction vocabulary come from OpenMausBot (Apache-2.0). See NOTICE
 and LICENSE.

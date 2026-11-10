@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   ChevronRight, Cloud, Database, Eye, EyeOff, FolderOpen, Globe, Info, KeyRound, Laptop,
-  Languages, MonitorSpeaker, Palette, Play, RefreshCw, Save, ShieldCheck, Sparkles, Trash2,
+  Languages, MonitorSpeaker, Palette, Play, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Trash2,
   Volume2, X,
 } from "lucide-react";
 import { useApp, type SettingsSection } from "@/state/store";
 import { Segmented, Switch, Spinner } from "@/components/ui";
+import { speak } from "@/lib/speech";
 import { GroxLogo, ProviderMark } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
@@ -16,6 +17,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] 
   { id: "connections", label: "Connections", icon: <KeyRound size={16} /> },
   { id: "engines", label: "Engines", icon: <Sparkles size={16} /> },
   { id: "computer", label: "Computers", icon: <Laptop size={16} /> },
+  { id: "phone", label: "Phone", icon: <Smartphone size={16} /> },
   { id: "voice", label: "Voice", icon: <Volume2 size={16} /> },
   { id: "data", label: "Data & privacy", icon: <Database size={16} /> },
   { id: "about", label: "About", icon: <Info size={16} /> },
@@ -340,28 +342,97 @@ function ComputerSection() {
   );
 }
 
+function PhoneSection() {
+  const { phone, setPhoneEnabled, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true);
+    await setPhoneEnabled(enabled);
+    setBusy(false);
+  };
+  const copy = () => {
+    if (!phone.url) return;
+    void navigator.clipboard?.writeText(phone.url);
+    toast({ kind: "success", title: "Phone link copied" });
+  };
+
+  return (
+    <>
+      <SectionCard title="Phone companion" hint="A small web chat for a phone on the same Wi-Fi. The desktop app stays open and owns the workspace.">
+        <div className="settings-form">
+          <div className="switch-row">
+            <span className="row-copy">
+              <span className="row-title">Local phone link</span>
+              <span className="row-sub">Serves a private page on this Mac's network address.</span>
+            </span>
+            <Switch checked={phone.enabled} label="Local phone link" onChange={(value) => void toggle(value)} disabled={busy} />
+          </div>
+          {phone.error && <p className="settings-note is-error">{phone.error}</p>}
+          {phone.enabled && phone.url ? (
+            <>
+              <label className="panel-field">
+                <span>Open on your phone</span>
+                <div className="phone-url-row">
+                  <code className="phone-url">{phone.url}</code>
+                  <button type="button" className="btn btn-secondary" onClick={copy}>Copy</button>
+                </div>
+              </label>
+              <p className="phone-warning">Anyone with this link on the same network can read and send these conversations. Turn it off when you are done.</p>
+              <p className="settings-note">Connected phones: {phone.connected}. The link uses plain HTTP on your local network; it is not exposed to the internet by Grox.</p>
+            </>
+          ) : (
+            <p className="settings-note">Turn the link on, then open the address on a phone that is on the same Wi-Fi. No account, QR service, or cloud relay is involved.</p>
+          )}
+        </div>
+      </SectionCard>
+      <SectionCard title="What the phone can do" hint="A deliberately small surface.">
+        <ul className="phone-list">
+          <li>See the bot roster and channels.</li>
+          <li>Read the latest conversation.</li>
+          <li>Send a message and receive the streaming reply.</li>
+          <li>Open the page from any browser; no app install.</li>
+        </ul>
+        <p className="settings-note">Approval cards and computer controls stay on the desktop app. The phone page cannot read local files or run commands.</p>
+      </SectionCard>
+    </>
+  );
+}
+
 function VoiceSection() {
-  const { toast } = useApp();
-  const [voiceName, setVoiceName] = useState("");
-  const voices = typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis.getVoices() : [];
+  const { state, patchSettings, toast } = useApp();
+  const [voiceName, setVoiceName] = useState(state.settings.voiceName ?? "");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const load = () => setVoices(window.speechSynthesis.getVoices());
+    load();
+    window.speechSynthesis.addEventListener?.("voiceschanged", load);
+    return () => window.speechSynthesis.removeEventListener?.("voiceschanged", load);
+  }, []);
+
   const test = () => {
-    if (!("speechSynthesis" in window)) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       toast({ kind: "error", title: "No system voice available" });
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance("This is how a Grox reply sounds on this machine.");
-    const voice = voices.find((item) => item.name === voiceName);
-    if (voice) utterance.voice = voice;
-    window.speechSynthesis.speak(utterance);
+    speak("This is how a Grox reply sounds on this machine.", voiceName);
   };
+
   return (
     <>
-      <SectionCard title="System voice" hint="Grox uses the voices already installed on your machine. Each bot can read its replies aloud.">
+      <SectionCard title="System voice" hint="Grox uses the voices already installed on this machine. A bot can override this in its profile.">
         <div className="settings-form">
           <label className="panel-field">
-            <span>Voice</span>
-            <select value={voiceName} onChange={(event) => setVoiceName(event.target.value)}>
+            <span>Default voice</span>
+            <select
+              value={voiceName}
+              onChange={(event) => {
+                setVoiceName(event.target.value);
+                void patchSettings({ voiceName: event.target.value });
+              }}
+            >
               <option value="">System default</option>
               {voices.map((voice) => <option key={voice.name} value={voice.name}>{voice.name} · {voice.lang}</option>)}
             </select>
@@ -371,8 +442,13 @@ function VoiceSection() {
           </div>
         </div>
       </SectionCard>
-      <SectionCard title="Voice calls" hint="Live call transport is not part of this build.">
-        <p className="settings-note">Replies can be spoken from the speaker icon beside any message. A real-time call needs a microphone pipeline and a streaming speech service; that is not wired here.</p>
+      <SectionCard title="Voice calls" hint="A local, speech-to-speech call mode — no call transport and no speech service in the middle.">
+        <p className="settings-note">
+          Start a call from the phone button in any conversation. Grox listens through the system speech-recognition service,
+          sends the transcript to the bot, and speaks the reply with the voice above. The microphone is used only while the
+          call or dictation button is active. Availability of live listening depends on the webview; typing in the call sheet
+          always works.
+        </p>
       </SectionCard>
     </>
   );
@@ -489,6 +565,7 @@ export function SettingsModal() {
             {section === "connections" && <ConnectionsSection />}
             {section === "engines" && <EnginesSection />}
             {section === "computer" && <ComputerSection />}
+            {section === "phone" && <PhoneSection />}
             {section === "voice" && <VoiceSection />}
             {section === "data" && <DataSection />}
             {section === "about" && <AboutSection />}

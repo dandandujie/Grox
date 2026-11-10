@@ -20,7 +20,8 @@ The open-source Grok Bot alternative, written in Go with MyGo and React.
 
 Grox is a local-first, bring-your-own-agent desktop app. Every row in the sidebar is a bot with its own
 personality, model, conversations, working folder, and approval boundary. Talk to them like contacts; watch
-them work; approve the steps that matter.
+them work; approve the steps that matter. Shared channels put several bots in one room, with a lead and
+@mentions. Files, images, voice, a real local computer, and a private phone page are part of the same app.
 
 It runs the agent CLIs you already use — **Grok Build, Claude Code, Codex, Gemini** — or any
 OpenAI-compatible endpoint. No relay, no account, no telemetry. The workspace stays in
@@ -42,6 +43,16 @@ shape local and inspectable:
 - **Ask before acting.** Approval modes per bot; the demo engine shows real approval cards, and every
   real CLI is started with its own read-only / edits / bypass policy.
 - **Every bot has a memory.** Conversations, tasks, and routine runs are separate threads owned by a bot.
+- **A room for the team.** Channels have members, a lead, @mentions, and their own transcript. The lead
+  answers by default; mention @Omiii and the turn is routed there.
+- **Files come with the message.** Attach images or files from the composer; bytes are copied into the
+  workspace and the local path is given to the agent.
+- **A real local computer.** The Computer panel can capture this Mac's screen, browse the bot's folder,
+  preview files, and run a command you typed yourself.
+- **Voice on this machine.** Dictate into the composer, or start a call that listens with the system
+  speech service and speaks the reply with the system voice.
+- **Your phone, on your Wi-Fi.** Turn on the phone companion to get a private link for the same roster and
+  conversations. No account or cloud relay.
 - **Local first.** A Go process owns the workspace. The frontend is a web page in the system webview.
 
 ## Screenshots
@@ -66,9 +77,17 @@ shape local and inspectable:
 | --- | --- |
 | ![Engines](docs/screenshots/engines.png) | ![Computer](docs/screenshots/computer.png) |
 
-| New bot |
+| New bot | New channel |
+| --- | --- |
+| ![New bot](docs/screenshots/newbot.png) | ![New channel](docs/screenshots/channel.png) |
+
+| Voice call |
 | --- |
-| ![New bot](docs/screenshots/newbot.png) |
+| ![Voice call](docs/screenshots/voice.png) |
+
+| Channels | Phone companion |
+| --- | --- |
+| ![Channels](docs/screenshots/channels.png) | <img src="docs/screenshots/phone.png" alt="Phone companion" width="320" /> |
 
 ## What is real (and what is not)
 
@@ -81,6 +100,8 @@ The table below is intentionally blunt.
 | Per-bot persona, instructions, model, colour, mascot shape/expression | **Working** |
 | Conversations, tasks, a thread switcher, unread counts | **Working** |
 | Streaming replies, Markdown + tables + code blocks, stop, message queue | **Working** |
+| Attachments: images and files up to 32 MB, stored in the workspace | **Working** |
+| Channels: members, lead, @mentions, channel threads, sender labels | **Working** |
 | Question cards, approval cards, allow once / always / deny | **Working** (demo and seeded conversations) |
 | Tool activity chips above a reply | **Working** for the demo engine and parsed CLI tool events |
 | Model picker with provider rail and availability | **Working** |
@@ -92,13 +113,14 @@ The table below is intentionally blunt.
 | API keys stored locally, write-only to the page, 0600 file | **Working** |
 | Skins (Midnight / Daylight / Atelier / Foundry), reduce motion | **Working** |
 | Command palette, keyboard shortcuts, Cmd+1–9, deep links | **Working** |
-| Connected apps catalog and local connection switches | **Working as local switches.** No OAuth broker or live Composio session |
-| Cloud computers / live remote desktop | **Not included.** The panel explains this; it is not simulated as if it worked |
-| Voice calls, microphone, live call transport | **Not included.** Replies can be read with the system voice |
-| File attachments, image uploads in messages | **Not included** |
-| Groups, channels, departments, multi-agent team chat | **Not included** |
-| Mobile companion, phone pairing, cloud sync, enterprise admin | **Not included** |
-| Approval brokering for real CLI tool requests | **Partial.** Approval mode is passed to the CLI; only the demo/seed cards are decided in-app |
+| Connected apps catalog, local switches, Composio key field | **Catalog is real; OAuth and live tool calls are not wired.** The key is stored, but no account is faked |
+| Cloud computers / hosted remote desktop | **Not included.** Local screen/files/terminal are real; there is no hosted VM service |
+| Voice input and speech-to-speech calls | **Working locally** via the webview's speech recognition and the system voice; availability depends on the webview |
+| Local computer: screenshot, folder browse, file preview, terminal | **Working** on this Mac; screen capture needs Screen Recording permission |
+| Channels, multi-agent group chat, @mention routing | **Working** locally |
+| Phone companion (LAN web page, same roster and chats) | **Working** while the desktop app is open; plain HTTP + private token on your network |
+| Cloud sync, enterprise admin, organization billing | **Not included** |
+| Approval brokering for real CLI tool requests | **Partial.** Approval mode is passed to the CLI; only the demo/seed cards and local computer commands are controlled in-app |
 
 > In other words: the conversation, roster, model, profile, routines, settings, and local-agent parts are
 > real. The hosted/cloud parts are deliberately absent and labelled, rather than mocked as connected.
@@ -191,6 +213,8 @@ To put a real model behind a bot:
 | Workspace (bots, threads, routines, settings, connections) | user config/Grox/state.json |
 | API keys | user config/Grox/secrets.json, mode 0600 |
 | Window size | user config/Grox/window-state.json |
+| Attachments | user config/Grox/attachments/ |
+| Phone pairing token | state.json (settings.phoneToken) |
 | Frontend | Built into the Go binary |
 | Telemetry | None |
 
@@ -200,6 +224,22 @@ On macOS, the user config directory is ~/Library/Application Support. Linux uses
 Keys are never returned to the page: the frontend only sees a configured flag and a masked tail. The
 workspace export deliberately omits keys. The backend never shells out with a prompt; the agent CLIs are
 started with exec.CommandContext and their own arguments.
+
+**Channels.** Every channel has its own threads. A user message is routed to an @mentioned member or to
+the lead. The responder gets the channel history with each bot's name, so the room reads correctly to the
+model. A channel turn is still one agent turn; it does not fan out to every member.
+
+**Voice.** Dictation and calls use the browser/webview's speech recognition when available. The Mac's
+microphone permission is declared in Info.plist. The call sheet also has a typed fallback, and all
+transcripts/speech are handled locally by the OS service; Grox does not upload audio.
+
+**Local computer.** The Computer panel is a real window into this Mac: screencapture for the screen,
+read-only folder browsing and previews rooted at the bot's working folder, and a terminal that runs only
+commands you type. It is not exposed to an agent as an unattended tool, and it is not a hosted VM.
+
+**Phone companion.** The Go process can serve a small mobile page on your LAN, protected by a random token
+in the URL. It can read the roster and send messages; approval cards and the computer stay on the desktop.
+Turn it off from Settings → Phone when not needed. The link uses plain HTTP on the local network.
 
 **Approval boundaries.** Each bot's mode maps to the provider's own flags:
 
@@ -215,19 +255,19 @@ brokered by Grox in this version; the table above is the boundary it actually ap
 ## Development
 
     npm run typecheck       # TypeScript
-    go test ./...           # Go tests
-    go vet ./...            # Go vet
-    npm run verify          # all of the above
+    npm run test:go         # Go tests, through the pinned Go wrapper
+    npm run verify          # typecheck + Go tests + go vet
 
 Useful debug deep links (also a foundation for the desktop's own links):
 
     GROX_DEBUG_QUERY='panel=profile' ./build/darwin-arm64/Grox.app/Contents/MacOS/Grox
     GROX_DEBUG_QUERY='bot=bot-emaily&theme=midnight' ./build/darwin-arm64/Grox.app/Contents/MacOS/Grox
 
-Supported query keys: bot, thread, view=chat|routines|apps, panel=profile|computer|activity,
-settings=general|connections|engines|computer|voice|data|about, modelPicker=1, newBot=1,
-newRoutine=1, palette=1, shortcuts=1, threads=1, theme=midnight|daylight|atelier|foundry, search,
-and send (pre-send a message, used by the screenshot fixture).
+Supported query keys: bot, group, thread, view=chat|routines|apps, panel=profile|computer|activity,
+settings=general|connections|engines|computer|phone|voice|data|about, modelPicker=1, newBot=1,
+newChannel=1, newRoutine=1, call=1, palette=1, shortcuts=1, threads=1,
+theme=midnight|daylight|atelier|foundry, search, and send (pre-send a message, used by the screenshot
+fixture).
 
 The browser preview:
 
@@ -237,7 +277,7 @@ The browser preview:
 When the page is not inside a MyGo window it loads a small in-memory mock backend and the fixture in
 src/mock/bootstrap.json. Regenerate the fixture after changing the seed:
 
-    go run ./cmd/fixture > src/mock/bootstrap.json
+    node scripts/with-go.mjs go run ./cmd/fixture > src/mock/bootstrap.json
 
 ## Repository layout
 

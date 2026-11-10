@@ -131,6 +131,9 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 	if patch.SpeakReplies != nil {
 		bot.SpeakReplies = *patch.SpeakReplies
 	}
+	if patch.Voice != nil {
+		bot.Voice = strings.TrimSpace(*patch.Voice)
+	}
 	if patch.Pinned != nil {
 		bot.Pinned = *patch.Pinned
 	}

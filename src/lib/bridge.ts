@@ -1,5 +1,6 @@
 import type {
-  AppEntry, AppState, Bootstrap, Bot, BotPatch, CreateBotInput, Event as AppEvent,
+  AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, CreateBotInput, CreateGroupInput,
+  Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
   Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult, Settings, Thread,
 } from "@/mygo";
 
@@ -16,7 +17,30 @@ export interface Backend {
   select(botId: string, threadId: string): Promise<void>;
   markRead(botId: string, threadId: string): Promise<void>;
   markUnread(botId: string, threadId: string): Promise<void>;
+  createGroup(input: CreateGroupInput): Promise<Group>;
+  updateGroup(groupId: string, patch: GroupPatch): Promise<Group>;
+  deleteGroup(groupId: string): Promise<void>;
+  createGroupThread(groupId: string, title: string): Promise<Thread>;
+  updateGroupThread(groupId: string, threadId: string, title: string): Promise<Thread>;
+  deleteGroupThread(groupId: string, threadId: string): Promise<void>;
+  selectGroup(groupId: string, threadId: string): Promise<void>;
+  markGroupRead(groupId: string): Promise<void>;
+  sendGroup(groupId: string, threadId: string, text: string): Promise<SendResult>;
+  sendGroupWithAttachments(groupId: string, threadId: string, text: string, attachments: Attachment[]): Promise<SendResult>;
+  stopGroup(groupId: string, threadId: string): Promise<void>;
+  decideGroup(groupId: string, threadId: string, messageId: string, decision: string): Promise<void>;
+  answerGroup(groupId: string, threadId: string, messageId: string, answer: string): Promise<void>;
+  saveAttachment(name: string, mimeType: string, dataBase64: string): Promise<Attachment>;
+  readAttachment(id: string): Promise<string>;
+  openAttachment(id: string): Promise<void>;
+  sendWithAttachments(botId: string, threadId: string, text: string, attachments: Attachment[]): Promise<SendResult>;
   revealWorkingFolder(botId: string): Promise<string>;
+  listComputerFiles(botId: string, path: string): Promise<FolderListing>;
+  readComputerFile(botId: string, path: string): Promise<FilePreview>;
+  openComputerPath(botId: string, path: string): Promise<void>;
+  runComputerCommand(botId: string, command: string): Promise<CommandResult>;
+  captureComputerScreen(): Promise<string>;
+  setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;
   send(botId: string, threadId: string, text: string): Promise<SendResult>;
   stop(botId: string, threadId: string): Promise<void>;
   decide(botId: string, threadId: string, messageId: string, decision: string): Promise<void>;
@@ -36,9 +60,9 @@ export interface Backend {
 }
 
 export type {
-  Activity, AppEntry, AppState, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
-  Connection, EngineInfo, Message, Model, Option, Provider, Routine, RoutineInput, RoutinePatch,
-  Run, SecretStatus, SendResult, Settings, Thread, Toast, Turn,
+  Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
+  CommandResult, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
+  PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus, SendResult, Settings, Thread, Toast, Turn,
 } from "@/mygo";
 export type { Event as AppEvent } from "@/mygo";
 

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,11 +36,19 @@ type Service struct {
 	turns map[string]*turnControl
 	stop  chan struct{}
 	once  sync.Once
+
+	phoneMu       sync.Mutex
+	phoneServer   *http.Server
+	phoneListener net.Listener
+	phoneErr      string
+	phoneSubMu    sync.Mutex
+	phoneSubs     map[chan model.Event]struct{}
 }
 
 type turnControl struct {
 	cancel   context.CancelFunc
 	botID    string
+	groupID  string
 	threadID string
 }
 
@@ -46,7 +56,10 @@ type turnControl struct {
 // opened by Open, after MyGo's generator has had a chance to run without
 // touching the person's real data.
 func New(dir string, emit func(model.Event)) (*Service, error) {
-	return &Service{dir: dir, emit: emit, turns: map[string]*turnControl{}, stop: make(chan struct{})}, nil
+	return &Service{
+		dir: dir, emit: emit, turns: map[string]*turnControl{}, stop: make(chan struct{}),
+		phoneSubs: map[chan model.Event]struct{}{},
+	}, nil
 }
 
 // Open loads the workspace. It is a package function, not a method, so it is
@@ -59,6 +72,7 @@ func Open(s *Service) error {
 	s.mu.Lock()
 	s.st = st
 	s.mu.Unlock()
+	s.startPhoneIfEnabled()
 	return nil
 }
 
@@ -80,6 +94,14 @@ func (s *Service) emitEvent(ev model.Event) {
 	if fn != nil {
 		fn(ev)
 	}
+	s.phoneSubMu.Lock()
+	for ch := range s.phoneSubs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	s.phoneSubMu.Unlock()
 }
 
 // start begins the routine scheduler.
@@ -105,6 +127,7 @@ func Close(s *Service) { s.shutdown() }
 // shutdown stops timers and flushes the workspace.
 func (s *Service) shutdown() {
 	s.once.Do(func() { close(s.stop) })
+	s.stopPhone()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.st == nil {
@@ -145,6 +168,7 @@ func (s *Service) bootstrap(ctx context.Context, force bool) (model.Bootstrap, e
 	state := s.snapshotLocked()
 	settings := state.Settings
 	s.mu.Unlock()
+	phone := s.PhoneInfo()
 
 	return model.Bootstrap{
 		State:     state,
@@ -152,6 +176,7 @@ func (s *Service) bootstrap(ctx context.Context, force bool) (model.Bootstrap, e
 		Apps:      apps,
 		Engines:   engines,
 		Secrets:   secrets,
+		Phone:     phone,
 		Version:   model.AppVersion,
 		Platform:  runtime.GOOS,
 		DataDir:   s.st.Dir,
@@ -440,11 +465,13 @@ func (s *Service) ResetWorkspace() error {
 		s.mu.Unlock()
 		return err
 	}
+	_ = os.RemoveAll(filepath.Join(s.st.Dir, "attachments"))
 	s.st.Normalize()
 	s.touchLocked()
 	s.saveLocked()
 	s.emitStateLocked()
 	s.mu.Unlock()
+	s.stopPhone()
 	return nil
 }
 

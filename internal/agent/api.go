@@ -54,7 +54,11 @@ func runAPI(ctx context.Context, req Request, sink Sink) (string, error) {
 		case model.RoleUser:
 			messages = append(messages, map[string]string{"role": "user", "content": text})
 		case model.RoleBot:
-			messages = append(messages, map[string]string{"role": "assistant", "content": text})
+			content := text
+			if m.SenderName != "" && m.SenderName != req.Bot.Name {
+				content = m.SenderName + ": " + text
+			}
+			messages = append(messages, map[string]string{"role": "assistant", "content": content})
 		}
 	}
 	// Ensure the newest user message is present exactly once.

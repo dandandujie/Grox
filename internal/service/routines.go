@@ -179,7 +179,7 @@ func (s *Service) runRoutine(id string, scheduled bool) (model.SendResult, error
 	runID := run.ID
 	s.mu.Unlock()
 
-	result, err := s.sendInternal(botID, threadID, prompt, runID, true)
+	result, err := s.sendInternal(botID, threadID, prompt, nil, runID, true)
 	if err != nil {
 		s.mu.Lock()
 		for i := range s.st.State.Runs {

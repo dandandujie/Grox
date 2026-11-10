@@ -4,6 +4,8 @@ import {
 } from "lucide-react";
 import type { Bot, Message } from "@/lib/bridge";
 import { Markdown } from "@/components/Markdown";
+import { Mascot } from "@/components/Mascot";
+import { AttachmentGallery } from "@/components/Attachments";
 import { cn } from "@/lib/cn";
 import { clock } from "@/lib/format";
 
@@ -154,9 +156,10 @@ function OptionsCard({ message, onAnswer }: { message: Message; onAnswer: (answe
   );
 }
 
-export function MessageItem({ message, bot, onDecide, onAnswer }: {
+export function MessageItem({ message, bot, showSender, onDecide, onAnswer }: {
   message: Message;
   bot: Bot;
+  showSender?: boolean;
   onDecide: (messageId: string, decision: string) => void;
   onAnswer: (messageId: string, answer: string) => void;
 }) {
@@ -164,6 +167,7 @@ export function MessageItem({ message, bot, onDecide, onAnswer }: {
   if (message.kind === "approval") {
     return (
       <div className="message-row is-bot card-row" data-message-id={message.id}>
+        {showSender && message.senderName && <SenderLabel bot={bot} name={message.senderName} />}
         <ApprovalCard message={message} onDecide={(decision) => onDecide(message.id, decision)} />
       </div>
     );
@@ -171,6 +175,7 @@ export function MessageItem({ message, bot, onDecide, onAnswer }: {
   if (message.kind === "options") {
     return (
       <div className="message-row is-bot card-row" data-message-id={message.id}>
+        {showSender && message.senderName && <SenderLabel bot={bot} name={message.senderName} />}
         <OptionsCard message={message} onAnswer={(answer) => onAnswer(message.id, answer)} />
       </div>
     );
@@ -182,11 +187,15 @@ export function MessageItem({ message, bot, onDecide, onAnswer }: {
   return (
     <div className={cn("message-row", user ? "is-user" : "is-bot")} data-message-id={message.id}>
       <div className={cn("message-stack", user && "align-end")}>
+        {!user && showSender && message.senderName && <SenderLabel bot={bot} name={message.senderName} />}
         <ActivityChips message={message} />
-        {(message.text || message.pending) && (
+        {(message.text || message.pending || (message.attachments?.length ?? 0) > 0) && (
           <div className={cn("bubble", user ? "bubble-user" : "bubble-bot", message.error && "is-error", message.pending && "is-pending")}>
             {user ? (
-              <div className="plain-text">{message.text}</div>
+              <>
+                {message.text && <div className="plain-text">{message.text}</div>}
+                <AttachmentGallery attachments={message.attachments ?? []} />
+              </>
             ) : message.text ? (
               <Markdown>{message.text}</Markdown>
             ) : (
@@ -197,6 +206,15 @@ export function MessageItem({ message, bot, onDecide, onAnswer }: {
         )}
         <MessageActions message={message} bot={bot} />
       </div>
+    </div>
+  );
+}
+
+function SenderLabel({ bot, name }: { bot: Bot; name: string }) {
+  return (
+    <div className="message-sender">
+      <Mascot color={bot.color} shape={bot.mascotShape} expression={bot.expression} size={18} avatarUrl={bot.avatarUrl} title={name} />
+      <span>{name}</span>
     </div>
   );
 }

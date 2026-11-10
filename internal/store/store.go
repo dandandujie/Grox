@@ -246,23 +246,99 @@ func (s *Store) Normalize() {
 			}
 		}
 	}
-	if len(st.Runs) > 60 {
-		st.Runs = st.Runs[len(st.Runs)-60:]
+	if st.Groups == nil {
+		st.Groups = []model.Group{}
 	}
-	if !hasBot(st, st.ActiveBotID) {
-		st.ActiveBotID = ""
-		for _, b := range st.Bots {
-			if !b.Hidden && !b.Archived {
-				st.ActiveBotID = b.ID
-				break
+	for gi := range st.Groups {
+		g := &st.Groups[gi]
+		if g.Name == "" {
+			g.Name = "Channel"
+		}
+		if g.Color == "" {
+			g.Color = "purple"
+		}
+		if g.CreatedAt.IsZero() {
+			g.CreatedAt = now
+		}
+		if g.UpdatedAt.IsZero() {
+			g.UpdatedAt = now
+		}
+		members := []string{}
+		for _, id := range g.MemberIDs {
+			if findBot(st, id) != nil {
+				members = append(members, id)
+			}
+		}
+		g.MemberIDs = members
+		leadOK := false
+		for _, id := range members {
+			if id == g.LeadID {
+				leadOK = true
+			}
+		}
+		if !leadOK && len(members) > 0 {
+			g.LeadID = members[0]
+		}
+		if len(members) == 0 {
+			g.LeadID = ""
+		}
+		if len(g.Threads) == 0 {
+			g.Threads = []model.Thread{{ID: "thread-" + g.ID, Title: "New conversation", Kind: "group", CreatedAt: now, UpdatedAt: now}}
+		}
+		for ti := range g.Threads {
+			t := &g.Threads[ti]
+			if t.Title == "" {
+				t.Title = "New conversation"
+			}
+			if t.Kind == "" {
+				t.Kind = "group"
+			}
+			t.Busy = false
+			t.Status = ""
+			for mi := range t.Messages {
+				m := &t.Messages[mi]
+				m.Pending = false
+				if m.Kind == "" {
+					m.Kind = model.KindText
+				}
+				if m.CreatedAt.IsZero() {
+					m.CreatedAt = t.CreatedAt
+				}
 			}
 		}
 	}
-	if b := findBot(st, st.ActiveBotID); b != nil {
-		if !hasThread(b, st.ActiveThreadID) {
-			st.ActiveThreadID = ""
-			if len(b.Threads) > 0 {
-				st.ActiveThreadID = b.Threads[0].ID
+	if len(st.Runs) > 60 {
+		st.Runs = st.Runs[len(st.Runs)-60:]
+	}
+	if st.ActiveGroupID != "" {
+		if g := findGroup(st, st.ActiveGroupID); g != nil {
+			st.ActiveBotID = ""
+			if !hasGroupThread(g, st.ActiveThreadID) {
+				st.ActiveThreadID = ""
+				if len(g.Threads) > 0 {
+					st.ActiveThreadID = g.Threads[0].ID
+				}
+			}
+		} else {
+			st.ActiveGroupID = ""
+		}
+	}
+	if st.ActiveGroupID == "" {
+		if !hasBot(st, st.ActiveBotID) {
+			st.ActiveBotID = ""
+			for _, b := range st.Bots {
+				if !b.Hidden && !b.Archived {
+					st.ActiveBotID = b.ID
+					break
+				}
+			}
+		}
+		if b := findBot(st, st.ActiveBotID); b != nil {
+			if !hasThread(b, st.ActiveThreadID) {
+				st.ActiveThreadID = ""
+				if len(b.Threads) > 0 {
+					st.ActiveThreadID = b.Threads[0].ID
+				}
 			}
 		}
 	}
@@ -301,6 +377,24 @@ func findBot(st *model.AppState, id string) *model.Bot {
 		}
 	}
 	return nil
+}
+
+func findGroup(st *model.AppState, id string) *model.Group {
+	for i := range st.Groups {
+		if st.Groups[i].ID == id {
+			return &st.Groups[i]
+		}
+	}
+	return nil
+}
+
+func hasGroupThread(g *model.Group, id string) bool {
+	for _, t := range g.Threads {
+		if t.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func hasThread(b *model.Bot, id string) bool {

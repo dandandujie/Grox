@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity as ActivityIcon, ChevronLeft, ChevronRight, Clock3, FolderOpen, ImagePlus,
-  Laptop, Moon, Play, Plus, ShieldCheck, Sparkles, Trash2, X,
+  Activity as ActivityIcon, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen, ImagePlus,
+  Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
-import type { Bot, BotPatch, Model } from "@/lib/bridge";
+import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, Model } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
@@ -12,6 +12,8 @@ import { IconButton, Segmented, Switch } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, EXPRESSIONS, EXPRESSION_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
 import { clock, relative, sidebarTime } from "@/lib/format";
+import { getVoices } from "@/lib/speech";
+import { formatBytes } from "@/components/Attachments";
 
 function useBotDrafts(bot: Bot) {
   const [name, setName] = useState(bot.name);
@@ -138,6 +140,16 @@ function AvatarCard({ bot }: { bot: Bot }) {
 function ProfileTab({ bot }: { bot: Bot }) {
   const { updateBot, providers, setUI, apps, deleteBot, state, runRoutine } = useApp();
   const drafts = useBotDrafts(bot);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  useEffect(() => {
+    const load = () => setVoices(getVoices());
+    load();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.addEventListener?.("voiceschanged", load);
+      return () => window.speechSynthesis.removeEventListener?.("voiceschanged", load);
+    }
+    return undefined;
+  }, []);
   const model: Model | undefined = currentModel(providers, bot.modelId);
   const connectedApps = apps.filter((app) => app.connected);
   const botRoutines = state.routines.filter((routine) => routine.botId === bot.id);
@@ -261,6 +273,15 @@ function ProfileTab({ bot }: { bot: Bot }) {
           </span>
           <Switch checked={bot.speakReplies} label="Read replies aloud" onChange={(value) => void updateBot(bot.id, { speakReplies: value })} />
         </div>
+        {bot.speakReplies && (
+          <label className="panel-field voice-field">
+            <span>Voice</span>
+            <select value={bot.voice ?? ""} onChange={(event) => void updateBot(bot.id, { voice: event.target.value })}>
+              <option value="">Use the default voice</option>
+              {voices.map((voice) => <option key={voice.name} value={voice.name}>{voice.name} · {voice.lang}</option>)}
+            </select>
+          </label>
+        )}
       </section>
 
       <section className="panel-card">
@@ -316,68 +337,207 @@ function ProfileTab({ bot }: { bot: Bot }) {
 }
 
 function ComputerTab({ bot }: { bot: Bot }) {
-  const { apps, state, setUI, runRoutine, updateRoutine, toast, revealWorkingFolder } = useApp();
-  const [mode, setMode] = useState<"cloud" | "mac" | "off">(() => (localStorage.getItem("grox.computer." + bot.id) as "cloud" | "mac" | "off") || "mac");
-  const [asleep, setAsleep] = useState(false);
+  const { apps, state, setUI, runRoutine, updateRoutine, toast, revealWorkingFolder, backend } = useApp();
+  const [tab, setTab] = useState<"screen" | "files" | "terminal">("screen");
+  const [screen, setScreen] = useState("");
+  const [screenBusy, setScreenBusy] = useState(false);
+  const [screenError, setScreenError] = useState("");
+  const [listing, setListing] = useState<FolderListing | null>(null);
+  const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const [filesError, setFilesError] = useState("");
+  const [command, setCommand] = useState("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<CommandResult | null>(null);
   const routines = state.routines.filter((routine) => routine.botId === bot.id);
   const connectedApps = apps.filter((app) => app.connected);
-  const changeMode = (value: "cloud" | "mac" | "off") => {
-    if (value === "cloud") {
-      toast({ kind: "info", title: "Cloud computers are not in this build", body: "Grox runs each agent on this Mac. The panel is here for the shape of the product." });
-      return;
+
+  const loadFolder = async (path: string) => {
+    setFilesBusy(true);
+    setFilesError("");
+    try {
+      const next = await backend.listComputerFiles(bot.id, path);
+      setListing(next);
+      setPreview(null);
+    } catch (error) {
+      setFilesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFilesBusy(false);
     }
-    setMode(value);
-    localStorage.setItem("grox.computer." + bot.id, value);
   };
+
+  useEffect(() => {
+    if (tab === "files" && !listing && !filesBusy) void loadFolder("");
+  }, [tab]);
+
+  const openFile = async (path: string) => {
+    setFilesBusy(true);
+    setFilesError("");
+    try {
+      setPreview(await backend.readComputerFile(bot.id, path));
+    } catch (error) {
+      setFilesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFilesBusy(false);
+    }
+  };
+
+  const capture = async () => {
+    setScreenBusy(true);
+    setScreenError("");
+    try {
+      const value = await backend.captureComputerScreen();
+      setScreen("data:image/png;base64," + value);
+    } catch (error) {
+      setScreenError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScreenBusy(false);
+    }
+  };
+
+  const run = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = command.trim();
+    if (!value || running) return;
+    setRunning(true);
+    setResult(null);
+    try {
+      setResult(await backend.runComputerCommand(bot.id, value));
+    } catch (error) {
+      setResult({ command: value, stdout: "", stderr: error instanceof Error ? error.message : String(error), exitCode: 1, durationMs: 0 });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const relativePath = listing ? listing.path.replace(listing.root, "") || "/" : "/";
+
   return (
     <div className="panel-body">
-      <section className="computer-card">
-        <div className="computer-card-head">
-          <span>{bot.name}'s screen</span>
-          <span className={cn("computer-live", !asleep && "is-on")}>{asleep ? "Asleep" : "Local"}</span>
-        </div>
-        <div className={cn("computer-preview", asleep && "is-asleep")}>
-          <div className="computer-menubar"><span>Grox</span><span>{new Date().toLocaleDateString("en", { month: "short", day: "numeric" })}</span></div>
-          <div className="computer-wallpaper">
-            <div className="computer-window">
-              <span className="computer-window-bar" />
-              <span className="computer-line wide" />
-              <span className="computer-line" />
-              <span className="computer-line short" />
-            </div>
-            <Mascot color={bot.color} shape={bot.mascotShape} expression={asleep ? "sleeping" : "working"} size={38} animated={!asleep} />
+      <div className="computer-tabs" role="tablist" aria-label="Computer">
+        <button type="button" role="tab" aria-selected={tab === "screen"} className={cn(tab === "screen" && "is-active")} onClick={() => setTab("screen")}>Screen</button>
+        <button type="button" role="tab" aria-selected={tab === "files"} className={cn(tab === "files" && "is-active")} onClick={() => setTab("files")}>Files</button>
+        <button type="button" role="tab" aria-selected={tab === "terminal"} className={cn(tab === "terminal" && "is-active")} onClick={() => setTab("terminal")}>Terminal</button>
+      </div>
+
+      {tab === "screen" && (
+        <section className="computer-card">
+          <div className="computer-card-head">
+            <span>{bot.name}'s screen</span>
+            <span className={cn("computer-live", screen && "is-on")}>{screen ? "Captured" : "Local"}</span>
           </div>
-        </div>
-        <div className="computer-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => void revealWorkingFolder(bot.id)}>
-            <Laptop size={14} /> Open folder
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={() => setAsleep((value) => !value)}>
-            <Moon size={14} /> {asleep ? "Wake" : "Sleep"}
-          </button>
-        </div>
-      </section>
+          {screen ? (
+            <button type="button" className="computer-screen-wrap" onClick={() => void backend.openComputerPath(bot.id, "")} title="Open the folder">
+              <img className="computer-screen-img" src={screen} alt="Local desktop" />
+            </button>
+          ) : (
+            <div className="computer-preview">
+              <div className="computer-menubar"><span>Grox</span><span>{new Date().toLocaleDateString("en", { month: "short", day: "numeric" })}</span></div>
+              <div className="computer-wallpaper">
+                <div className="computer-window">
+                  <span className="computer-window-bar" />
+                  <span className="computer-line wide" />
+                  <span className="computer-line" />
+                  <span className="computer-line short" />
+                </div>
+                <Mascot color={bot.color} shape={bot.mascotShape} expression="working" size={38} animated />
+              </div>
+            </div>
+          )}
+          {screenError && <p className="computer-hint is-error">{screenError}</p>}
+          <div className="computer-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => void capture()} disabled={screenBusy}>
+              {screenBusy ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} {screen ? "Capture again" : "Capture screen"}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => void revealWorkingFolder(bot.id)}>
+              <Laptop size={14} /> Open folder
+            </button>
+          </div>
+          <p className="computer-hint">A real screenshot of this Mac. macOS may ask for Screen Recording permission the first time. Nothing leaves this machine.</p>
+        </section>
+      )}
+
+      {tab === "files" && (
+        <section className="panel-card computer-files">
+          <div className="computer-card-head">
+            <span>Working folder</span>
+            <button type="button" className="link-button" onClick={() => void loadFolder("")}>Home</button>
+          </div>
+          <div className="file-breadcrumb">
+            <button type="button" onClick={() => void loadFolder(listing?.root ?? "")} title="Root">{bot.name}</button>
+            <span>{relativePath === "/" ? "/" : relativePath}</span>
+          </div>
+          {filesError && <p className="computer-hint is-error">{filesError}</p>}
+          <div className="file-list">
+            {filesBusy && !listing && <p className="panel-empty-line"><Loader2 size={13} className="spin" /> Reading folder…</p>}
+            {listing?.entries.length === 0 && <p className="panel-empty-line">This folder is empty.</p>}
+            {listing?.entries.map((entry) => (
+              <button
+                key={entry.path}
+                type="button"
+                className="file-row"
+                onClick={() => entry.dir ? void loadFolder(entry.path) : void openFile(entry.path)}
+              >
+                {entry.dir ? <Folder size={16} /> : <FileText size={16} />}
+                <span className="file-name">{entry.name}</span>
+                {!entry.dir && <span className="file-size">{formatBytes(entry.size)}</span>}
+              </button>
+            ))}
+          </div>
+          {preview && (
+            <div className="file-preview">
+              <div className="file-preview-head">
+                <span>{preview.name}</span>
+                <div>
+                  <button type="button" className="link-button" onClick={() => void backend.openComputerPath(bot.id, preview.path)}>Open</button>
+                  <button type="button" className="link-button" onClick={() => setPreview(null)}>Close</button>
+                </div>
+              </div>
+              {preview.kind === "image" && <img className="file-preview-image" src={"data:" + preview.mime + ";base64," + preview.data} alt={preview.name} />}
+              {preview.kind === "text" && <pre className="file-preview-text">{preview.text}</pre>}
+              {preview.kind === "binary" && <p className="panel-empty-line">Binary file · {formatBytes(preview.size)}. Open it with the system app.</p>}
+              {preview.truncated && <p className="computer-hint">Showing the first 256 KB.</p>}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === "terminal" && (
+        <section className="panel-card computer-terminal">
+          <div className="computer-card-head">
+            <span>Terminal</span>
+            <span className="terminal-badge">local</span>
+          </div>
+          <p className="computer-hint">Runs in the bot's working folder. You type every command; the agent cannot use this terminal on its own.</p>
+          <form className="terminal-form" onSubmit={run}>
+            <span className="terminal-prompt">$</span>
+            <input
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
+              placeholder="ls"
+              spellCheck={false}
+              autoCapitalize="none"
+              aria-label="Terminal command"
+            />
+            <button type="submit" className="terminal-run" disabled={!command.trim() || running}>
+              {running ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
+            </button>
+          </form>
+          {result && (
+            <div className="terminal-output">
+              <div className="terminal-meta">{result.command} · exit {result.exitCode} · {result.durationMs} ms</div>
+              {result.stdout && <pre>{result.stdout}</pre>}
+              {result.stderr && <pre className="terminal-stderr">{result.stderr}</pre>}
+              {!result.stdout && !result.stderr && <pre className="terminal-empty">(no output)</pre>}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="panel-card">
         <div className="panel-card-title"><span>Runs on</span></div>
-        <p className="panel-sub">Pick where this bot's computer lives.</p>
-        <Segmented
-          label="Where this bot runs"
-          value={mode}
-          options={[
-            { value: "cloud", label: "Cloud box", disabled: true, title: "Not included in this build" },
-            { value: "mac", label: "This Mac" },
-            { value: "off", label: "Off" },
-          ]}
-          onChange={changeMode}
-        />
-        <p className="panel-note">
-          {mode === "mac"
-            ? "The agent runs locally with your own CLI login. Files, approvals and credentials stay on this machine."
-            : mode === "off"
-              ? "The computer is off. Bots can still answer, but cannot read files or run commands."
-              : "Cloud computers are not part of this open-source build."}
-        </p>
+        <div className="computer-mode-row"><span className="computer-mode-dot" /> This Mac <span className="computer-mode-note">local</span></div>
+        <p className="panel-note">The agent runs locally with your own CLI login. Files, approvals and credentials stay on this machine. A hosted cloud computer is not configured.</p>
       </section>
 
       <section className="panel-card">

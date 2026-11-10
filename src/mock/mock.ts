@@ -1,6 +1,6 @@
 import type {
-  Activity, AppEntry, AppEvent, AppState, Bootstrap, Bot, BotPatch, CreateBotInput,
-  Message, Option, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
+  Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
+  CommandResult, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
   Settings, Thread,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -37,6 +37,7 @@ export class MockBackend {
   private secrets: SecretStatus = clone(this.bootData.secrets);
   private listeners = new Set<(event: AppEvent) => void>();
   private timers = new Map<string, Timer>();
+  private attachmentBytes = new Map<string, string>();
 
   private emit(event: AppEvent): void {
     for (const listener of this.listeners) listener(event);
@@ -52,8 +53,8 @@ export class MockBackend {
     this.emit({ type: "turn", revision: this.state.revision, botId, threadId, turn: { botId, threadId, busy, status, engine } });
   }
 
-  private emitMessage(botId: string, threadId: string, message: Message): void {
-    this.emit({ type: "message", revision: this.state.revision, botId, threadId, messageId: message.id, message: clone(message) });
+  private emitMessage(botId: string, threadId: string, message: Message, groupId?: string): void {
+    this.emit({ type: "message", revision: this.state.revision, botId, groupId, threadId, messageId: message.id, message: clone(message) });
   }
 
   private bot(id: string): Bot {
@@ -64,6 +65,18 @@ export class MockBackend {
 
   private thread(bot: Bot, id: string): Thread {
     const thread = bot.threads.find((t) => t.id === id);
+    if (!thread) throw new Error("Conversation not found");
+    return thread;
+  }
+
+  private group(id: string): Group {
+    const group = this.state.groups.find((item) => item.id === id);
+    if (!group) throw new Error("Channel not found");
+    return group;
+  }
+
+  private groupThread(group: Group, id: string): Thread {
+    const thread = group.threads.find((item) => item.id === id);
     if (!thread) throw new Error("Conversation not found");
     return thread;
   }
@@ -210,15 +223,19 @@ export class MockBackend {
   }
 
   async send(botId: string, threadId: string, text: string): Promise<SendResult> {
+    return this.sendWithAttachments(botId, threadId, text, []);
+  }
+
+  async sendWithAttachments(botId: string, threadId: string, text: string, attachments: Attachment[]): Promise<SendResult> {
     const bot = this.bot(botId);
     const thread = this.thread(bot, threadId);
     if (thread.busy) throw new Error(`${bot.name} is still working on the last message`);
     const now = nowISO();
     const userMessage: Message = {
-      id: uid("msg"), role: "user", kind: "text", text, pending: false, error: false, createdAt: now, updatedAt: now,
+      id: uid("msg"), role: "user", kind: "text", text, attachments, pending: false, error: false, createdAt: now, updatedAt: now,
     };
     thread.messages.push(userMessage);
-    if (["", "New conversation", "New task"].includes(thread.title)) thread.title = titleFrom(text);
+    if (text && ["", "New conversation", "New task"].includes(thread.title)) thread.title = titleFrom(text);
     thread.updatedAt = now;
     thread.unread = 0;
     bot.lastActiveAt = now;
@@ -343,6 +360,209 @@ export class MockBackend {
     this.startReply(bot, thread, "My answer: " + label + (option?.description ? ". " + option.description : ""));
   }
 
+  async createGroup(input: CreateGroupInput): Promise<Group> {
+    const now = nowISO();
+    const members = input.memberIds.filter((id) => this.state.bots.some((bot) => bot.id === id));
+    if (members.length === 0) throw new Error("Add at least one bot to the channel");
+    const lead = members.includes(input.leadId) ? input.leadId : (members[0] ?? "");
+    const leadBot = this.state.bots.find((bot) => bot.id === lead);
+    const threadId = uid("thread");
+    const groupId = uid("group");
+    const greeting: Message = {
+      id: uid("msg"), role: "bot", kind: "text", senderId: lead, senderName: leadBot?.name ?? "Bot",
+      text: `Hey — ${leadBot?.name ?? "I"} here. This is the ${input.name} channel.
+
+Mention a bot with **@Name**, or just ask and the lead will take it.`,
+      pending: false, error: false, createdAt: now, updatedAt: now,
+    };
+    const thread: Thread = {
+      id: threadId, botId: "", title: "New conversation", kind: "group", pinned: false, unread: 0,
+      busy: false, createdAt: now, updatedAt: now, messages: [greeting],
+    };
+    const group: Group = {
+      id: groupId, name: input.name || "New channel", description: input.description || "", color: input.color || "purple",
+      memberIds: members, leadId: lead, pinned: false, unread: 0, createdAt: now, updatedAt: now, threads: [thread],
+    };
+    this.state.groups.push(group);
+    this.state.activeGroupId = groupId;
+    this.state.activeBotId = "";
+    this.state.activeThreadId = threadId;
+    this.emitState();
+    return clone(group);
+  }
+
+  async updateGroup(groupId: string, patch: GroupPatch): Promise<Group> {
+    const group = this.group(groupId);
+    Object.assign(group, patch);
+    if (patch.memberIds) group.memberIds = patch.memberIds.filter((id) => this.state.bots.some((bot) => bot.id === id));
+    if (!group.memberIds.includes(group.leadId) && group.memberIds.length > 0) group.leadId = group.memberIds[0] ?? "";
+    group.updatedAt = nowISO();
+    this.emitState();
+    return clone(group);
+  }
+
+  async deleteGroup(groupId: string): Promise<void> {
+    this.state.groups = this.state.groups.filter((group) => group.id !== groupId);
+    if (this.state.activeGroupId === groupId) {
+      this.state.activeGroupId = "";
+      this.state.activeThreadId = "";
+    }
+    this.emitState();
+  }
+
+  async createGroupThread(groupId: string, title: string): Promise<Thread> {
+    const group = this.group(groupId);
+    const now = nowISO();
+    const thread: Thread = { id: uid("thread"), botId: "", title: title || "New conversation", kind: "group", pinned: false, unread: 0, busy: false, createdAt: now, updatedAt: now, messages: [] };
+    group.threads = [thread, ...group.threads];
+    group.updatedAt = now;
+    this.state.activeGroupId = groupId;
+    this.state.activeBotId = "";
+    this.state.activeThreadId = thread.id;
+    this.emitState();
+    return clone(thread);
+  }
+
+  async updateGroupThread(groupId: string, threadId: string, title: string): Promise<Thread> {
+    const thread = this.groupThread(this.group(groupId), threadId);
+    thread.title = title;
+    thread.updatedAt = nowISO();
+    this.emitState();
+    return clone(thread);
+  }
+
+  async deleteGroupThread(groupId: string, threadId: string): Promise<void> {
+    const group = this.group(groupId);
+    group.threads = group.threads.filter((thread) => thread.id !== threadId);
+    if (group.threads.length === 0) {
+      const now = nowISO();
+      group.threads = [{ id: uid("thread"), botId: "", title: "New conversation", kind: "group", pinned: false, unread: 0, busy: false, createdAt: now, updatedAt: now, messages: [] }];
+    }
+    if (this.state.activeGroupId === groupId && this.state.activeThreadId === threadId) this.state.activeThreadId = group.threads[0]?.id ?? "";
+    this.emitState();
+  }
+
+  async selectGroup(groupId: string, threadId: string): Promise<void> {
+    const group = this.group(groupId);
+    this.groupThread(group, threadId);
+    group.unread = 0;
+    this.state.activeGroupId = groupId;
+    this.state.activeBotId = "";
+    this.state.activeThreadId = threadId;
+    this.emitState();
+  }
+
+  async markGroupRead(groupId: string): Promise<void> {
+    const group = this.group(groupId);
+    group.unread = 0;
+    this.emitState();
+  }
+
+  async sendGroup(groupId: string, threadId: string, text: string): Promise<SendResult> {
+    return this.sendGroupWithAttachments(groupId, threadId, text, []);
+  }
+
+  async sendGroupWithAttachments(groupId: string, threadId: string, text: string, attachments: Attachment[]): Promise<SendResult> {
+    const group = this.group(groupId);
+    const thread = this.groupThread(group, threadId);
+    const now = nowISO();
+    const user: Message = { id: uid("msg"), role: "user", kind: "text", text, attachments, pending: false, error: false, createdAt: now, updatedAt: now };
+    thread.messages.push(user);
+    if (text && (thread.title === "" || thread.title === "New conversation")) thread.title = titleFrom(text);
+    const lower = text.toLowerCase();
+    const responderId = group.memberIds.find((id) => {
+      const member = this.state.bots.find((bot) => bot.id === id);
+      return member ? lower.includes("@" + member.name.toLowerCase()) : false;
+    }) ?? group.leadId ?? group.memberIds[0];
+    const responder = this.state.bots.find((bot) => bot.id === responderId);
+    if (!responder) throw new Error("This channel has no bots");
+    const reply = this.replyFor(responder, text);
+    const answer: Message = {
+      id: uid("msg"), role: "bot", kind: "text", text: reply.text, senderId: responder.id, senderName: responder.name,
+      options: reply.options?.options, approval: reply.approval, status: reply.options || reply.approval ? "pending" : "",
+      pending: false, error: false, createdAt: now, updatedAt: now,
+    };
+    thread.messages.push(answer);
+    thread.updatedAt = now;
+    group.updatedAt = now;
+    group.unread = 0;
+    this.state.activeGroupId = groupId;
+    this.state.activeBotId = "";
+    this.state.activeThreadId = threadId;
+    this.emitState();
+    this.emitMessage(responder.id, threadId, answer, groupId);
+    return { botId: responder.id, groupId, threadId, messageId: user.id };
+  }
+
+  async stopGroup(_groupId: string, _threadId: string): Promise<void> {
+    // Browser preview replies are not long-running.
+  }
+
+  async decideGroup(groupId: string, threadId: string, messageId: string, decision: string): Promise<void> {
+    const group = this.group(groupId);
+    const thread = this.groupThread(group, threadId);
+    const message = thread.messages.find((item) => item.id === messageId);
+    if (!message || !message.approval) return;
+    message.status = decision === "deny" ? "denied" : decision === "always" ? "always" : "allowed";
+    message.approval.decision = decision;
+    message.updatedAt = nowISO();
+    this.emitState();
+  }
+
+  async answerGroup(groupId: string, threadId: string, messageId: string, answer: string): Promise<void> {
+    const group = this.group(groupId);
+    const thread = this.groupThread(group, threadId);
+    const message = thread.messages.find((item) => item.id === messageId);
+    if (!message) return;
+    message.status = "answered";
+    message.updatedAt = nowISO();
+    thread.messages.push({ id: uid("msg"), role: "user", kind: "text", text: answer, pending: false, error: false, createdAt: nowISO(), updatedAt: nowISO() });
+    this.emitState();
+  }
+
+  async listComputerFiles(_botId: string, path: string): Promise<FolderListing> {
+    const root = "/Users/you/Documents/Launch";
+    const current = path || root;
+    const entries = current.endsWith("assets")
+      ? [{ name: "hero.png", path: current + "/hero.png", dir: false, size: 184320, modified: nowISO(), mime: "image/png" }]
+      : [
+          { name: "assets", path: root + "/assets", dir: true, size: 0, modified: nowISO(), mime: "" },
+          { name: "notes.md", path: root + "/notes.md", dir: false, size: 2410, modified: nowISO(), mime: "text/markdown" },
+          { name: "launch-plan.md", path: root + "/launch-plan.md", dir: false, size: 8120, modified: nowISO(), mime: "text/markdown" },
+        ];
+    return { root, path: current, entries };
+  }
+
+  async readComputerFile(_botId: string, path: string): Promise<FilePreview> {
+    if (path.endsWith(".png")) throw new Error("Image previews need the desktop app.");
+    return {
+      path, name: path.split("/").pop() ?? "notes.md", kind: "text", mime: "text/markdown", size: 2410, truncated: false,
+      text: "# Launch notes\n\nThe browser preview uses a small sample folder. In the desktop app this is a real read of the bot's working directory.\n\n- Build is green\n- Legal review is open\n- Pricing page is copy-complete\n",
+    };
+  }
+
+  async openComputerPath(_botId: string, _path: string): Promise<void> {
+    // No system file manager in the browser preview.
+  }
+
+  async runComputerCommand(_botId: string, command: string): Promise<CommandResult> {
+    return {
+      command, stdout: `(browser preview) ${command}
+In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode: 0, durationMs: 12,
+    };
+  }
+
+  async setPhoneEnabled(enabled: boolean): Promise<PhoneInfo> {
+    return {
+      enabled, url: enabled ? "http://192.168.1.20:4870/p/phone-demo" : "", token: enabled ? "phone-demo" : "",
+      error: "", port: enabled ? 4870 : 0, connected: 0,
+    };
+  }
+
+  async captureComputerScreen(): Promise<string> {
+    throw new Error("Screen capture is only available in the desktop app.");
+  }
+
   async createRoutine(input: RoutineInput): Promise<Routine> {
     const now = nowISO();
     const routine: Routine = {
@@ -430,6 +650,27 @@ export class MockBackend {
 
   async revealDataFolder(): Promise<void> {
     // The preview has no folder to reveal.
+  }
+
+  async saveAttachment(name: string, mimeType: string, dataBase64: string): Promise<Attachment> {
+    const clean = dataBase64.includes(",") ? dataBase64.slice(dataBase64.indexOf(",") + 1) : dataBase64;
+    const id = uid("att");
+    this.attachmentBytes.set(id, clean);
+    return {
+      id, name: name || "attachment", mime: mimeType || "application/octet-stream",
+      kind: (mimeType || "").startsWith("image/") ? "image" : "file",
+      size: Math.floor((clean.length * 3) / 4), createdAt: nowISO(),
+    };
+  }
+
+  async readAttachment(id: string): Promise<string> {
+    const value = this.attachmentBytes.get(id);
+    if (!value) throw new Error("Attachment not found");
+    return value;
+  }
+
+  async openAttachment(_id: string): Promise<void> {
+    // The preview is already inline; the browser preview has no system viewer.
   }
 
   subscribe(listener: (event: AppEvent) => void): () => void {

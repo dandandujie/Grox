@@ -39,6 +39,11 @@ type Request struct {
 	APIModel     string
 	APIKey       string
 	CLIAvailable map[string]bool
+	// ExtraContext is appended to the CLI prompt or sent as a system note by
+	// the API engine. It carries attachment paths and other local context.
+	ExtraContext string
+	// GroupID is set when this turn answers in a shared channel.
+	GroupID string
 }
 
 // Result is a finished turn.
@@ -166,7 +171,11 @@ func Compose(bot model.Bot, thread model.Thread, userText string) string {
 			case model.RoleUser:
 				b.WriteString("User: ")
 			case model.RoleBot:
-				b.WriteString(bot.Name + ": ")
+				name := bot.Name
+				if m.SenderName != "" {
+					name = m.SenderName
+				}
+				b.WriteString(name + ": ")
 			default:
 				b.WriteString("System: ")
 			}
