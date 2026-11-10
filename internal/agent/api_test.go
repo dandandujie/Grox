@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,5 +59,78 @@ func TestRunAPIError(t *testing.T) {
 	}, &fakeSink{})
 	if err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("expected a 401 error, got %v", err)
+	}
+}
+
+func TestRunAPIToolLoop(t *testing.T) {
+	round := 0
+	var sawTool bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		round += 1
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Errorf("payload: %v", err)
+			return
+		}
+		tools, _ := payload["tools"].([]any)
+		if len(tools) != 1 {
+			t.Errorf("tools = %+v", payload["tools"])
+		} else if definition, ok := tools[0].(map[string]any); ok {
+			function, _ := definition["function"].(map[string]any)
+			if function["name"] != "GITHUB_GET_REPO" {
+				t.Errorf("tool name = %+v", function["name"])
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeEvent := func(event any) {
+			data, _ := json.Marshal(event)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+		}
+		if round == 1 {
+			args, _ := json.Marshal(map[string]any{"owner": "acme"})
+			writeEvent(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{
+				"tool_calls": []any{map[string]any{"index": 0, "id": "call_1", "function": map[string]any{
+					"name": "GITHUB_GET_REPO", "arguments": string(args),
+				}}},
+			}}}})
+		} else {
+			messages, _ := payload["messages"].([]any)
+			for _, item := range messages {
+				message, _ := item.(map[string]any)
+				if message["role"] == "tool" {
+					sawTool = true
+				}
+			}
+			writeEvent(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "Repo is acme/grox"}}}})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	executed := false
+	sink := &fakeSink{}
+	result, err := runAPI(context.Background(), Request{
+		Bot:        model.Bot{Name: "Test", Approval: model.ApprovalAuto},
+		UserText:   "Which repo?",
+		Model:      model.Model{ID: "test-model", Provider: "openai"},
+		APIBaseURL: server.URL,
+		Tools:      []Tool{{Name: "GITHUB_GET_REPO", Description: "Get a repo", Parameters: map[string]any{"type": "object", "properties": map[string]any{}}}},
+		ExecuteTool: func(_ context.Context, name string, arguments map[string]any) (string, error) {
+			executed = true
+			if name != "GITHUB_GET_REPO" || arguments["owner"] != "acme" {
+				t.Errorf("unexpected tool call: %s %+v", name, arguments)
+			}
+			data, _ := json.Marshal(map[string]any{"full_name": "acme/grox"})
+			return string(data), nil
+		},
+	}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !executed || !sawTool || result != "Repo is acme/grox" || round != 2 {
+		t.Fatalf("executed=%v sawTool=%v result=%q rounds=%d", executed, sawTool, result, round)
+	}
+	if len(sink.activity) != 1 || sink.activity[0].Status != model.StatusOK {
+		t.Fatalf("activities = %+v", sink.activity)
 	}
 }

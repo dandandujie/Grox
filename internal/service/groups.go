@@ -379,6 +379,11 @@ func (s *Service) startGroupTurn(groupID, threadID, botID, agentText, extraConte
 	bot.LastActiveAt = now
 	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext)
 	req.GroupID = groupID
+	if sel.Kind == "cli" && req.Model.Provider == "claude" && bot.Approval == model.ApprovalAsk {
+		if hookURL, err := s.newClaudeHookURL(claudeHookTarget{BotID: botID, GroupID: groupID, ThreadID: threadID}); err == nil {
+			req.PermissionHookURL = hookURL
+		}
+	}
 	s.touchLocked()
 	turn := &model.Turn{BotID: botID, GroupID: groupID, ThreadID: threadID, Busy: true, Status: "Thinking", Engine: sel.Engine}
 	s.mu.Unlock()
@@ -501,6 +506,10 @@ func (s *Service) DecideGroup(groupID, threadID, messageID, decision string) err
 	if thread == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("conversation not found")
+	}
+	if s.hasClaudeHook(messageID) {
+		s.mu.Unlock()
+		return s.resolveClaudeHook(messageID, decision)
 	}
 	if thread.Busy {
 		s.mu.Unlock()

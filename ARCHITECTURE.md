@@ -199,14 +199,21 @@ timestamp. Four operations exist:
 - Deny: mark denied and continue with a stopped explanation.
 - The card is settled in place; the follow-up is a normal bot turn.
 
-For real CLIs the app does not broker tool-level permissions. It passes a mode to the CLI:
+Claude Code is special in Ask mode: Grox starts a loopback HTTP approval server, passes an inline
+--settings JSON with a PermissionRequest http hook, and runs Claude with manual mode. When Claude pauses
+for a tool, the hook POSTs tool_name/tool_input to Grox, Grox appends a real approval card to the turn, and
+the HTTP request stays open until the person chooses Allow/Always/Deny. The decision goes back to Claude,
+which continues or denies. The hook URL carries a random per-turn token; the server listens on 127.0.0.1
+and is closed with the service.
+
+Other CLIs are mode-only:
 
 - Ask → read-only / dontAsk / plan (nothing destructive should be approved automatically),
 - Auto → accept edits / auto,
 - Full → bypass.
 
-This is a deliberate, honest boundary. A future version can add a permission-prompt transport for each
-provider, but it is not faked here.
+API engine tool calls are separate: Auto/Full API bots receive cached Composio tools and execute them with
+activity chips; Ask bots receive no tools. This is a deliberate boundary, not a simulated approval.
 
 ## 7. Routines and the scheduler
 
@@ -372,9 +379,9 @@ cannot open approval cards or the Computer panel. Stop the server from Settings,
   a URL token and only works while the desktop app is open.
 - Hosted cloud provisioning, managed remote desktops, cloud sync, organization billing, and a native app
   store client are not implemented.
-- Composio OAuth and the manual live tool runner work with a project key, but agents do not yet receive
-  Composio tools automatically inside their turn loop.
-- Real CLI tool permission prompts are still not brokered; only approval mode is passed through.
+- Composio tools are automatic only for Auto/Full API bots; Ask API bots and non-API engines do not get
+  them. The manual Tools runner is always available when a key is set.
+- Claude Code Ask-mode tool prompts are brokered through a loopback hook; Grok/Codex/Gemini prompts are not.
 - The browser preview uses a separate in-memory mock, not the Go backend.
 - The demo engine is a deterministic scripted engine, not a model. It is labelled as such.
 - The activity calendar is a week planner, not a minute-by-minute scheduler UI.

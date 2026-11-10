@@ -243,6 +243,7 @@ func (s *Service) RefreshComposioConnections() (int, error) {
 		s.emitStateLocked()
 	}
 	s.mu.Unlock()
+	go s.warmComposioTools()
 	return count, nil
 }
 
@@ -322,7 +323,32 @@ func (s *Service) ListComposioTools() ([]model.ComposioTool, error) {
 			Slug: item.Slug, Name: item.Name, Description: item.Description, Toolkit: item.Toolkit.Slug, InputSchema: item.InputSchema,
 		})
 	}
+	s.composioToolsMu.Lock()
+	s.composioTools = tools
+	s.composioToolsAt = time.Now()
+	s.composioToolsMu.Unlock()
 	return tools, nil
+}
+
+func (s *Service) cachedComposioTools() []model.ComposioTool {
+	s.composioToolsMu.Lock()
+	defer s.composioToolsMu.Unlock()
+	if len(s.composioTools) == 0 || time.Since(s.composioToolsAt) > 15*time.Minute {
+		return nil
+	}
+	out := make([]model.ComposioTool, len(s.composioTools))
+	copy(out, s.composioTools)
+	return out
+}
+
+func (s *Service) warmComposioTools() {
+	if s.composioKey() == "" {
+		return
+	}
+	if len(s.cachedComposioTools()) > 0 {
+		return
+	}
+	_, _ = s.ListComposioTools()
 }
 
 // ExecuteComposioTool runs one live Composio tool with JSON arguments.

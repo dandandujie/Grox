@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -117,6 +118,11 @@ func (s *Service) startTurn(botID, threadID, agentText, extraContext, runID stri
 	bot.LastActiveAt = now
 	thread.UpdatedAt = now
 	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext)
+	if sel.Kind == "cli" && req.Model.Provider == "claude" && bot.Approval == model.ApprovalAsk {
+		if hookURL, err := s.newClaudeHookURL(claudeHookTarget{BotID: botID, ThreadID: threadID}); err == nil {
+			req.PermissionHookURL = hookURL
+		}
+	}
 	s.touchLocked()
 	turn := &model.Turn{BotID: botID, ThreadID: threadID, Busy: true, Status: "Thinking", Engine: sel.Engine}
 	s.mu.Unlock()
@@ -197,6 +203,24 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		req.Prompt += "\n\n" + extraContext
 	}
 	sel := agent.Select(req)
+	if bot.Approval != model.ApprovalAsk {
+		if tools := s.cachedComposioTools(); len(tools) > 0 {
+			for _, tool := range tools {
+				req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
+			}
+			req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
+				value, err := s.ExecuteComposioTool(name, arguments)
+				if err != nil {
+					return "", err
+				}
+				data, err := json.Marshal(value)
+				if err != nil {
+					return "", err
+				}
+				return string(data), nil
+			}
+		}
+	}
 	return req, sel
 }
 
@@ -343,6 +367,10 @@ func (s *Service) Decide(botID, threadID, messageID, decision string) error {
 	if thread == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("conversation not found")
+	}
+	if s.hasClaudeHook(messageID) {
+		s.mu.Unlock()
+		return s.resolveClaudeHook(messageID, decision)
 	}
 	if thread.Busy {
 		s.mu.Unlock()

@@ -243,6 +243,7 @@ function ProfileTab({ bot }: { bot: Bot }) {
             ]}
             onChange={(approval) => void updateBot(bot.id, { approval })}
           />
+          <p className="panel-note">Connected-app tools run automatically only in Auto or Full. In Ask mode the API agent never receives tool calls; use Connected apps → Tools to run one manually.</p>
         </div>
         <div className="row-divider" />
         <label className="panel-field compact">

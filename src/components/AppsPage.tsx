@@ -93,7 +93,7 @@ export function AppsPage() {
             <strong>{hasComposio ? "Composio is configured." : "Composio is not configured yet."}</strong>
             <p>
               {hasComposio
-                ? "Connect opens the hosted Composio OAuth link; Refresh reconciles your connected accounts; Tools lists and runs real tools from a tool-router session. Nothing is marked connected until Composio reports an ACTIVE account."
+                ? "Connect opens the hosted Composio OAuth link; Refresh reconciles your connected accounts; Tools lists and runs real tools from a tool-router session. Auto/Full API bots can use the cached tools automatically; Ask bots never receive them. Nothing is marked connected until Composio reports an ACTIVE account."
                 : "Add a Composio project key in Settings → Connections. Until then, Connect takes you to the key field instead of pretending a local switch is a real account."}
             </p>
           </div>

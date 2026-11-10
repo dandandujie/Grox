@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+Agent tools and real Claude Code approvals.
+
+- API agent function-calling loop: Auto/Full API bots receive cached Composio tools, execute them with
+  activity chips, and continue the model turn with real tool results. Ask bots never receive tools.
+- Claude Code Ask mode now installs an HTTP PermissionRequest hook. When Claude pauses for a tool, Grox
+  shows a real approval card; Allow/Always/Deny answers the waiting hook and Claude continues or denies.
+- The hook server is loopback-only, per-turn tokenized, and fully tested end to end with a local HTTP client.
+- Tests for the API tool loop and the Claude permission hook.
+- Still not implemented: hosted VM provisioning, cloud sync, organization billing, a native store app, and
+  tool-level approval brokers for Grok/Codex/Gemini.
+
 ## 0.3.0
 
 Real connections release: Composio OAuth, live tools, and a bring-your-own SSH cloud box.

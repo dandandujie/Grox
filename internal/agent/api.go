@@ -14,9 +14,17 @@ import (
 	"github.com/dandandujie/grox/internal/model"
 )
 
-// runAPI streams an OpenAI-compatible chat completion. It covers xAI,
-// OpenAI, OpenRouter, Ollama, LM Studio and any compatible gateway.
+// runAPI streams an OpenAI-compatible chat completion and, when tools are
+// attached, runs a bounded function-calling loop.
 func runAPI(ctx context.Context, req Request, sink Sink) (string, error) {
+	if len(req.Tools) > 0 && req.ExecuteTool != nil {
+		return runAPITools(ctx, req, sink)
+	}
+	return runAPIPlain(ctx, req, sink)
+}
+
+// runAPIPlain streams one response without function tools.
+func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 	base := strings.TrimSpace(req.APIBaseURL)
 	if base == "" {
 		switch req.Model.Provider {

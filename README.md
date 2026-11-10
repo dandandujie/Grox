@@ -129,7 +129,9 @@ The table below is intentionally blunt.
 | Channels, multi-agent group chat, @mention routing | **Working** locally |
 | Phone companion (LAN web page, QR pairing, same roster and chats) | **Working** while the desktop app is open; plain HTTP + private token on your network |
 | Cloud sync, enterprise admin, organization billing, native App Store client | **Not included** |
-| Approval brokering for real CLI tool requests | **Partial.** Approval mode is passed to the CLI; only the demo/seed cards and local computer commands are controlled in-app |
+| Claude Code tool-level approvals | **Working in Ask mode** via a local PermissionRequest HTTP hook and the normal approval card; Allow/Always/Deny answers the waiting hook |
+| Grok / Codex / Gemini tool-level approvals | **Mode-only.** Their permission modes are passed; their internal prompts are not brokered |
+| Composio tools inside agent turns | **Working for Auto/Full API bots** from the cached tool list; Ask never receives tools, and the manual Tools runner still works |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines and Composio connections are real. Hosted VM provisioning, cloud sync,
@@ -224,7 +226,8 @@ To put a real model behind a bot:
 2. **Connected apps → Connect** opens the hosted OAuth page. Finish it, then press **Refresh**. The card
    only turns green after Composio reports an ACTIVE connected account.
 3. **Connected apps → Tools** opens a live tool-router session. Pick a tool, edit its JSON arguments and
-   run it; the result is returned inline. This is a real third-party call, not a mock.
+   run it; the result is returned inline. This is a real third-party call, not a mock. Once the tool list is
+   cached, Auto/Full API bots can call these tools automatically inside a turn; Ask bots never do.
 4. **Agent profile → Computer → Runs on → SSH box** accepts host, user, port, remote root and a private
    key path. Save and test opens a real SSH connection. Screen, Files and Terminal then use that box.
 
@@ -269,12 +272,13 @@ Turn it off from Settings → Phone when not needed. The link uses plain HTTP on
 
 | Grox | Grok CLI | Claude Code | Codex CLI | Gemini CLI |
 | --- | --- | --- | --- | --- |
-| Ask | --permission-mode dontAsk | plan + --permission-prompts none | -s read-only | --approval-mode plan |
+| Ask | --permission-mode dontAsk | manual + PermissionRequest hook (fallback plan) | -s read-only | --approval-mode plan |
 | Auto | --permission-mode auto | auto + prompts none | -s workspace-write | --approval-mode auto_edit |
 | Full | --permission-mode bypassPermissions | bypassPermissions | --dangerously-bypass-approvals-and-sandbox | --approval-mode yolo |
 
-The demo engine implements the inline allow/deny card. A real CLI's internal permission prompts are not
-brokered by Grox in this version; the table above is the boundary it actually applies.
+The demo engine implements the inline allow/deny card. Claude Code's Ask mode additionally installs a local
+PermissionRequest hook, so its tool prompts appear as Grox cards and are answered by the person. Grok,
+Codex and Gemini are still mode-only; their internal prompts are not brokered.
 
 ## Development
 

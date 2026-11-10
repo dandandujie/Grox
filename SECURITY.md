@@ -67,6 +67,14 @@ panel, but code or a CLI that the person already approved can still act within i
 Screen capture may require macOS Screen Recording permission; microphone use requires Microphone permission.
 The phone page cannot open the Computer panel or approval cards.
 
+## Claude Code permission hook
+
+In Ask mode Grox starts a loopback HTTP server, generates a random per-turn URL token, and passes an inline
+settings JSON with a PermissionRequest http hook to Claude Code. Claude POSTs the tool name and input; Grox
+adds an approval card to the current thread and keeps the HTTP request open until the person chooses
+Allow/Always/Deny. Only 127.0.0.1 is bound. The hook returns a deny decision on timeout or when the app is
+closed. This is a real broker for Claude Code, not a simulated card. Other CLIs remain mode-only.
+
 ## Prompt injection and untrusted content
 
 Agent replies, web content, files, and tool output are untrusted data. Grox renders them as Markdown and
@@ -75,10 +83,11 @@ that is exactly why the default is Ask and why Full is explicit.
 
 ## Known limitations
 
-- Real CLI tool permission prompts are not brokered by Grox in this version.
+- Claude Code Ask-mode tool prompts are brokered through a loopback PermissionRequest HTTP hook. Grok,
+  Codex and Gemini internal prompts are still not brokered.
 - The phone companion uses plain HTTP on the local network; it is not a hardened remote-access service.
-- Composio OAuth and the manual live tool runner are implemented; agents do not receive Composio tools
-  automatically inside their turn loop yet.
+- Composio OAuth, the manual live tool runner, and automatic tools for Auto/Full API bots are implemented.
+  Ask API bots never receive tools.
 - Hosted cloud provisioning, cloud sync, organization billing, and a native mobile app are not implemented.
 - The demo engine is local and does no network or file work, but its approval cards are scripted.
 - The browser preview uses an in-memory mock; do not put real secrets into it.

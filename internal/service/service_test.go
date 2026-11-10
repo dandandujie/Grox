@@ -624,3 +624,70 @@ func TestRemoteSSHComputer(t *testing.T) {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
 }
+
+func TestEngineRequestAttachesComposioTools(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	svc.composioToolsMu.Lock()
+	svc.composioTools = []model.ComposioTool{{Slug: "GITHUB_GET_REPO", Name: "Get repo", Description: "Read a repo", Toolkit: "github", InputSchema: map[string]any{"type": "object"}}}
+	svc.composioToolsAt = time.Now()
+	svc.composioToolsMu.Unlock()
+	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
+	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
+	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
+	if len(req.Tools) != 1 || req.Tools[0].Name != "GITHUB_GET_REPO" || req.ExecuteTool == nil {
+		t.Fatalf("auto tools = %+v", req.Tools)
+	}
+	bot.Approval = model.ApprovalAsk
+	req, _ = svc.engineRequestLocked(&bot, &thread, "hi", "")
+	if len(req.Tools) != 0 {
+		t.Fatalf("ask mode received tools: %+v", req.Tools)
+	}
+}
+
+func TestClaudePermissionHook(t *testing.T) {
+	svc, _, events := newTestService(t)
+	hookURL, err := svc.newClaudeHookURL(claudeHookTarget{BotID: "bot-brody", ThreadID: "thread-brody-home"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"tool_name": "Bash", "tool_input": map[string]any{"command": "ls"},
+	})
+	type hookResponse struct {
+		Body []byte
+		Err  error
+	}
+	response := make(chan hookResponse, 1)
+	go func() {
+		resp, err := http.Post(hookURL, "application/json", bytes.NewReader(payload))
+		if err != nil {
+			response <- hookResponse{Err: err}
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		response <- hookResponse{Body: body}
+	}()
+	messageID := ""
+	waitFor(t, events, 3*time.Second, "the hook approval card", func(ev model.Event) bool {
+		if ev.Type == "message" && ev.Message != nil && ev.Message.Kind == model.KindApproval && ev.Message.Status == model.StatusPending {
+			messageID = ev.Message.ID
+			return true
+		}
+		return false
+	})
+	if err := svc.Decide("bot-brody", "thread-brody-home", messageID, "allow"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-response:
+		if result.Err != nil {
+			t.Fatal(result.Err)
+		}
+		if !strings.Contains(string(result.Body), "allow") {
+			t.Fatalf("hook response = %s", result.Body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("hook did not receive the decision")
+	}
+}

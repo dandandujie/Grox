@@ -57,18 +57,38 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 		}
 	case "claude":
 		mode := "plan"
+		prompts := "none"
 		switch approvalMode(req.Bot.Approval) {
 		case "auto":
 			mode = "auto"
 		case "full":
 			mode = "bypassPermissions"
+		case "ask":
+			if req.PermissionHookURL != "" {
+				mode = "manual"
+			}
 		}
 		args = []string{
 			"-p", "--model", req.Model.ID,
 			"--output-format", "stream-json", "--verbose",
 			"--include-partial-messages",
 			"--permission-mode", mode,
-			"--permission-prompts", "none",
+			"--permission-prompts", prompts,
+		}
+		if req.PermissionHookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
+			settings := map[string]any{
+				"hooks": map[string]any{
+					"PermissionRequest": []any{map[string]any{
+						"matcher": "*",
+						"hooks": []any{map[string]any{
+							"type": "http", "url": req.PermissionHookURL, "timeout": 300,
+						}},
+					}},
+				},
+			}
+			if data, err := json.Marshal(settings); err == nil {
+				args = append(args, "--settings", string(data))
+			}
 		}
 		stdin = prompt
 	case "openai":

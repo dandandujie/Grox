@@ -43,6 +43,16 @@ type Service struct {
 	phoneErr      string
 	phoneSubMu    sync.Mutex
 	phoneSubs     map[chan model.Event]struct{}
+
+	composioToolsMu sync.Mutex
+	composioTools   []model.ComposioTool
+	composioToolsAt time.Time
+
+	approvalMu       sync.Mutex
+	approvalServer   *http.Server
+	approvalListener net.Listener
+	approvalTokens   map[string]claudeHookTarget
+	hookApprovals    map[string]*claudeHookApproval
 }
 
 type turnControl struct {
@@ -58,7 +68,8 @@ type turnControl struct {
 func New(dir string, emit func(model.Event)) (*Service, error) {
 	return &Service{
 		dir: dir, emit: emit, turns: map[string]*turnControl{}, stop: make(chan struct{}),
-		phoneSubs: map[chan model.Event]struct{}{},
+		phoneSubs:      map[chan model.Event]struct{}{},
+		approvalTokens: map[string]claudeHookTarget{}, hookApprovals: map[string]*claudeHookApproval{},
 	}, nil
 }
 
@@ -72,6 +83,7 @@ func Open(s *Service) error {
 	s.mu.Lock()
 	s.st = st
 	s.mu.Unlock()
+	s.startApprovalServer()
 	s.startPhoneIfEnabled()
 	return nil
 }
@@ -127,6 +139,7 @@ func Close(s *Service) { s.shutdown() }
 // shutdown stops timers and flushes the workspace.
 func (s *Service) shutdown() {
 	s.once.Do(func() { close(s.stop) })
+	s.stopApprovalServer()
 	s.stopPhone()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -169,6 +182,9 @@ func (s *Service) bootstrap(ctx context.Context, force bool) (model.Bootstrap, e
 	settings := state.Settings
 	s.mu.Unlock()
 	phone := s.PhoneInfo()
+	if s.composioKey() != "" && len(s.cachedComposioTools()) == 0 {
+		go s.warmComposioTools()
+	}
 
 	return model.Bootstrap{
 		State:     state,

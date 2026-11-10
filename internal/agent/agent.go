@@ -25,6 +25,18 @@ type Sink interface {
 	Options(text string, options []model.Option)
 }
 
+// Tool is one function exposed to an API agent. The schema is an OpenAI
+// function-tool parameters object.
+type Tool struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
+// ToolExecutor runs one tool with parsed JSON arguments and returns text for
+// the model. It is called by the API engine after the model asks for a tool.
+type ToolExecutor func(ctx context.Context, name string, arguments map[string]any) (string, error)
+
 // Request is one turn.
 type Request struct {
 	Bot          model.Bot
@@ -44,6 +56,12 @@ type Request struct {
 	ExtraContext string
 	// GroupID is set when this turn answers in a shared channel.
 	GroupID string
+	// Tools are optional function tools for an API turn.
+	Tools []Tool
+	// ExecuteTool runs a tool call. It may be nil when tools are absent.
+	ExecuteTool ToolExecutor
+	// PermissionHookURL is the local Claude Code PermissionRequest hook.
+	PermissionHookURL string
 }
 
 // Result is a finished turn.
