@@ -1,5 +1,5 @@
 import type {
-  AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, CreateBotInput, CreateGroupInput,
+  AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
   Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult, Settings, Thread,
 } from "@/mygo";
@@ -39,8 +39,14 @@ export interface Backend {
   readComputerFile(botId: string, path: string): Promise<FilePreview>;
   openComputerPath(botId: string, path: string): Promise<void>;
   runComputerCommand(botId: string, command: string): Promise<CommandResult>;
-  captureComputerScreen(): Promise<string>;
+  captureComputerScreen(botId: string): Promise<string>;
+  testRemoteComputer(botId: string): Promise<string>;
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;
+  connectComposioApp(appId: string): Promise<ComposioLink>;
+  disconnectComposioApp(appId: string): Promise<void>;
+  refreshComposioConnections(): Promise<number>;
+  listComposioTools(): Promise<ComposioTool[]>;
+  executeComposioTool(slug: string, args: Record<string, unknown>): Promise<unknown>;
   send(botId: string, threadId: string, text: string): Promise<SendResult>;
   stop(botId: string, threadId: string): Promise<void>;
   decide(botId: string, threadId: string, messageId: string, decision: string): Promise<void>;
@@ -61,7 +67,7 @@ export interface Backend {
 
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
-  CommandResult, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
+  CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
   PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus, SendResult, Settings, Thread, Toast, Turn,
 } from "@/mygo";
 export type { Event as AppEvent } from "@/mygo";

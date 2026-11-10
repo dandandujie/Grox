@@ -333,28 +333,48 @@ returned as base64, and the terminal has a 60-second deadline with capped output
 uses screencapture on macOS, grim/scrot on Linux, and is explicit in the UI; macOS may require Screen
 Recording permission.
 
+### Composio connections and tools
+
+Composio is an optional hosted control plane. ConnectComposioApp reads the project key from secrets, lists
+auth configs for the app's toolkit slug, creates a connected-account link, and hands the redirect URL to
+the system browser. RefreshComposioConnections lists the project's active accounts for the local user id
+and updates the connection map; an app is only connected when Composio says ACTIVE. Disconnect calls the
+Composio DELETE endpoint when an external account id exists. The Tools dialog creates a tool-router
+session, lists its tools, and POSTs one execution at a time. There is no local fallback that pretends an
+account or tool result exists. Tests use an httptest Composio server.
+
+### SSH computer
+
+A bot can set ComputerMode to ssh with host, user, port, absolute remote root, and a private key path.
+remote.go opens an SSH connection using x/crypto/ssh, checks the host key against ~/.ssh/known_hosts when
+that file exists, and runs quoted commands with a deadline. List/read/open are implemented over the SSH
+shell using find, wc, head and base64; paths are joined under the remote root and rejected when they escape
+it. Terminal commands use the same channel. Screen capture tries grim, scrot or ImageMagick on the remote
+side and returns base64. The private key stays local; it is never stored in the workspace.
+
 ### Phone companion
 
 SetPhoneEnabled opens a net/http server on the first free port in 4870-4880. The handler serves an embedded
 phone.html and four JSON endpoints: state, send, read, and an SSE event stream. Every request is
 authenticated by a 48-hex-character token stored in settings.phoneToken and compared in constant time.
-The service fans every event out to phone subscribers with a non-blocking send. The phone page is a small
+The service fans every event out to phone subscribers with a non-blocking send. PhoneInfo also renders a QR
+code for the pairing URL. The phone page is a small
 vanilla JS chat: it can read the roster and channels, send messages, and follow streaming replies. It
 cannot open approval cards or the Computer panel. Stop the server from Settings, Phone.
 
 ## 14. Known limitations
 
-- No cloud computers, hosted remote desktops, Composio OAuth sessions, live third-party tool calls, or
-  admin surfaces.
 - Voice uses the webview's speech recognition and the OS speech voice; there is no WebRTC/cloud call
   transport. Live listening depends on the webview and microphone permission.
 - The local Computer panel is not exposed to an agent as an unattended tool. It runs only what the person
   types in the panel.
 - The phone companion is a LAN page, not a native app or cloud-synced client; it is plain HTTP protected by
   a URL token and only works while the desktop app is open.
-- The connected-app catalog and key field are real, but no OAuth connection is faked.
-- Organization admin, cloud sync, billing, and a mobile app store build are not implemented.
-- Real CLI tool permissions are not brokered; approval mode is passed through.
+- Hosted cloud provisioning, managed remote desktops, cloud sync, organization billing, and a native app
+  store client are not implemented.
+- Composio OAuth and the manual live tool runner work with a project key, but agents do not yet receive
+  Composio tools automatically inside their turn loop.
+- Real CLI tool permission prompts are still not brokered; only approval mode is passed through.
 - The browser preview uses a separate in-memory mock, not the Go backend.
 - The demo engine is a deterministic scripted engine, not a model. It is labelled as such.
 - The activity calendar is a week planner, not a minute-by-minute scheduler UI.

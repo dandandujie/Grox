@@ -98,6 +98,14 @@ func (s *Service) ListComputerFiles(botID, path string) (model.FolderListing, er
 		s.mu.Unlock()
 		return model.FolderListing{}, fmt.Errorf("bot not found")
 	}
+	if bot.ComputerMode == "ssh" {
+		cfg, err := s.remoteConfigLocked(bot)
+		s.mu.Unlock()
+		if err != nil {
+			return model.FolderListing{}, err
+		}
+		return s.remoteList(cfg, path)
+	}
 	root, abs, err := s.resolveComputerPathLocked(bot, path)
 	s.mu.Unlock()
 	if err != nil {
@@ -148,6 +156,14 @@ func (s *Service) ReadComputerFile(botID, path string) (model.FilePreview, error
 	if bot == nil {
 		s.mu.Unlock()
 		return model.FilePreview{}, fmt.Errorf("bot not found")
+	}
+	if bot.ComputerMode == "ssh" {
+		cfg, err := s.remoteConfigLocked(bot)
+		s.mu.Unlock()
+		if err != nil {
+			return model.FilePreview{}, err
+		}
+		return s.remoteRead(cfg, path)
 	}
 	_, abs, err := s.resolveComputerPathLocked(bot, path)
 	s.mu.Unlock()
@@ -204,6 +220,14 @@ func (s *Service) OpenComputerPath(botID, path string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("bot not found")
 	}
+	if bot.ComputerMode == "ssh" {
+		cfg, err := s.remoteConfigLocked(bot)
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		return s.remoteOpen(cfg, path)
+	}
 	_, abs, err := s.resolveComputerPathLocked(bot, path)
 	s.mu.Unlock()
 	if err != nil {
@@ -233,6 +257,19 @@ func (s *Service) RunComputerCommand(botID, command string) (model.CommandResult
 	if bot == nil {
 		s.mu.Unlock()
 		return model.CommandResult{}, fmt.Errorf("bot not found")
+	}
+	if bot.ComputerMode == "ssh" {
+		cfg, err := s.remoteConfigLocked(bot)
+		s.mu.Unlock()
+		if err != nil {
+			return model.CommandResult{}, err
+		}
+		start := time.Now()
+		stdout, stderr, code, err := s.remoteRun(cfg, command, 60*time.Second)
+		if err != nil {
+			return model.CommandResult{Command: command, Stdout: stdout, Stderr: stderr, ExitCode: code, DurationMS: time.Since(start).Milliseconds()}, err
+		}
+		return model.CommandResult{Command: command, Stdout: stdout, Stderr: stderr, ExitCode: code, DurationMS: time.Since(start).Milliseconds()}, nil
 	}
 	_, root, err := s.resolveComputerPathLocked(bot, "")
 	s.mu.Unlock()
@@ -272,7 +309,22 @@ func (s *Service) RunComputerCommand(botID, command string) (model.CommandResult
 
 // CaptureComputerScreen takes a PNG screenshot of the local desktop. The OS
 // may ask for screen-recording permission the first time.
-func (s *Service) CaptureComputerScreen() (string, error) {
+func (s *Service) CaptureComputerScreen(botID string) (string, error) {
+	s.mu.Lock()
+	bot := s.findBotLocked(botID)
+	if bot == nil {
+		s.mu.Unlock()
+		return "", fmt.Errorf("bot not found")
+	}
+	if bot.ComputerMode == "ssh" {
+		cfg, err := s.remoteConfigLocked(bot)
+		s.mu.Unlock()
+		if err != nil {
+			return "", err
+		}
+		return s.remoteScreen(cfg)
+	}
+	s.mu.Unlock()
 	file, err := os.CreateTemp("", "grox-screen-*.png")
 	if err != nil {
 		return "", err

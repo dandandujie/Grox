@@ -13,6 +13,10 @@ The main security boundaries are:
 - the local Computer panel only resolves paths under the bot's working folder (or home) and the terminal
   is explicitly typed by the person;
 - the phone companion is a LAN-only HTTP page protected by a random token in the URL;
+- the SSH computer reads a key path but never copies the key into the workspace, and verifies the host
+  against ~/.ssh/known_hosts when that file exists;
+- Composio OAuth links and live tool calls are explicit actions; a tool runs only when the person presses
+  Run tool;
 - the app does not include telemetry, a remote updater, or a hosted relay.
 
 Grox is **not** a sandbox. A CLI started in Full mode can do anything the current user can do. Treat a bot
@@ -40,6 +44,21 @@ Attachments live in the attachments/ directory with 0600 files. The phone token 
 who obtains the token and can reach the Mac's LAN port can read and send conversations. Turn the phone
 companion off when it is not in use, and do not expose port 4870 to the public internet.
 
+## Remote computer
+
+An SSH computer is a powerful boundary. Commands and file reads run on the remote host with the SSH user's
+permissions. The remote root is an absolute path; Grox rejects paths that escape it, quotes command
+arguments, and applies a deadline. If ~/.ssh/known_hosts is absent, the SSH client uses trust-on-first-use;
+add the host key to known_hosts for a stricter check. The private key is read from the path you provide and
+is never uploaded or written into Grox's workspace.
+
+## Composio
+
+A Composio project key is stored in the 0600 secrets file. OAuth happens on Composio's hosted page; Grox
+receives the redirect URL and opens the system browser. Connected-account status is only shown as connected
+when Composio reports ACTIVE. The live tool runner sends the arguments the person entered to Composio; treat
+that as a real third-party action, not a preview. No local fallback fakes a tool response.
+
 ## Local computer
 
 Screen capture, folder browsing, and the terminal are person-driven surfaces. The terminal runs with the
@@ -58,6 +77,8 @@ that is exactly why the default is Ask and why Full is explicit.
 
 - Real CLI tool permission prompts are not brokered by Grox in this version.
 - The phone companion uses plain HTTP on the local network; it is not a hardened remote-access service.
-- Composio OAuth and live third-party tool calls are not implemented.
+- Composio OAuth and the manual live tool runner are implemented; agents do not receive Composio tools
+  automatically inside their turn loop yet.
+- Hosted cloud provisioning, cloud sync, organization billing, and a native mobile app are not implemented.
 - The demo engine is local and does no network or file work, but its approval cards are scripted.
 - The browser preview uses an in-memory mock; do not put real secrets into it.

@@ -51,8 +51,12 @@ shape local and inspectable:
   preview files, and run a command you typed yourself.
 - **Voice on this machine.** Dictate into the composer, or start a call that listens with the system
   speech service and speaks the reply with the system voice.
-- **Your phone, on your Wi-Fi.** Turn on the phone companion to get a private link for the same roster and
-  conversations. No account or cloud relay.
+- **Your phone, on your Wi-Fi.** Turn on the phone companion to get a private link and QR code for the
+  same roster and conversations. No account or cloud relay.
+- **Real app connections.** With a Composio project key, Connected apps creates a hosted OAuth link,
+  reconciles active accounts, and can run a real tool from the live tool runner.
+- **A remote box over SSH.** The Computer panel can point at your own cloud VM: screen capture, file
+  browsing and a terminal go over SSH; the private key never leaves this Mac.
 - **Local first.** A Go process owns the workspace. The frontend is a web page in the system webview.
 
 ## Screenshots
@@ -85,6 +89,10 @@ shape local and inspectable:
 | --- |
 | ![Voice call](docs/screenshots/voice.png) |
 
+| Remote SSH computer |
+| --- |
+| ![Remote SSH computer](docs/screenshots/remote-computer.png) |
+
 | Channels | Phone companion |
 | --- | --- |
 | ![Channels](docs/screenshots/channels.png) | <img src="docs/screenshots/phone.png" alt="Phone companion" width="320" /> |
@@ -113,17 +121,20 @@ The table below is intentionally blunt.
 | API keys stored locally, write-only to the page, 0600 file | **Working** |
 | Skins (Midnight / Daylight / Atelier / Foundry), reduce motion | **Working** |
 | Command palette, keyboard shortcuts, Cmd+1–9, deep links | **Working** |
-| Connected apps catalog, local switches, Composio key field | **Catalog is real; OAuth and live tool calls are not wired.** The key is stored, but no account is faked |
-| Cloud computers / hosted remote desktop | **Not included.** Local screen/files/terminal are real; there is no hosted VM service |
+| Composio OAuth links, connected-account reconciliation, live tool runner | **Working when a Composio project key is set.** Without a key, no account is faked |
+| Bring-your-own cloud box over SSH: screen, files, terminal | **Working** against a user-supplied Linux/Unix host with a key path and known_hosts |
+| Hosted cloud computer provisioning / managed remote desktops | **Not included.** Grox connects to your box; it does not create or bill for VMs |
 | Voice input and speech-to-speech calls | **Working locally** via the webview's speech recognition and the system voice; availability depends on the webview |
 | Local computer: screenshot, folder browse, file preview, terminal | **Working** on this Mac; screen capture needs Screen Recording permission |
 | Channels, multi-agent group chat, @mention routing | **Working** locally |
-| Phone companion (LAN web page, same roster and chats) | **Working** while the desktop app is open; plain HTTP + private token on your network |
-| Cloud sync, enterprise admin, organization billing | **Not included** |
+| Phone companion (LAN web page, QR pairing, same roster and chats) | **Working** while the desktop app is open; plain HTTP + private token on your network |
+| Cloud sync, enterprise admin, organization billing, native App Store client | **Not included** |
 | Approval brokering for real CLI tool requests | **Partial.** Approval mode is passed to the CLI; only the demo/seed cards and local computer commands are controlled in-app |
 
-> In other words: the conversation, roster, model, profile, routines, settings, and local-agent parts are
-> real. The hosted/cloud parts are deliberately absent and labelled, rather than mocked as connected.
+> In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
+> phone companion, routines and Composio connections are real. Hosted VM provisioning, cloud sync,
+> organization billing, a native store app, and CLI tool-level approval brokering are deliberately absent
+> and labelled rather than mocked.
 > This repository is an independent project; it is not affiliated with xAI, Anthropic, OpenAI, Google,
 > Manus, Meta, or the OpenMausBot project.
 
@@ -206,6 +217,17 @@ To put a real model behind a bot:
    ANTHROPIC_API_KEY, GEMINI_API_KEY before launching).
 3. Pick a model from the pill in the chat header. Switching mid-conversation is allowed.
 
+### Connect apps and a remote box
+
+1. **Settings → Connections** stores a Composio project key. Create at least one auth config for the
+   toolkit you want in Composio; Grox uses the first enabled auth config.
+2. **Connected apps → Connect** opens the hosted OAuth page. Finish it, then press **Refresh**. The card
+   only turns green after Composio reports an ACTIVE connected account.
+3. **Connected apps → Tools** opens a live tool-router session. Pick a tool, edit its JSON arguments and
+   run it; the result is returned inline. This is a real third-party call, not a mock.
+4. **Agent profile → Computer → Runs on → SSH box** accepts host, user, port, remote root and a private
+   key path. Save and test opens a real SSH connection. Screen, Files and Terminal then use that box.
+
 ## Data and privacy
 
 | What | Where |
@@ -215,6 +237,8 @@ To put a real model behind a bot:
 | Window size | user config/Grox/window-state.json |
 | Attachments | user config/Grox/attachments/ |
 | Phone pairing token | state.json (settings.phoneToken) |
+| SSH private key | wherever you already keep it; Grox only reads it |
+| Composio project key | user config/Grox/secrets.json, mode 0600 |
 | Frontend | Built into the Go binary |
 | Telemetry | None |
 

@@ -125,6 +125,27 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 	if patch.WorkingDir != nil {
 		bot.WorkingDir = strings.TrimSpace(*patch.WorkingDir)
 	}
+	if patch.ComputerMode != nil {
+		switch *patch.ComputerMode {
+		case "", "local", "ssh":
+			bot.ComputerMode = *patch.ComputerMode
+		}
+	}
+	if patch.SSHHost != nil {
+		bot.SSHHost = strings.TrimSpace(*patch.SSHHost)
+	}
+	if patch.SSHUser != nil {
+		bot.SSHUser = strings.TrimSpace(*patch.SSHUser)
+	}
+	if patch.SSHRoot != nil {
+		bot.SSHRoot = strings.TrimSpace(*patch.SSHRoot)
+	}
+	if patch.SSHKeyPath != nil {
+		bot.SSHKeyPath = strings.TrimSpace(*patch.SSHKeyPath)
+	}
+	if patch.SSHPort != nil {
+		bot.SSHPort = *patch.SSHPort
+	}
 	if patch.Notifications != nil {
 		bot.Notifications = *patch.Notifications
 	}

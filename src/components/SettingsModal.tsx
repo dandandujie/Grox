@@ -35,7 +35,7 @@ const KEY_FIELDS = [
   { name: "anthropic", label: "Anthropic API key", hint: "Used by the Claude engine.", placeholder: "sk-ant-…" },
   { name: "openai", label: "OpenAI API key", hint: "Used by the Codex engine.", placeholder: "sk-…" },
   { name: "google", label: "Google AI API key", hint: "Used by Gemini models.", placeholder: "AIza…" },
-  { name: "composio", label: "Composio project key", hint: "For connected apps. OAuth is not wired in this build.", placeholder: "ak_…" },
+  { name: "composio", label: "Composio project key", hint: "Enables real OAuth links and the live tool runner in Connected apps.", placeholder: "ak_…" },
   { name: "api", label: "Custom API key", hint: "For an OpenAI-compatible gateway or a local model.", placeholder: "Optional" },
 ];
 
@@ -201,7 +201,7 @@ function ConnectionsSection() {
           })}
         </div>
       </SectionCard>
-      <SectionCard title="Connected apps" hint="Composio OAuth is not part of this build. The Connected apps page records local toggles; your bots do not receive a live app session yet.">
+      <SectionCard title="Connected apps" hint="A Composio project key turns the Connected apps page into real OAuth links and a live tool runner. Without it, no account is marked connected.">
         <p className="settings-note">Keys never leave this machine. For a real app session, add the Composio key above and wire the connector in a later iteration.</p>
       </SectionCard>
     </>
@@ -371,6 +371,7 @@ function PhoneSection() {
           {phone.error && <p className="settings-note is-error">{phone.error}</p>}
           {phone.enabled && phone.url ? (
             <>
+              {phone.qr && <img className="phone-qr" src={phone.qr} alt="QR code for the phone companion link" />}
               <label className="panel-field">
                 <span>Open on your phone</span>
                 <div className="phone-url-row">

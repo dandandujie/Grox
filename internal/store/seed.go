@@ -215,9 +215,6 @@ There are 41 newsletters and 12 notifications I can archive.`,
 	for _, app := range catalog.Apps() {
 		state.Connections[app.ID] = model.Connection{ID: app.ID}
 	}
-	for _, id := range []string{"github", "slack", "linear"} {
-		state.Connections[id] = model.Connection{ID: id, Connected: true, Account: "workspace", ConnectedAt: now.Add(-200 * time.Hour)}
-	}
 	state.Runs = []model.Run{
 		{ID: "run-seed-1", RoutineID: "routine-brody-brief", BotID: "bot-brody", ThreadID: "thread-brody-home", Title: "Morning research brief", Status: "completed", StartedAt: now.Add(-26 * time.Hour), FinishedAt: now.Add(-26*time.Hour + 4*time.Minute), Summary: "Rebuilt the AI market map and wrote the notes tab."},
 		{ID: "run-seed-2", RoutineID: "routine-emaily-sweep", BotID: "bot-emaily", ThreadID: "thread-emaily-home", Title: "Inbox sweep", Status: "completed", StartedAt: now.Add(-3 * time.Hour), FinishedAt: now.Add(-3*time.Hour + 2*time.Minute), Summary: "Triaged 56 messages, drafted 2 replies."},

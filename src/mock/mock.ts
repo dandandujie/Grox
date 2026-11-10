@@ -1,6 +1,6 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
-  CommandResult, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
+  CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
   Settings, Thread,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -552,6 +552,26 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     };
   }
 
+  async connectComposioApp(_appId: string): Promise<ComposioLink> {
+    throw new Error("Add a Composio key in the desktop app to connect an account.");
+  }
+
+  async disconnectComposioApp(_appId: string): Promise<void> {
+    throw new Error("Add a Composio key in the desktop app first.");
+  }
+
+  async refreshComposioConnections(): Promise<number> {
+    throw new Error("Add a Composio key in the desktop app first.");
+  }
+
+  async listComposioTools(): Promise<ComposioTool[]> {
+    return [];
+  }
+
+  async executeComposioTool(_slug: string, _args: Record<string, unknown>): Promise<unknown> {
+    throw new Error("Live tools need the desktop app and a Composio key.");
+  }
+
   async setPhoneEnabled(enabled: boolean): Promise<PhoneInfo> {
     return {
       enabled, url: enabled ? "http://192.168.1.20:4870/p/phone-demo" : "", token: enabled ? "phone-demo" : "",
@@ -559,7 +579,11 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     };
   }
 
-  async captureComputerScreen(): Promise<string> {
+  async testRemoteComputer(_botId: string): Promise<string> {
+    throw new Error("Remote SSH is only available in the desktop app.");
+  }
+
+  async captureComputerScreen(_botId?: string): Promise<string> {
     throw new Error("Screen capture is only available in the desktop app.");
   }
 

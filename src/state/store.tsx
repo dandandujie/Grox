@@ -62,6 +62,9 @@ interface AppContextValue {
   secrets: SecretStatus;
   phone: PhoneInfo;
   setPhoneEnabled: (enabled: boolean) => Promise<void>;
+  connectApp: (appId: string) => Promise<void>;
+  disconnectApp: (appId: string) => Promise<void>;
+  refreshApps: () => Promise<void>;
   activeBot: Bot | undefined;
   activeGroup: Group | undefined;
   activeThread: Thread | undefined;
@@ -794,6 +797,37 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     }
   }, [activeBot, activeGroup, activeThread, backend, fail]);
 
+  const connectApp = useCallback(async (appId: string) => {
+    try {
+      const link = await backend.connectComposioApp(appId);
+      if (link.url) {
+        toast({ kind: "info", title: "Finish connecting in your browser", body: "Authorize the app, then press Refresh connections." });
+      } else {
+        toast({ kind: "info", title: "Connection started", body: "Finish the OAuth flow, then refresh." });
+      }
+    } catch (error) {
+      fail(error);
+    }
+  }, [backend, fail, toast]);
+
+  const disconnectApp = useCallback(async (appId: string) => {
+    try {
+      await backend.disconnectComposioApp(appId);
+      toast({ kind: "info", title: "Disconnected" });
+    } catch (error) {
+      fail(error);
+    }
+  }, [backend, fail, toast]);
+
+  const refreshApps = useCallback(async () => {
+    try {
+      const count = await backend.refreshComposioConnections();
+      toast({ kind: "success", title: count + " connected app" + (count === 1 ? "" : "s"), body: "The connection list is up to date." });
+    } catch (error) {
+      fail(error);
+    }
+  }, [backend, fail, toast]);
+
   const setPhoneEnabled = useCallback(async (enabled: boolean) => {
     try {
       const info = await backend.setPhoneEnabled(enabled);
@@ -944,7 +978,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   }, [backend, fail]);
 
   const value: AppContextValue = {
-    backend, boot, state, providers, apps, engines, secrets, phone, setPhoneEnabled, activeBot, activeGroup, activeThread, ui,
+    backend, boot, state, providers, apps, engines, secrets, phone, setPhoneEnabled, connectApp, disconnectApp, refreshApps, activeBot, activeGroup, activeThread, ui,
     toast, toasts, dismissToast, confirm, requestConfirm, closeConfirm, setUI,
     selectBot, selectGroup, openThread, openGroupThread, newTask, send, uploadAttachment, stop, createBot, updateBot, duplicateBot, deleteBot,
     createGroup, updateGroup, deleteGroup,

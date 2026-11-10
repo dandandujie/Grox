@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.2.0"
+	AppVersion = "0.3.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -61,6 +61,12 @@ type Bot struct {
 	ModelID       string    `json:"modelId"`
 	Approval      string    `json:"approval"`
 	WorkingDir    string    `json:"workingDir,omitempty"`
+	ComputerMode  string    `json:"computerMode,omitempty"`
+	SSHHost       string    `json:"sshHost,omitempty"`
+	SSHUser       string    `json:"sshUser,omitempty"`
+	SSHRoot       string    `json:"sshRoot,omitempty"`
+	SSHKeyPath    string    `json:"sshKeyPath,omitempty"`
+	SSHPort       int       `json:"sshPort,omitempty"`
 	Notifications bool      `json:"notifications"`
 	SpeakReplies  bool      `json:"speakReplies"`
 	Voice         string    `json:"voice,omitempty"`
@@ -201,6 +207,22 @@ type CommandResult struct {
 	DurationMS int64  `json:"durationMs"`
 }
 
+// ComposioLink is an OAuth link session returned by Composio.
+type ComposioLink struct {
+	AppID     string `json:"appId"`
+	URL       string `json:"url"`
+	AccountID string `json:"accountId"`
+}
+
+// ComposioTool is one live tool exposed by a Composio tool-router session.
+type ComposioTool struct {
+	Slug        string         `json:"slug"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Toolkit     string         `json:"toolkit"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
+}
+
 // Routine is a recurring task: a prompt sent to a bot on a schedule.
 type Routine struct {
 	ID         string    `json:"id"`
@@ -235,6 +257,7 @@ type Run struct {
 type Connection struct {
 	ID          string    `json:"id"`
 	Connected   bool      `json:"connected"`
+	ExternalID  string    `json:"externalId,omitempty"`
 	Account     string    `json:"account,omitempty"`
 	ConnectedAt time.Time `json:"connectedAt,omitempty"`
 }
@@ -313,6 +336,7 @@ type PhoneInfo struct {
 	Enabled   bool   `json:"enabled"`
 	URL       string `json:"url"`
 	Token     string `json:"token"`
+	QR        string `json:"qr,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Port      int    `json:"port"`
 	Connected int    `json:"connected"`
@@ -377,17 +401,24 @@ type CreateBotInput struct {
 
 // BotPatch edits only the fields it sets.
 type BotPatch struct {
-	Name          *string `json:"name,omitempty"`
-	Title         *string `json:"title,omitempty"`
-	Description   *string `json:"description,omitempty"`
-	Soul          *string `json:"soul,omitempty"`
-	Color         *string `json:"color,omitempty"`
-	ModelID       *string `json:"modelId,omitempty"`
-	Approval      *string `json:"approval,omitempty"`
-	MascotShape   *string `json:"mascotShape,omitempty"`
-	Expression    *string `json:"expression,omitempty"`
-	AvatarURL     *string `json:"avatarUrl,omitempty"`
-	WorkingDir    *string `json:"workingDir,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	Title        *string `json:"title,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	Soul         *string `json:"soul,omitempty"`
+	Color        *string `json:"color,omitempty"`
+	ModelID      *string `json:"modelId,omitempty"`
+	Approval     *string `json:"approval,omitempty"`
+	MascotShape  *string `json:"mascotShape,omitempty"`
+	Expression   *string `json:"expression,omitempty"`
+	AvatarURL    *string `json:"avatarUrl,omitempty"`
+	WorkingDir   *string `json:"workingDir,omitempty"`
+	ComputerMode *string `json:"computerMode,omitempty"`
+	SSHHost      *string `json:"sshHost,omitempty"`
+	SSHUser      *string `json:"sshUser,omitempty"`
+	SSHRoot      *string `json:"sshRoot,omitempty"`
+	SSHKeyPath   *string `json:"sshKeyPath,omitempty"`
+	SSHPort      *int    `json:"sshPort,omitempty"`
+
 	Notifications *bool   `json:"notifications,omitempty"`
 	SpeakReplies  *bool   `json:"speakReplies,omitempty"`
 	Voice         *string `json:"voice,omitempty"`

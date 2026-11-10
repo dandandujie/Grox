@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+Real connections release: Composio OAuth, live tools, and a bring-your-own SSH cloud box.
+
+- Composio project integration: OAuth link creation, connected-account reconciliation, and revocation.
+- Live Composio tool-runner dialog with tool schemas, JSON arguments, real execution and inline results.
+- Removed the seeded fake GitHub/Slack/Linear connections; a card only turns connected when Composio says
+  ACTIVE.
+- Bring-your-own cloud computer over SSH: host/user/port/root/key path, connection test, remote screen
+  capture, remote folder browse/read, and remote terminal. Private keys stay on the local machine.
+- QR code on the Phone settings card for pairing the LAN web companion.
+- Tests for Composio endpoints and the SSH computer using in-process fake servers.
+- README, ARCHITECTURE and SECURITY updated. Still not implemented: hosted VM provisioning, cloud sync,
+  organization billing, a native store app, and CLI tool-level approval brokering.
+
 ## 0.2.0
 
 Local surfaces release: channels, attachments, voice, a real Computer panel, and a phone companion.

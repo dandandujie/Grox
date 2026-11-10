@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/dandandujie/grox/internal/model"
 )
@@ -49,6 +52,9 @@ func (s *Service) PhoneInfo() model.PhoneInfo {
 	s.phoneSubMu.Unlock()
 	if info.Port != 0 && info.Token != "" {
 		info.URL = "http://" + lanAddress() + ":" + fmt.Sprintf("%d", info.Port) + "/p/" + info.Token
+		if png, err := qrcode.Encode(info.URL, qrcode.Medium, 320); err == nil {
+			info.QR = "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
+		}
 	}
 	return info
 }

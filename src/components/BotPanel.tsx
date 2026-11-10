@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity as ActivityIcon, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen, ImagePlus,
-  Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, X,
+  Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
 import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, Model } from "@/lib/bridge";
@@ -337,7 +337,7 @@ function ProfileTab({ bot }: { bot: Bot }) {
 }
 
 function ComputerTab({ bot }: { bot: Bot }) {
-  const { apps, state, setUI, runRoutine, updateRoutine, toast, revealWorkingFolder, backend } = useApp();
+  const { apps, state, setUI, runRoutine, updateRoutine, toast, revealWorkingFolder, backend, updateBot } = useApp();
   const [tab, setTab] = useState<"screen" | "files" | "terminal">("screen");
   const [screen, setScreen] = useState("");
   const [screenBusy, setScreenBusy] = useState(false);
@@ -349,6 +349,14 @@ function ComputerTab({ bot }: { bot: Bot }) {
   const [command, setCommand] = useState("");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CommandResult | null>(null);
+  const [mode, setMode] = useState<"local" | "ssh">(bot.computerMode === "ssh" ? "ssh" : "local");
+  const [sshHost, setSshHost] = useState(bot.sshHost ?? "");
+  const [sshUser, setSshUser] = useState(bot.sshUser ?? "");
+  const [sshPort, setSshPort] = useState(String(bot.sshPort || 22));
+  const [sshRoot, setSshRoot] = useState(bot.sshRoot ?? "");
+  const [sshKeyPath, setSshKeyPath] = useState(bot.sshKeyPath ?? "");
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteNote, setRemoteNote] = useState("");
   const routines = state.routines.filter((routine) => routine.botId === bot.id);
   const connectedApps = apps.filter((app) => app.connected);
 
@@ -386,7 +394,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
     setScreenBusy(true);
     setScreenError("");
     try {
-      const value = await backend.captureComputerScreen();
+      const value = await backend.captureComputerScreen(bot.id);
       setScreen("data:image/png;base64," + value);
     } catch (error) {
       setScreenError(error instanceof Error ? error.message : String(error));
@@ -414,6 +422,59 @@ function ComputerTab({ bot }: { bot: Bot }) {
 
   return (
     <div className="panel-body">
+      <section className="panel-card remote-computer-card">
+        <div className="panel-card-title">
+          <span>Runs on</span>
+          <Segmented
+            label="Computer location"
+            value={mode}
+            options={[{ value: "local", label: "This Mac" }, { value: "ssh", label: "SSH box" }]}
+            onChange={(value) => {
+              const next = value === "ssh" ? "ssh" : "local";
+              setMode(next);
+              void updateBot(bot.id, { computerMode: next });
+            }}
+            size="sm"
+          />
+        </div>
+        {mode === "local" ? (
+          <p className="panel-note">Screen capture, files and the terminal run on this Mac under your user account.</p>
+        ) : (
+          <div className="remote-fields">
+            <div className="form-two">
+              <label className="panel-field"><span>Host</span><input value={sshHost} onChange={(event) => setSshHost(event.target.value)} placeholder="203.0.113.10" spellCheck={false} /></label>
+              <label className="panel-field"><span>User</span><input value={sshUser} onChange={(event) => setSshUser(event.target.value)} placeholder="ubuntu" spellCheck={false} /></label>
+            </div>
+            <div className="form-two">
+              <label className="panel-field"><span>Port</span><input value={sshPort} onChange={(event) => setSshPort(event.target.value)} inputMode="numeric" /></label>
+              <label className="panel-field"><span>Remote root</span><input value={sshRoot} onChange={(event) => setSshRoot(event.target.value)} placeholder="/home/ubuntu" spellCheck={false} /></label>
+            </div>
+            <label className="panel-field"><span>Private key path</span><input value={sshKeyPath} onChange={(event) => setSshKeyPath(event.target.value)} placeholder="~/.ssh/id_ed25519" spellCheck={false} /></label>
+            <p className="computer-hint">The key stays on this Mac. The host key is checked against ~/.ssh/known_hosts when that file exists. Screen capture needs grim, scrot or ImageMagick on the remote box.</p>
+            {remoteNote && <pre className="remote-note">{remoteNote}</pre>}
+            <button type="button" className="btn btn-secondary remote-save" disabled={remoteBusy} onClick={async () => {
+              setRemoteBusy(true);
+              setRemoteNote("");
+              await updateBot(bot.id, {
+                computerMode: "ssh", sshHost: sshHost.trim(), sshUser: sshUser.trim(),
+                sshRoot: sshRoot.trim(), sshKeyPath: sshKeyPath.trim(), sshPort: Number(sshPort) || 22,
+              });
+              try {
+                const value = await backend.testRemoteComputer(bot.id);
+                setRemoteNote(value);
+                toast({ kind: "success", title: "Remote computer connected" });
+              } catch (error) {
+                setRemoteNote(error instanceof Error ? error.message : String(error));
+              } finally {
+                setRemoteBusy(false);
+              }
+            }}>
+              {remoteBusy ? <Loader2 size={14} className="spin" /> : <Terminal size={14} />} Save and test
+            </button>
+          </div>
+        )}
+      </section>
+
       <div className="computer-tabs" role="tablist" aria-label="Computer">
         <button type="button" role="tab" aria-selected={tab === "screen"} className={cn(tab === "screen" && "is-active")} onClick={() => setTab("screen")}>Screen</button>
         <button type="button" role="tab" aria-selected={tab === "files"} className={cn(tab === "files" && "is-active")} onClick={() => setTab("files")}>Files</button>
@@ -424,7 +485,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
         <section className="computer-card">
           <div className="computer-card-head">
             <span>{bot.name}'s screen</span>
-            <span className={cn("computer-live", screen && "is-on")}>{screen ? "Captured" : "Local"}</span>
+            <span className={cn("computer-live", screen && "is-on")}>{screen ? "Captured" : mode === "ssh" ? "Remote" : "Local"}</span>
           </div>
           {screen ? (
             <button type="button" className="computer-screen-wrap" onClick={() => void backend.openComputerPath(bot.id, "")} title="Open the folder">
@@ -449,11 +510,15 @@ function ComputerTab({ bot }: { bot: Bot }) {
             <button type="button" className="btn btn-secondary" onClick={() => void capture()} disabled={screenBusy}>
               {screenBusy ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} {screen ? "Capture again" : "Capture screen"}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => void revealWorkingFolder(bot.id)}>
-              <Laptop size={14} /> Open folder
-            </button>
+            {mode === "local" ? (
+              <button type="button" className="btn btn-ghost" onClick={() => void revealWorkingFolder(bot.id)}>
+                <Laptop size={14} /> Open folder
+              </button>
+            ) : (
+              <span className="computer-hint">Remote root: {sshRoot || "/home/" + (sshUser || "user")}</span>
+            )}
           </div>
-          <p className="computer-hint">A real screenshot of this Mac. macOS may ask for Screen Recording permission the first time. Nothing leaves this machine.</p>
+          <p className="computer-hint">{mode === "ssh" ? "A real screenshot of the SSH box. It needs an active desktop session and grim, scrot or ImageMagick on the remote host." : "A real screenshot of this Mac. macOS may ask for Screen Recording permission the first time. Nothing leaves this machine."}</p>
         </section>
       )}
 
@@ -535,12 +600,6 @@ function ComputerTab({ bot }: { bot: Bot }) {
       )}
 
       <section className="panel-card">
-        <div className="panel-card-title"><span>Runs on</span></div>
-        <div className="computer-mode-row"><span className="computer-mode-dot" /> This Mac <span className="computer-mode-note">local</span></div>
-        <p className="panel-note">The agent runs locally with your own CLI login. Files, approvals and credentials stay on this machine. A hosted cloud computer is not configured.</p>
-      </section>
-
-      <section className="panel-card">
         <div className="panel-card-title">
           <span><ActivityIcon size={14} /> Routines</span>
           <button type="button" className="link-button" onClick={() => setUI({ newRoutineOpen: true, view: "routines", panel: null })}>Create</button>
@@ -569,7 +628,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
 
       <section className="panel-card">
         <div className="panel-card-title"><span>Working folder</span></div>
-        <p className="panel-mono">{bot.workingDir || "Home folder"}</p>
+        <p className="panel-mono">{mode === "ssh" ? (sshRoot || "/home/" + (sshUser || "user")) : (bot.workingDir || "Home folder")}</p>
       </section>
 
       <section className="panel-card">

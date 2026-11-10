@@ -2,16 +2,24 @@ package service
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/dandandujie/grox/internal/model"
 )
@@ -390,7 +398,7 @@ func TestPhoneCompanion(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = svc.SetPhoneEnabled(false) })
-	if !info.Enabled || info.Port == 0 || info.Token == "" {
+	if !info.Enabled || info.Port == 0 || info.Token == "" || info.QR == "" {
 		t.Fatalf("unexpected phone info: %+v", info)
 	}
 	base := fmt.Sprintf("http://127.0.0.1:%d", info.Port)
@@ -421,5 +429,198 @@ func TestPhoneCompanion(t *testing.T) {
 	_ = sendResponse.Body.Close()
 	if sendResponse.StatusCode != 200 {
 		t.Fatalf("phone send = %d %s", sendResponse.StatusCode, sendBody)
+	}
+}
+
+func TestComposioOAuthAndTools(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/auth_configs":
+			if r.URL.Query().Get("toolkit_slug") != "github" {
+				t.Errorf("toolkit_slug = %q", r.URL.Query().Get("toolkit_slug"))
+			}
+			_, _ = w.Write([]byte(`{"items":[{"id":"ac-github","status":"ENABLED"}]}`))
+		case r.URL.Path == "/connected_accounts/link":
+			_, _ = w.Write([]byte(`{"redirect_url":"https://example.test/oauth","connected_account_id":"ca-github"}`))
+		case r.URL.Path == "/connected_accounts" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"items":[{"id":"ca-github","status":"ACTIVE","alias":"octocat","toolkit":{"slug":"github"}}]}`))
+		case r.URL.Path == "/connected_accounts/ca-github" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/tool_router/session" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"session_id":"sess-1"}`))
+		case r.URL.Path == "/tool_router/session/sess-1/tools":
+			_, _ = w.Write([]byte(`{"items":[{"slug":"GITHUB_GET_REPO","name":"Get repo","description":"Read a repository","toolkit":{"slug":"github"},"input_parameters":{"type":"object"}}]}`))
+		case r.URL.Path == "/tool_router/session/sess-1/execute":
+			_, _ = w.Write([]byte(`{"data":{"full_name":"acme/grox"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	oldBase := composioBaseURL
+	composioBaseURL = server.URL
+	defer func() { composioBaseURL = oldBase }()
+	t.Setenv("GROX_NO_BROWSER", "1")
+	svc, _, _ := newTestService(t)
+	if _, err := svc.SetSecret("composio", "test-key"); err != nil {
+		t.Fatal(err)
+	}
+	link, err := svc.ConnectComposioApp("github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link.URL != "https://example.test/oauth" || link.AccountID != "ca-github" {
+		t.Fatalf("unexpected link: %+v", link)
+	}
+	count, err := svc.RefreshComposioConnections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("connected count = %d", count)
+	}
+	svc.mu.Lock()
+	if !svc.st.State.Connections["github"].Connected || svc.st.State.Connections["github"].ExternalID != "ca-github" {
+		t.Fatalf("connection = %+v", svc.st.State.Connections["github"])
+	}
+	svc.mu.Unlock()
+	tools, err := svc.ListComposioTools()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Slug != "GITHUB_GET_REPO" || tools[0].InputSchema == nil {
+		t.Fatalf("tools = %+v", tools)
+	}
+	result, err := svc.ExecuteComposioTool("GITHUB_GET_REPO", map[string]any{"owner": "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("expected a tool result")
+	}
+	if err := svc.DisconnectComposioApp("github"); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	if svc.st.State.Connections["github"].Connected {
+		t.Fatal("connection still connected")
+	}
+	svc.mu.Unlock()
+}
+
+func TestRemoteSSHComputer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil },
+	}
+	config.AddHostKey(signer)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				serverConn, channels, requests, err := ssh.NewServerConn(conn, config)
+				if err != nil {
+					_ = conn.Close()
+					return
+				}
+				defer serverConn.Close()
+				go ssh.DiscardRequests(requests)
+				for newChannel := range channels {
+					if newChannel.ChannelType() != "session" {
+						_ = newChannel.Reject(ssh.UnknownChannelType, "session only")
+						continue
+					}
+					channel, requests, err := newChannel.Accept()
+					if err != nil {
+						continue
+					}
+					for request := range requests {
+						if request.Type != "exec" {
+							continue
+						}
+						var payload struct{ Command string }
+						if err := ssh.Unmarshal(request.Payload, &payload); err != nil {
+							continue
+						}
+						_ = request.Reply(true, nil)
+						output := "ok\n"
+						switch {
+						case strings.Contains(payload.Command, "uname"):
+							output = "Linux fake 6.0 aarch64\n/home/tester\n"
+						case strings.Contains(payload.Command, "find"):
+							output = "README.md\tf\t13\t1700000000\nnotes\td\t0\t1700000001\n"
+						case strings.Contains(payload.Command, "wc -c"):
+							output = "13\n"
+						case strings.Contains(payload.Command, "head -c"):
+							output = "hello remote\n"
+						case strings.Contains(payload.Command, "printf hello"):
+							output = "hello"
+						}
+						_, _ = channel.Write([]byte(output))
+						_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Code uint32 }{0}))
+						_ = channel.Close()
+						break
+					}
+					_ = channel.Close()
+				}
+			}()
+		}
+	}()
+	addr := listener.Addr().(*net.TCPAddr)
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Remote", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode, host, user, root, keyField, port := "ssh", "127.0.0.1", "tester", "/home/tester", keyPath, addr.Port
+	if _, err := svc.UpdateBot(bot.ID, model.BotPatch{ComputerMode: &mode, SSHHost: &host, SSHUser: &user, SSHRoot: &root, SSHKeyPath: &keyField, SSHPort: &port}); err != nil {
+		t.Fatal(err)
+	}
+	uname, err := svc.TestRemoteComputer(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(uname, "Linux fake") {
+		t.Fatalf("uname = %q", uname)
+	}
+	listing, err := svc.ListComputerFiles(bot.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listing.Entries) != 2 || listing.Entries[0].Name != "notes" {
+		t.Fatalf("listing = %+v", listing)
+	}
+	preview, err := svc.ReadComputerFile(bot.ID, "/home/tester/README.md")
+	if err != nil || !strings.Contains(preview.Text, "hello remote") {
+		t.Fatalf("preview = %+v, %v", preview, err)
+	}
+	result, err := svc.RunComputerCommand(bot.ID, "printf hello")
+	if err != nil || result.Stdout != "hello" {
+		t.Fatalf("result = %+v, %v", result, err)
 	}
 }

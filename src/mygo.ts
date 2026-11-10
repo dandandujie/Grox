@@ -95,6 +95,12 @@ export interface Bot {
   modelId: string;
   approval: string;
   workingDir?: string;
+  computerMode?: string;
+  sshHost?: string;
+  sshUser?: string;
+  sshRoot?: string;
+  sshKeyPath?: string;
+  sshPort?: number;
   notifications: boolean;
   speakReplies: boolean;
   voice?: string;
@@ -120,6 +126,12 @@ export interface BotPatch {
   expression?: string;
   avatarUrl?: string;
   workingDir?: string;
+  computerMode?: string;
+  sshHost?: string;
+  sshUser?: string;
+  sshRoot?: string;
+  sshKeyPath?: string;
+  sshPort?: number;
   notifications?: boolean;
   speakReplies?: boolean;
   voice?: string;
@@ -140,10 +152,27 @@ export interface CommandResult {
   durationMs: number;
 }
 
+/** ComposioLink is an OAuth link session returned by Composio. */
+export interface ComposioLink {
+  appId: string;
+  url: string;
+  accountId: string;
+}
+
+/** ComposioTool is one live tool exposed by a Composio tool-router session. */
+export interface ComposioTool {
+  slug: string;
+  name: string;
+  description: string;
+  toolkit: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 /** Connection is one app from the marketplace. */
 export interface Connection {
   id: string;
   connected: boolean;
+  externalId?: string;
   account?: string;
   connectedAt?: string;
 }
@@ -302,6 +331,7 @@ export interface PhoneInfo {
   enabled: boolean;
   url: string;
   token: string;
+  qr?: string;
   error?: string;
   port: number;
   connected: number;
@@ -456,11 +486,15 @@ export const Grox = {
    * CaptureComputerScreen takes a PNG screenshot of the local desktop. The OS
    * may ask for screen-recording permission the first time.
    */
-  captureComputerScreen(): Promise<string> {
-    return call("Grox.CaptureComputerScreen");
+  captureComputerScreen(botID: string): Promise<string> {
+    return call("Grox.CaptureComputerScreen", botID);
   },
   clearSecret(name: string): Promise<SecretStatus> {
     return call("Grox.ClearSecret", name);
+  },
+  /** ConnectComposioApp creates a hosted OAuth link for one catalog app. */
+  connectComposioApp(appID: string): Promise<ComposioLink> {
+    return call("Grox.ConnectComposioApp", appID);
   },
   /** CreateBot adds a contact and opens its first conversation. */
   createBot(input: CreateBotInput): Promise<Bot> {
@@ -513,12 +547,24 @@ export const Grox = {
   deleteThread(botID: string, threadID: string): Promise<void> {
     return call("Grox.DeleteThread", botID, threadID);
   },
+  /** DisconnectComposioApp revokes a connected account when it has an external id. */
+  disconnectComposioApp(appID: string): Promise<void> {
+    return call("Grox.DisconnectComposioApp", appID);
+  },
   /** DuplicateBot makes a copy with fresh conversations and no unread work. */
   duplicateBot(id: string): Promise<Bot> {
     return call("Grox.DuplicateBot", id);
   },
+  /** ExecuteComposioTool runs one live Composio tool with JSON arguments. */
+  executeComposioTool(slug: string, arguments_: Record<string, unknown>): Promise<unknown> {
+    return call("Grox.ExecuteComposioTool", slug, arguments_);
+  },
   exportWorkspace(): Promise<string> {
     return call("Grox.ExportWorkspace");
+  },
+  /** ListComposioTools returns tools from a fresh tool-router session. */
+  listComposioTools(): Promise<ComposioTool[]> {
+    return call("Grox.ListComposioTools");
   },
   /** ListComputerFiles returns one folder inside the bot's local computer. */
   listComputerFiles(botID: string, path: string): Promise<FolderListing> {
@@ -562,6 +608,13 @@ export const Grox = {
   /** RefreshCatalog re-probes the local CLIs and returns a fresh bootstrap. */
   refreshCatalog(): Promise<Bootstrap> {
     return call("Grox.RefreshCatalog");
+  },
+  /**
+   * RefreshComposioConnections reconciles the local connection map with the
+   * connected accounts on Composio.
+   */
+  refreshComposioConnections(): Promise<number> {
+    return call("Grox.RefreshComposioConnections");
   },
   resetWorkspace(): Promise<void> {
     return call("Grox.ResetWorkspace");
@@ -636,6 +689,10 @@ export const Grox = {
   /** StopGroup interrupts a channel turn. */
   stopGroup(groupID: string, threadID: string): Promise<void> {
     return call("Grox.StopGroup", groupID, threadID);
+  },
+  /** TestRemoteComputer opens a real SSH connection and returns uname output. */
+  testRemoteComputer(botID: string): Promise<string> {
+    return call("Grox.TestRemoteComputer", botID);
   },
   /** UpdateBot edits the fields in the patch. */
   updateBot(botID: string, patch: BotPatch): Promise<Bot> {
