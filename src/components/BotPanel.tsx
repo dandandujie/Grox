@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Activity as ActivityIcon, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen, ImagePlus,
+  Activity as ActivityIcon, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen,
   Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -10,7 +10,7 @@ import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
 import { IconButton, Segmented, Switch } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { COLOR_NAMES, EXPRESSIONS, EXPRESSION_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
+import { generateAvatar } from "@/lib/pixel-avatar";
 import { clock, relative, sidebarTime } from "@/lib/format";
 import { getVoices } from "@/lib/speech";
 import { formatBytes } from "@/components/Attachments";
@@ -35,103 +35,23 @@ function useBotDrafts(bot: Bot) {
 }
 
 function AvatarCard({ bot }: { bot: Bot }) {
-  const { updateBot, toast } = useApp();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const shapes = [
-    { value: "cursor", label: "Mascot" },
-    { value: "blob", label: "Blob" },
-    { value: "circle", label: "Circle" },
-    { value: "rounded", label: "Rounded" },
-    { value: "square", label: "Square" },
-  ] as const;
-
-  const upload = (file: File | undefined) => {
-    if (!file) return;
-    if (file.size > 4 * 1024 * 1024) {
-      toast({ kind: "error", title: "That image is too large", body: "Use an image under 4 MB." });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      void updateBot(bot.id, { avatarUrl: String(reader.result) });
-      toast({ kind: "success", title: "Avatar updated" });
-    };
-    reader.readAsDataURL(file);
-  };
-
+  const avatar = generateAvatar(bot.name);
   return (
-    <section className="avatar-card">
+    <section className="avatar-card generated-avatar-card">
       <div className="avatar-card-head">
-        <span>Avatar</span>
-        <button
-          type="button"
-          className="link-button"
-          onClick={() => void updateBot(bot.id, { avatarUrl: "", mascotShape: "cursor", expression: "idle" })}
-        >
-          Reset mascot
-        </button>
+        <span>Portrait</span>
+        <span className="avatar-seed">seed: {avatar.seed}</span>
       </div>
-      <button type="button" className="avatar-hero" onClick={() => inputRef.current?.click()} title="Upload an image">
-        <Mascot
-          color={bot.color}
-          shape={bot.mascotShape}
-          expression={bot.expression}
-          size={116}
-          avatarUrl={bot.avatarUrl}
-          title={bot.name}
-        />
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        className="sr-only"
-        onChange={(event) => upload(event.target.files?.[0])}
-      />
-      <button type="button" className="upload-button" onClick={() => inputRef.current?.click()}>
-        <ImagePlus size={15} /> Upload image
-      </button>
-      <p className="avatar-hint">PNG, JPEG, GIF, or WebP · up to 4 MB</p>
-
-      <div className="avatar-section-label">Shape</div>
-      <Segmented
-        label="Mascot shape"
-        value={bot.mascotShape || "cursor"}
-        options={shapes.map((shape) => ({ value: shape.value, label: shape.label }))}
-        onChange={(shape) => void updateBot(bot.id, { mascotShape: shape })}
-        size="sm"
-      />
-
-      <div className="avatar-section-label">Expression</div>
-      <div className="expression-grid" role="group" aria-label="Expression">
-        {EXPRESSIONS.map((expression) => (
-          <button
-            key={expression}
-            type="button"
-            className={cn("expression-button", bot.expression === expression && "is-selected")}
-            title={EXPRESSION_NAMES[expression]}
-            aria-label={EXPRESSION_NAMES[expression]}
-            onClick={() => void updateBot(bot.id, { expression })}
-          >
-            <Mascot color={bot.color} shape={bot.mascotShape} expression={expression} size={34} avatarUrl={bot.avatarUrl} />
-          </button>
-        ))}
+      <div className="avatar-hero generated-avatar-hero">
+        <Mascot seed={bot.name} title={bot.name} size={128} />
       </div>
-
-      <div className="avatar-section-label">Color</div>
-      <div className="color-grid" role="group" aria-label="Mascot color">
-        {Object.keys(MAUS_COLORS).map((color) => (
-          <button
-            key={color}
-            type="button"
-            title={COLOR_NAMES[color]}
-            aria-label={COLOR_NAMES[color]}
-            aria-pressed={bot.color === color}
-            className={cn("color-swatch", bot.color === color && "is-selected")}
-            style={{ background: swatch(color) }}
-            onClick={() => void updateBot(bot.id, { color })}
-          />
-        ))}
+      <p className="avatar-hint">A deterministic 1-bit portrait built from layered pixel matrices. Rename the bot to change its seed and combination.</p>
+      <div className="avatar-section-label">Layer recipe</div>
+      <div className="avatar-recipe">
+        <div><span>Hair</span><strong>{avatar.hair.name}</strong></div>
+        <div><span>Eyes</span><strong>{avatar.eyes.name}</strong></div>
+        <div><span>Facial hair / mouth</span><strong>{avatar.facial.name}</strong></div>
+        <div><span>Hash</span><strong>{avatar.hash.toString(16)}</strong></div>
       </div>
     </section>
   );
@@ -502,7 +422,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
                   <span className="computer-line" />
                   <span className="computer-line short" />
                 </div>
-                <Mascot color={bot.color} shape={bot.mascotShape} expression="working" size={38} animated />
+                <Mascot seed={bot.name} size={38} />
               </div>
             </div>
           )}

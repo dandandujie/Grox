@@ -270,7 +270,7 @@ function EnginesSection() {
           onChange={(engineMode) => void patchSettings({ engineMode })}
         />
         <p className="settings-note">
-          Approval stays honest: Ask uses each CLI's read-only mode, Auto accepts edits, Full bypasses the CLI's own checks. The app itself also asks before the demo engine touches anything.
+          Approval stays honest: Ask installs a per-turn tool hook and gates every tool through a Grox card. Auto accepts edits, Full bypasses the CLI's own checks. The app itself also asks before the demo engine touches anything.
         </p>
       </SectionCard>
 
@@ -497,8 +497,7 @@ function AboutSection() {
       <p className="about-version">Version {boot.version} · {boot.platform}</p>
       <p className="about-copy">
         A local-first chat app for a team of AI agents. Each bot has a personality, a model, its own conversations,
-        and an approval boundary. Built with Go and MyGo; the interface follows the shape of OpenMausBot, the
-        open-source Grok Bot alternative.
+        an approval boundary, and a deterministic 1-bit portrait generated from its name. Built with Go and MyGo.
       </p>
       <div className="about-meta">
         <div><span>Runtime</span><span>Go · MyGo</span></div>
@@ -506,7 +505,7 @@ function AboutSection() {
         <div><span>License</span><span>Apache-2.0</span></div>
         <div><span>Data</span><span>On this machine</span></div>
       </div>
-      <p className="about-note">Not affiliated with xAI, Anthropic, OpenAI, or the OpenMausBot project. Mascot silhouette adapted from OpenMausBot under Apache-2.0.</p>
+      <p className="about-note">Grox is an independent project. Every portrait is generated locally from layered pixel matrices; no avatar image is uploaded or fetched.</p>
     </div>
   );
 }

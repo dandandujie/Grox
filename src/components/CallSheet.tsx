@@ -145,7 +145,7 @@ export function CallSheet() {
           <span className="call-mode">{activeGroup ? "Channel call" : "Agent call"}</span>
         </div>
         <div className={cn("call-avatar", listening && !ui.callMuted && "is-listening")}>
-          <Mascot color={bot.color} shape={bot.mascotShape} expression={listening ? "happy" : "idle"} size={94} avatarUrl={bot.avatarUrl} title={bot.name} />
+          <Mascot seed={bot.name} size={94} title={bot.name} />
         </div>
         <h2>{name}</h2>
         <p className="call-status">

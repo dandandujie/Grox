@@ -221,7 +221,7 @@ export function Sidebar() {
                   setUI({ sidebarSearch: "" });
                 }}
               >
-                <Mascot color={bot.color} shape={bot.mascotShape} expression={bot.expression} size={28} />
+                <Mascot seed={bot.name} size={28} />
                 <span className="search-result-body">
                   <span className="search-result-title"><Highlight text={bot.name} query={query} /></span>
                   <span className="search-result-sub">{bot.title || "Bot"}</span>
@@ -240,7 +240,7 @@ export function Sidebar() {
                   setUI({ sidebarSearch: "" });
                 }}
               >
-                <Mascot color={result.bot.color} shape={result.bot.mascotShape} expression={result.bot.expression} size={24} />
+                <Mascot seed={result.bot.name} size={24} />
                 <span className="search-result-body">
                   <span className="search-result-title">
                     {result.bot.name} <span className="search-result-thread">· {result.thread.title}</span>
@@ -266,7 +266,6 @@ export function Sidebar() {
                 {state.groups.map((group) => {
                   const thread = latestGroupThreadOf(group);
                   const selected = activeGroup?.id === group.id && ui.view === "chat";
-                  const members = group.memberIds.map((id) => state.bots.find((bot) => bot.id === id)).filter((bot): bot is Bot => Boolean(bot));
                   return (
                     <button
                       type="button"
@@ -274,11 +273,8 @@ export function Sidebar() {
                       className={cn("bot-row group-row", selected && "is-selected", group.unread > 0 && "has-unread")}
                       onClick={() => selectGroup(group.id)}
                     >
-                      <span className="group-avatar-stack" aria-hidden="true">
-                        {members.slice(0, 3).map((member) => (
-                          <Mascot key={member.id} color={member.color} shape={member.mascotShape} expression={member.expression} size={22} title={member.name} />
-                        ))}
-                        {members.length === 0 && <span className="group-empty-avatar">#</span>}
+                      <span className="group-avatar-single" aria-hidden="true">
+                        <Mascot seed={group.name} size={38} />
                       </span>
                       <span className="bot-row-body">
                         <span className="bot-row-top">

@@ -26,9 +26,7 @@ function EmptyConversation() {
     return (
       <div className="empty-conversation">
         <div className="group-empty-avatars">
-          {members.slice(0, 3).map((member) => (
-            <Mascot key={member.id} color={member.color} shape={member.mascotShape} expression={member.expression} size={54} title={member.name} />
-          ))}
+          <Mascot seed={activeGroup.name} size={76} />
         </div>
         <h2># {activeGroup.name}</h2>
         <p>{activeGroup.description || "A shared room for the team. Mention a bot with @Name, or ask the lead."}</p>
@@ -254,7 +252,7 @@ export function ChatView() {
     return (
       <section className="chat-view empty-workspace">
         <div className="empty-conversation">
-          <Mascot color="green" size={76} />
+          <Mascot seed="Grox" size={76} />
           <h2>No bots yet</h2>
           <p>Create your first bot and give it a job. It will get its own conversations and model.</p>
           <button type="button" className="btn btn-primary" onClick={() => setUI({ newBotOpen: true })}>
@@ -270,11 +268,7 @@ export function ChatView() {
       <header className="chat-head drag-region">
         <div className="chat-head-left no-drag">
           {activeGroup ? (
-            <span className="chat-group-avatar">
-              {groupMembers.slice(0, 3).map((member) => (
-                <Mascot key={member.id} color={member.color} shape={member.mascotShape} expression={member.expression} size={24} title={member.name} />
-              ))}
-            </span>
+            <Mascot seed={activeGroup.name} size={28} />
           ) : activeBot ? (
             <Mascot
               color={activeBot.color}

@@ -41,7 +41,7 @@ shape local and inspectable:
 - **Bring your own agent.** Use the CLIs already installed and signed in on your machine.
 - **Pick a brain per bot.** Grok, Claude, GPT, Gemini, or a local demo/model; switch mid-conversation.
 - **Ask before acting.** Approval modes per bot; the demo engine shows real approval cards, and every
-  real CLI is started with its own read-only / edits / bypass policy.
+  real CLI is started with its own per-turn tool gate in Ask mode, and its edits / bypass policy in Auto or Full.
 - **Every bot has a memory.** Conversations, tasks, and routine runs are separate threads owned by a bot.
 - **A room for the team.** Channels have members, a lead, @mentions, and their own transcript. The lead
   answers by default; mention @Omiii and the turn is routed there.
@@ -59,6 +59,17 @@ shape local and inspectable:
   browsing and a terminal go over SSH; the private key never leaves this Mac.
 - **Local first.** A Go process owns the workspace. The frontend is a web page in the system webview.
 
+## Portraits
+
+Every bot gets a deterministic 1-bit portrait generated from its name: a 32 x 32 stack of base, hair,
+eyes and facial-hair layers, rendered with only #000000 and #FFFFFF inside a circular white mask. The
+same portrait follows the bot into the sidebar, chat header, profile, call sheet and channel roster.
+
+![Generated portrait gallery](docs/screenshots/avatars.png)
+
+Read [the portrait system](docs/AVATARS.md) for the layer dictionaries, seed hash and renderer contract, or
+open ?avatars=1 in the browser preview to inspect the layer recipes.
+
 ## Screenshots
 
 | Chat and approvals | Agent profile |
@@ -69,9 +80,9 @@ shape local and inspectable:
 | --- | --- |
 | ![Models](docs/screenshots/model.png) | ![Approval](docs/screenshots/approval.png) |
 
-| A question card | Tasks & routines |
-| --- | --- |
-| ![Options](docs/screenshots/options.png) | ![Routines](docs/screenshots/routines.png) |
+| Tasks & routines |
+| --- |
+| ![Routines](docs/screenshots/routines.png) |
 
 | Connected apps | Settings |
 | --- | --- |
@@ -85,13 +96,13 @@ shape local and inspectable:
 | --- | --- |
 | ![New bot](docs/screenshots/newbot.png) | ![New channel](docs/screenshots/channel.png) |
 
-| Voice call |
-| --- |
-| ![Voice call](docs/screenshots/voice.png) |
-
 | Remote SSH computer |
 | --- |
 | ![Remote SSH computer](docs/screenshots/remote-computer.png) |
+
+| Voice call |
+| --- |
+| ![Voice call](docs/screenshots/voice.png) |
 
 | Channels | Phone companion |
 | --- | --- |
@@ -139,6 +150,10 @@ The table below is intentionally blunt.
 > and labelled rather than mocked.
 > This repository is an independent project; it is not affiliated with xAI, Anthropic, OpenAI, Google,
 > Manus, Meta, or the OpenMausBot project.
+
+See the [OpenMausBot feature port ledger](docs/PARITY.md) for the exact ported / partial / hosted-only
+boundary. The ledger is deliberately explicit: a local binary cannot truthfully port a hosted cloud
+computer, relay, billing service or organization admin by itself.
 
 ## How it works
 
@@ -335,10 +350,10 @@ src/mock/bootstrap.json. Regenerate the fixture after changing the seed:
 
 ## Attribution
 
-The bot mascot silhouette is adapted from the Maus mascot body set in
-[OpenMausBot](https://github.com/milind-soni/OpenMausBot) (shared/mascot-bodies.ts, Apache-2.0). The
-information architecture and interaction vocabulary — roster, model pill, inline approval/question cards,
-agent profile, routine calendar — are inspired by the same project. See [NOTICE](NOTICE).
+The information architecture and interaction vocabulary — roster, model pill, inline approval cards,
+agent profile, routine calendar — are inspired by [OpenMausBot](https://github.com/milind-soni/OpenMausBot).
+The 1-bit portraits, layered pixel matrices and deterministic seed system are original to Grox. See
+[NOTICE](NOTICE).
 
 This project is **not** affiliated with xAI, Anthropic, OpenAI, Google, Meta, Manus, or OpenMausBot.
 

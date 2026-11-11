@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+Every bot now has an original deterministic 1-bit portrait.
+
+- 32 x 32 layered portrait system with a symmetric base, five hair styles, four eye styles and four
+  facial-hair/mouth styles.
+- FNV-1a seed from the bot name; the same name always produces the same combination, across reloads.
+- Pure #000000/#FFFFFF SVG output, rasterized circular mask, `shape-rendering="crispEdges"`, and a
+  deterministic 80-combination space.
+- All bot surfaces use the new portraits: sidebar, chat header, message labels, profile, call sheet,
+  groups and channel member lists. Group headers use one group portrait instead of a stack of faces.
+- Profile avatar upload/shape/expression/colour controls were removed; the portrait is intentionally
+  generated, not user-uploaded. `?avatars=1` opens a 24-seed layer gallery.
+- Renamed remaining UI copy and assets to Grox; removed the retired cursor mascot asset.
+- New portrait documentation and refreshed screenshots.
+
 ## 0.5.0
 
 All four CLI engines now get tool-level approvals and connected-app tools.

@@ -285,7 +285,7 @@ export function RoutinesPage() {
             <div className={cn("calendar-grid", "is-" + view)}>
               {routines.length === 0 ? (
                 <div className="calendar-empty">
-                  <Mascot color="green" size={60} expression="curious" />
+                  <Mascot seed="Grox" size={60} />
                   <h3>Put your team on a rhythm</h3>
                   <p>Plan research briefs, daily check-ins, recurring reviews, or one-time work. Every run becomes a separate task with its own result.</p>
                   <button type="button" className="btn btn-primary" onClick={() => setUI({ newRoutineOpen: true, editingRoutineId: null })}><Plus size={15} /> Create your first routine</button>

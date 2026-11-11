@@ -2,15 +2,13 @@ import { useEffect, useState } from "react";
 import { Plus, Sparkles } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
-import { Modal, Segmented } from "@/components/ui";
-import { cn } from "@/lib/cn";
-import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
+import { Modal } from "@/components/ui";
 
 const PRESETS = [
-  { title: "Research", description: "Market maps, diligence, and clean sources.", soul: "You are a research analyst. Lead with the finding, keep sources close, and say when the data is weak.", color: "coral" },
-  { title: "Inbox chief", description: "Drafts in your voice. Never sends without you.", soul: "You are an inbox chief. Triage by what needs a human decision, draft replies that sound like the person you work for, and never send or delete without approval.", color: "teal" },
-  { title: "Code review", description: "Reads the diff before it types.", soul: "You are a senior engineer who reviews code. Be direct, rank findings by risk, and separate correctness from style.", color: "green" },
-  { title: "Operations", description: "Turns plans into owners and dates.", soul: "You are an operations lead. When asked to prioritize, force a tradeoff, name an owner, and end with a single next action.", color: "blue" },
+  { title: "Research", description: "Market maps, diligence, and clean sources.", soul: "You are a research analyst. Lead with the finding, keep sources close, and say when the data is weak." },
+  { title: "Inbox chief", description: "Drafts in your voice. Never sends without you.", soul: "You are an inbox chief. Triage by what needs a human decision, draft replies that sound like the person you work for, and never send or delete without approval." },
+  { title: "Code review", description: "Reads the diff before it types.", soul: "You are a senior engineer who reviews code. Be direct, rank findings by risk, and separate correctness from style." },
+  { title: "Operations", description: "Turns plans into owners and dates.", soul: "You are an operations lead. When asked to prioritize, force a tradeoff, name an owner, and end with a single next action." },
 ];
 
 export function NewBotDialog() {
@@ -19,7 +17,6 @@ export function NewBotDialog() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [soul, setSoul] = useState("");
-  const [color, setColor] = useState("green");
   const [modelId, setModelId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,7 +30,6 @@ export function NewBotDialog() {
     setTitle("");
     setDescription("");
     setSoul("");
-    setColor("green");
     setModelId(fallbackModel?.model.id ?? "grox-demo");
     setBusy(false);
     setError("");
@@ -43,7 +39,6 @@ export function NewBotDialog() {
     setTitle(preset.title);
     setDescription(preset.description);
     setSoul(preset.soul);
-    setColor(preset.color);
     if (!name) setName(preset.title.split(" ")[0] ?? "");
   };
 
@@ -54,7 +49,7 @@ export function NewBotDialog() {
       return;
     }
     setBusy(true);
-    const bot = await createBot({ name: name.trim(), title: title.trim(), description: description.trim(), soul: soul.trim(), color, modelId });
+    const bot = await createBot({ name: name.trim(), title: title.trim(), description: description.trim(), soul: soul.trim(), color: "green", modelId });
     setBusy(false);
     if (bot) setUI({ newBotOpen: false });
   };
@@ -63,21 +58,8 @@ export function NewBotDialog() {
     <Modal open={ui.newBotOpen} onClose={() => setUI({ newBotOpen: false })} title="New bot" width={600} className="new-bot-modal">
       <form className="new-bot" onSubmit={submit}>
         <div className="new-bot-hero">
-          <Mascot color={color} shape="cursor" expression="curious" size={78} />
-          <div className="color-grid compact" role="group" aria-label="Bot color">
-            {Object.keys(MAUS_COLORS).slice(0, 10).map((value) => (
-              <button
-                key={value}
-                type="button"
-                title={COLOR_NAMES[value]}
-                aria-label={COLOR_NAMES[value]}
-                aria-pressed={color === value}
-                className={cn("color-swatch", color === value && "is-selected")}
-                style={{ background: swatch(value) }}
-                onClick={() => setColor(value)}
-              />
-            ))}
-          </div>
+          <Mascot seed={name || "New bot"} size={78} />
+          <p className="new-bot-avatar-note">The portrait is generated from the name. Rename the bot later to change its seed.</p>
         </div>
 
         <div className="preset-row">

@@ -1,5 +1,5 @@
 /* Grox — a local-first chat app for a team of AI agents.
-   The palette and proportions follow the Midnight skin of OpenMausBot. */
+   Grox Midnight palette and proportions. */
 
 :root {
   color-scheme: dark;
@@ -626,13 +626,8 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: va
 .context-menu button.danger { color: var(--danger); }
 .context-separator { height: 1px; background: var(--edge); margin: 4px 2px; }
 
-/* ── Mascot ───────────────────────────────────────────────────────────── */
+/* ── Portraits ────────────────────────────────────────────────────────── */
 .mascot { display: block; overflow: visible; }
-.mascot-image { display: inline-block; overflow: hidden; background: var(--raised); }
-.mascot-image img { width: 100%; height: 100%; object-fit: cover; }
-.mascot-face { transform-origin: 50% 50%; }
-.mascot:not(.mascot-still) .mascot-face { animation: mascot-breathe 7s ease-in-out infinite; }
-.mascot-eye { transform-box: fill-box; transform-origin: center; }
 
 /* ── Chat shell ───────────────────────────────────────────────────────── */
 .chat-view { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; background: var(--app); }
@@ -1236,7 +1231,6 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: va
 @keyframes orb { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 40%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 @keyframes ellipsis { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
 @keyframes soft-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
-@keyframes mascot-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
 @keyframes float-soft { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 
 [data-motion="reduced"] *,
@@ -1678,3 +1672,40 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: va
 .remote-save { width: 100%; justify-content: center; margin-top: 6px; }
 
 .phone-qr { display: block; width: 168px; height: 168px; margin: 8px auto 12px; border-radius: 10px; background: #fff; padding: 6px; }
+
+/* ── Generated 1-bit portraits ──────────────────────────────────────── */
+.pixel-avatar { display: block; flex: 0 0 auto; box-sizing: border-box; border: 1px solid #000; border-radius: 50%; }
+.generated-avatar-card .avatar-hero { background: var(--inset); display: flex; align-items: center; justify-content: center; }
+.avatar-seed { color: var(--ink-3); font-size: 10px; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 400; }
+.avatar-recipe { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.avatar-recipe > div { display: flex; flex-direction: column; gap: 1px; padding: 6px 7px; border: 1px solid var(--edge); border-radius: 7px; background: var(--inset); }
+.avatar-recipe span { color: var(--ink-3); font-size: 9.5px; }
+.avatar-recipe strong { color: var(--ink-2); font-size: 10.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-bot-avatar-note { flex: 1; margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.45; max-width: 320px; }
+.avatar-gallery {
+  position: fixed; inset: 0; z-index: 300; overflow-y: auto;
+  padding: 34px clamp(18px, 4vw, 54px) 44px; background: var(--app); color: var(--ink);
+}
+.avatar-gallery-head { max-width: 1160px; margin: 0 auto 22px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.avatar-gallery-head h2 { margin: 0 0 5px; font-size: 24px; letter-spacing: -0.03em; }
+.avatar-gallery-head p { margin: 0; color: var(--ink-3); font-size: 12px; }
+.avatar-gallery-grid {
+  max-width: 1160px; margin: 0 auto; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;
+}
+.avatar-gallery-card {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 16px 10px 12px; border: 1px solid var(--edge); border-radius: 14px; background: var(--panel);
+}
+.avatar-gallery-card .pixel-avatar { margin-bottom: 4px; }
+.avatar-gallery-name { margin-top: 2px; font-size: 13px; font-weight: 600; }
+.avatar-gallery-layer { color: var(--ink-3); font-size: 10px; text-align: center; }
+.avatar-gallery-foot { max-width: 1160px; margin: 22px auto 0; color: var(--ink-3); font-size: 10.5px; }
+@media (max-width: 640px) {
+  .avatar-gallery { padding: 20px 14px 30px; }
+  .avatar-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .avatar-recipe { grid-template-columns: 1fr; }
+}
+
+.group-avatar-single { flex: 0 0 42px; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; }
+.group-avatar-single .mascot { display: block; }

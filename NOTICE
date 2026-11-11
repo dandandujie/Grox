@@ -5,16 +5,15 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 ## OpenMausBot attribution
 
-Grox's bot mascot silhouette is adapted from the Maus mascot body set in OpenMausBot
-(shared/mascot-bodies.ts), and the information architecture and interaction vocabulary of the app are
-inspired by OpenMausBot.
+The information architecture and interaction vocabulary of the app are inspired by OpenMausBot.
+Grox's 1-bit portrait system is original and is not derived from the OpenMausBot mascot assets.
 
     OpenMausBot
     Copyright Milind Soni and OpenMausBot contributors
     https://github.com/milind-soni/OpenMausBot
     Licensed under the Apache License, Version 2.0
 
-The adapted SVG path remains under the Apache License, Version 2.0. The full license text is in LICENSE.
+The full license text is in LICENSE.
 Grox is an independent project and is not affiliated with, endorsed by, or sponsored by OpenMausBot or its
 maintainers.
 

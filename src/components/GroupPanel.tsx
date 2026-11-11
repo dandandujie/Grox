@@ -72,9 +72,7 @@ export function GroupPanel() {
             <span className="group-identity-name"># {activeGroup.name}</span>
           </div>
           <div className="group-avatar-row">
-            {members.slice(0, 4).map((member) => (
-              <Mascot key={member.id} color={member.color} shape={member.mascotShape} expression={member.expression} size={40} title={member.name} />
-            ))}
+            <Mascot seed={activeGroup.name} title={activeGroup.name} size={58} />
           </div>
           <div className="group-stats">
             <span><Users size={13} /> {members.length} bots</span>
@@ -117,7 +115,7 @@ export function GroupPanel() {
               return (
                 <div key={bot.id} className={cn("group-member-row", checked && "is-checked")}>
                   <button type="button" className="group-member-main" onClick={() => toggle(bot.id)} aria-pressed={checked}>
-                    <Mascot color={bot.color} shape={bot.mascotShape} expression={bot.expression} size={28} />
+                    <Mascot seed={bot.name} size={28} />
                     <span>{bot.name}</span>
                     <span className="group-member-check">{checked ? "✓" : ""}</span>
                   </button>

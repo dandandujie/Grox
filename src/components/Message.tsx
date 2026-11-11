@@ -213,7 +213,7 @@ export function MessageItem({ message, bot, showSender, onDecide, onAnswer }: {
 function SenderLabel({ bot, name }: { bot: Bot; name: string }) {
   return (
     <div className="message-sender">
-      <Mascot color={bot.color} shape={bot.mascotShape} expression={bot.expression} size={18} avatarUrl={bot.avatarUrl} title={name} />
+      <Mascot seed={name} size={22} title={name} />
       <span>{name}</span>
     </div>
   );

@@ -39,7 +39,7 @@ export function CommandPalette() {
         id: "bot-" + bot.id,
         label: bot.name,
         sub: bot.title || "Bot",
-        icon: <Mascot color={bot.color} shape={bot.mascotShape} expression={bot.expression} size={22} avatarUrl={bot.avatarUrl} />,
+        icon: <Mascot seed={bot.name} size={22} />,
         section: "Bots",
         run: () => { selectBot(bot.id); setUI({ paletteOpen: false }); },
       }));

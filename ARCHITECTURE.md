@@ -407,5 +407,5 @@ cannot open approval cards or the Computer panel. Stop the server from Settings,
 
 ## 15. Attribution
 
-The mascot silhouette and the broad interaction vocabulary come from OpenMausBot (Apache-2.0). See NOTICE
-and LICENSE.
+The broad interaction vocabulary is inspired by OpenMausBot (Apache-2.0). The 1-bit portrait system is
+original to Grox. See NOTICE and LICENSE.

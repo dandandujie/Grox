@@ -107,7 +107,7 @@ export function NewChannelDialog() {
             return (
               <div key={bot.id} className={cn("channel-member", checked && "is-checked")}>
                 <button type="button" className="channel-member-toggle" onClick={() => toggleMember(bot.id)} aria-pressed={checked}>
-                  <Mascot color={bot.color} shape={bot.mascotShape} expression={bot.expression} size={30} avatarUrl={bot.avatarUrl} />
+                  <Mascot seed={bot.name} size={30} />
                   <span className="channel-member-copy">
                     <span className="channel-member-name">{bot.name}</span>
                     <span className="channel-member-title">{bot.title || "Bot"}</span>

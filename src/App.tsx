@@ -10,6 +10,7 @@ import { NewBotDialog } from "@/components/NewBotDialog";
 import { NewChannelDialog } from "@/components/NewChannelDialog";
 import { GroupPanel } from "@/components/GroupPanel";
 import { CallSheet } from "@/components/CallSheet";
+import { AvatarGallery } from "@/components/AvatarGallery";
 import { RoutinesPage } from "@/components/RoutinesPage";
 import { AppsPage } from "@/components/AppsPage";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -22,6 +23,7 @@ function Shell() {
   const {
     state, ui, setUI, activeBot, activeGroup, selectBot, newTask,
   } = useApp();
+  const showAvatars = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("avatars") === "1";
 
   useEffect(() => {
     const theme = state.settings.theme || "midnight";
@@ -118,6 +120,7 @@ function Shell() {
       <ConfirmDialog />
       <ShortcutsModal />
       <CallSheet />
+      {showAvatars && <AvatarGallery />}
       <Toasts />
     </div>
   );
@@ -127,7 +130,7 @@ function Loading() {
   return (
     <div className="boot-screen">
       <div className="boot-mark">
-        <Mascot color="green" expression="curious" size={82} animated />
+        <Mascot seed="Grox" size={82} />
       </div>
       <GroxLogo size={30} />
       <h1>Grox</h1>
@@ -140,7 +143,7 @@ function Loading() {
 function BootError({ message, retry }: { message: string; retry: () => void }) {
   return (
     <div className="boot-screen">
-      <Mascot color="red" expression="suspicious" size={74} />
+      <Mascot seed="Grox error" size={74} />
       <h1>Grox could not open</h1>
       <p className="boot-error">{message}</p>
       <button type="button" className="btn btn-secondary" onClick={retry}><RefreshCw size={14} /> Try again</button>
