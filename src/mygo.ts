@@ -34,6 +34,7 @@ export interface AppState {
   bots: Bot[];
   groups: Group[];
   routines: Routine[];
+  presets: Preset[];
   webhooks: Webhook[];
   runs: Run[];
   connections: Record<string, Connection>;
@@ -412,6 +413,39 @@ export interface PhoneInfo {
   connected: number;
 }
 
+/**
+ * Preset is a reusable New bot starting point. It carries persona text, never
+ * a model, approval level, folder or credential.
+ */
+export interface Preset {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  soul: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** PresetInput is the Save as preset form. */
+export interface PresetInput {
+  name: string;
+  title: string;
+  description: string;
+  soul: string;
+  color: string;
+}
+
+/** PresetPatch edits only the fields it sets. */
+export interface PresetPatch {
+  name?: string;
+  title?: string;
+  description?: string;
+  soul?: string;
+  color?: string;
+}
+
 /** Provider groups models by the engine that serves them. */
 export interface Provider {
   id: string;
@@ -651,6 +685,13 @@ export const Grox = {
   createMCPServer(input: MCPServerInput): Promise<MCPServer> {
     return call("Grox.CreateMCPServer", input);
   },
+  /**
+   * CreatePreset saves a persona-only starting point. It deliberately ignores
+   * model, approval, folders and credentials.
+   */
+  createPreset(input: PresetInput): Promise<Preset> {
+    return call("Grox.CreatePreset", input);
+  },
   /** CreateRoutine adds a scheduled task. */
   createRoutine(input: RoutineInput): Promise<Routine> {
     return call("Grox.CreateRoutine", input);
@@ -685,6 +726,9 @@ export const Grox = {
   },
   deleteMCPServer(id: string): Promise<void> {
     return call("Grox.DeleteMCPServer", id);
+  },
+  deletePreset(id: string): Promise<void> {
+    return call("Grox.DeletePreset", id);
   },
   /**
    * DeleteRoutine removes a schedule. Runs that already happened stay in the
@@ -751,6 +795,10 @@ export const Grox = {
   /** ListMCPServers returns user-managed remote MCP servers without token values. */
   listMCPServers(): Promise<MCPServer[]> {
     return call("Grox.ListMCPServers");
+  },
+  /** ListPresets returns the New bot starting points. */
+  listPresets(): Promise<Preset[]> {
+    return call("Grox.ListPresets");
   },
   /**
    * ListSkills discovers SKILL.md files visible to a bot and returns their
@@ -916,6 +964,9 @@ export const Grox = {
   },
   updateMCPServer(id: string, patch: MCPServerPatch): Promise<MCPServer> {
     return call("Grox.UpdateMCPServer", id, patch);
+  },
+  updatePreset(id: string, patch: PresetPatch): Promise<Preset> {
+    return call("Grox.UpdatePreset", id, patch);
   },
   /** UpdateRoutine edits a routine and recomputes its next run. */
   updateRoutine(id: string, patch: RoutinePatch): Promise<Routine> {

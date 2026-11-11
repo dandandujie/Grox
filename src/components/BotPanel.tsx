@@ -58,7 +58,7 @@ function AvatarCard({ bot }: { bot: Bot }) {
 }
 
 function ProfileTab({ bot }: { bot: Bot }) {
-  const { updateBot, providers, setUI, apps, deleteBot, state, runRoutine } = useApp();
+  const { updateBot, providers, setUI, apps, deleteBot, state, runRoutine, backend, toast } = useApp();
   const drafts = useBotDrafts(bot);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   useEffect(() => {
@@ -88,9 +88,25 @@ function ProfileTab({ bot }: { bot: Bot }) {
     }
   };
 
+  const savePreset = async () => {
+    try {
+      const preset = await backend.createPreset({
+        name: bot.name, title: bot.title, description: bot.description, soul: bot.soul, color: bot.color,
+      });
+      toast({ kind: "success", title: "Preset saved", body: preset.name + " now appears in New bot." });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not save the preset", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
   return (
     <div className="panel-body">
       <AvatarCard bot={bot} />
+      <section className="panel-card">
+        <div className="panel-card-title"><span>New bot preset</span><span className="avatar-seed">persona only</span></div>
+        <p className="panel-note">Save this bot's role, description and instructions as a starting point. Model, folder, approval and credentials are not copied.</p>
+        <button type="button" className="btn btn-secondary" onClick={() => void savePreset()}>Save as preset</button>
+      </section>
 
       <section className="panel-card">
         <label className="panel-field">

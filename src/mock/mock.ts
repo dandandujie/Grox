@@ -1,8 +1,8 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, Settings, Skill, TeamImportResult, Thread,
-  Webhook, WebhookInfo, WebhookInput, WebhookPatch,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, Preset, PresetInput, PresetPatch, Settings, Skill,
+  TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
 
@@ -631,6 +631,34 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
 
   async importTeam(_raw: string): Promise<TeamImportResult> {
     throw new Error("Team packages are imported by the desktop app.");
+  }
+
+  async listPresets(): Promise<Preset[]> {
+    return clone(this.state.presets ?? []);
+  }
+
+  async createPreset(input: PresetInput): Promise<Preset> {
+    const now = nowISO();
+    const preset: Preset = {
+      id: uid("preset"), name: input.name, title: input.title, description: input.description,
+      soul: input.soul, color: input.color, createdAt: now, updatedAt: now,
+    };
+    this.state.presets = [...(this.state.presets ?? []), preset];
+    this.emitState();
+    return clone(preset);
+  }
+
+  async updatePreset(id: string, patch: PresetPatch): Promise<Preset> {
+    const preset = (this.state.presets ?? []).find((item) => item.id === id);
+    if (!preset) throw new Error("Preset not found");
+    Object.assign(preset, patch, { updatedAt: nowISO() });
+    this.emitState();
+    return clone(preset);
+  }
+
+  async deletePreset(id: string): Promise<void> {
+    this.state.presets = (this.state.presets ?? []).filter((item) => item.id !== id);
+    this.emitState();
   }
 
   async listMCPServers(): Promise<MCPServer[]> {

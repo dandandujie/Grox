@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.12.0"
+	AppVersion = "0.13.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -37,6 +37,7 @@ type AppState struct {
 	Bots           []Bot                 `json:"bots"`
 	Groups         []Group               `json:"groups"`
 	Routines       []Routine             `json:"routines"`
+	Presets        []Preset              `json:"presets"`
 	Webhooks       []Webhook             `json:"webhooks"`
 	Runs           []Run                 `json:"runs"`
 	Connections    map[string]Connection `json:"connections"`
@@ -166,6 +167,37 @@ type WebhookPatch struct {
 	Name    *string `json:"name,omitempty"`
 	Prompt  *string `json:"prompt,omitempty"`
 	Enabled *bool   `json:"enabled,omitempty"`
+}
+
+// Preset is a reusable New bot starting point. It carries persona text, never
+// a model, approval level, folder or credential.
+type Preset struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Soul        string    `json:"soul"`
+	Color       string    `json:"color"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// PresetInput is the Save as preset form.
+type PresetInput struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Soul        string `json:"soul"`
+	Color       string `json:"color"`
+}
+
+// PresetPatch edits only the fields it sets.
+type PresetPatch struct {
+	Name        *string `json:"name,omitempty"`
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Soul        *string `json:"soul,omitempty"`
+	Color       *string `json:"color,omitempty"`
 }
 
 // TeamPackage is a portable channel/team export. It carries persona text,

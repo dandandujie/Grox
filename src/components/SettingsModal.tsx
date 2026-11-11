@@ -63,7 +63,7 @@ function SectionCard({ title, hint, children, action }: { title: string; hint?: 
 }
 
 function GeneralSection() {
-  const { state, patchSettings } = useApp();
+  const { state, patchSettings, backend, toast, requestConfirm } = useApp();
   const settings = state.settings;
   return (
     <>
@@ -86,6 +86,38 @@ function GeneralSection() {
         </div>
       </SectionCard>
 
+      <SectionCard title="New bot presets" hint="Persona-only starting points. Model, folder, approval and credentials are never copied.">
+        {(state.presets ?? []).length === 0 ? (
+          <p className="panel-note">No presets. Open a bot profile and choose Save as preset.</p>
+        ) : (
+          <div className="preset-manage-list">
+            {(state.presets ?? []).map((preset) => (
+              <div key={preset.id} className="preset-manage-row">
+                <span className="mcp-icon"><Sparkles size={14} /></span>
+                <div className="mcp-copy"><strong>{preset.name}</strong><span>{preset.title || "No role"}</span></div>
+                <button
+                  type="button"
+                  className="link-button is-danger"
+                  onClick={() => requestConfirm({
+                    title: "Delete preset?",
+                    body: "New bot will no longer offer " + preset.name + ". Existing bots are not changed.",
+                    confirmLabel: "Delete",
+                    danger: true,
+                    onConfirm: () => {
+                      void backend.deletePreset(preset.id).catch((cause: unknown) => {
+                        toast({ kind: "error", title: "Preset not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+                      });
+                    },
+                  })}
+                >
+                  <Trash2 size={12} /> Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
       <SectionCard title="Interface" hint="Grox starts with the whole surface visible. Advanced mode adds engine and routing detail.">
         <div className="switch-row">
           <span className="row-copy">
@@ -98,7 +130,7 @@ function GeneralSection() {
         <div className="switch-row">
           <span className="row-copy">
             <span className="row-title">Reduce motion</span>
-            <span className="row-sub">Stop the message arrival and mascot animations.</span>
+            <span className="row-sub">Stop message arrival and interface animations.</span>
           </span>
           <Switch checked={settings.reduceMotion} label="Reduce motion" onChange={(reduceMotion) => void patchSettings({ reduceMotion })} />
         </div>

@@ -182,6 +182,9 @@ func (s *Store) Normalize() {
 	if st.MCPServers == nil {
 		st.MCPServers = []model.MCPServer{}
 	}
+	if st.Presets == nil {
+		st.Presets = DefaultPresets(time.Now())
+	}
 	for appID, app := range appCatalogMap() {
 		c, ok := st.Connections[appID]
 		if !ok {

@@ -1171,3 +1171,30 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 		t.Fatal("token should be removed with the server")
 	}
 }
+
+func TestPresetsCreateFromBotAndDelete(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	presets := svc.ListPresets()
+	if len(presets) == 0 {
+		t.Fatal("seed presets are missing")
+	}
+	created, err := svc.CreatePreset(model.PresetInput{
+		Name: "Research", Title: "Research analyst", Description: "Maps and sources.",
+		Soul: "Lead with the finding.", Color: "green",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "Research 2" {
+		t.Fatalf("duplicate preset name = %q", created.Name)
+	}
+	if len(svc.ListPresets()) != len(presets)+1 {
+		t.Fatal("preset was not appended")
+	}
+	if err := svc.DeletePreset(created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.ListPresets()) != len(presets) {
+		t.Fatal("preset was not deleted")
+	}
+}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"time"
 
 	"github.com/dandandujie/grox/internal/catalog"
@@ -10,6 +11,26 @@ import (
 
 // Seed builds the first-run workspace: a small, opinionated team that makes
 // the app useful before anyone connects a key.
+
+// DefaultPresets are the first-run starting points offered by New bot.
+func DefaultPresets(now time.Time) []model.Preset {
+	values := []struct{ name, title, description, soul string }{
+		{"Research", "Research analyst", "Market maps, diligence, and clean sources.", "You are a research analyst. Lead with the finding, keep sources close, and say when the data is weak."},
+		{"Inbox chief", "Inbox chief", "Drafts in your voice. Never sends without you.", "You are an inbox chief. Triage by what needs a human decision, draft replies that sound like the person you work for, and never send or delete without approval."},
+		{"Code review", "Code reviewer", "Reads the diff before it types.", "You are a senior engineer who reviews code. Be direct, rank findings by risk, and separate correctness from style."},
+		{"Operations", "Operations lead", "Turns plans into owners and dates.", "You are an operations lead. When asked to prioritize, force a tradeoff, name an owner, and end with a single next action."},
+	}
+	out := make([]model.Preset, 0, len(values))
+	for index, value := range values {
+		out = append(out, model.Preset{
+			ID: "preset-" + strings.ToLower(strings.ReplaceAll(value.name, " ", "-")), Name: value.name, Title: value.title,
+			Description: value.description, Soul: value.soul, Color: "green", CreatedAt: now, UpdatedAt: now,
+		})
+		_ = index
+	}
+	return out
+}
+
 func Seed(now time.Time) model.AppState {
 	brodyThread := model.Thread{
 		ID: "thread-brody-home", BotID: "bot-brody", Title: "The AI market map", Kind: "chat",
@@ -199,7 +220,7 @@ There are 41 newsletters and 12 notifications I can archive.`,
 	}
 
 	state := model.AppState{
-		Version: 1, Bots: bots, Connections: map[string]model.Connection{}, Webhooks: []model.Webhook{}, MCPServers: []model.MCPServer{},
+		Version: 1, Bots: bots, Connections: map[string]model.Connection{}, Webhooks: []model.Webhook{}, MCPServers: []model.MCPServer{}, Presets: DefaultPresets(now),
 		Groups: []model.Group{{
 			ID: "group-launch", Name: "Launch room", Description: "Brody, Omiii and Emaily keep the launch moving.", Color: "purple",
 			MemberIDs: []string{"bot-brody", "bot-omiii", "bot-emaily"}, LeadID: "bot-brody", Unread: 1,

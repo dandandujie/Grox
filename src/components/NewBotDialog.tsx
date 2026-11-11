@@ -3,16 +3,10 @@ import { Plus, Sparkles } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
 import { Modal } from "@/components/ui";
-
-const PRESETS = [
-  { title: "Research", description: "Market maps, diligence, and clean sources.", soul: "You are a research analyst. Lead with the finding, keep sources close, and say when the data is weak." },
-  { title: "Inbox chief", description: "Drafts in your voice. Never sends without you.", soul: "You are an inbox chief. Triage by what needs a human decision, draft replies that sound like the person you work for, and never send or delete without approval." },
-  { title: "Code review", description: "Reads the diff before it types.", soul: "You are a senior engineer who reviews code. Be direct, rank findings by risk, and separate correctness from style." },
-  { title: "Operations", description: "Turns plans into owners and dates.", soul: "You are an operations lead. When asked to prioritize, force a tradeoff, name an owner, and end with a single next action." },
-];
+import type { Preset } from "@/lib/bridge";
 
 export function NewBotDialog() {
-  const { ui, setUI, createBot, providers } = useApp();
+  const { ui, setUI, createBot, providers, state } = useApp();
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -35,11 +29,12 @@ export function NewBotDialog() {
     setError("");
   }, [ui.newBotOpen]);
 
-  const applyPreset = (preset: (typeof PRESETS)[number]) => {
+  const presets: Preset[] = state.presets ?? [];
+  const applyPreset = (preset: Preset) => {
     setTitle(preset.title);
     setDescription(preset.description);
     setSoul(preset.soul);
-    if (!name) setName(preset.title.split(" ")[0] ?? "");
+    if (!name) setName(preset.name);
   };
 
   const submit = async (event: React.FormEvent) => {
@@ -64,11 +59,12 @@ export function NewBotDialog() {
 
         <div className="preset-row">
           <span className="preset-label"><Sparkles size={13} /> Start from</span>
-          {PRESETS.map((preset) => (
-            <button type="button" key={preset.title} className="preset-chip" onClick={() => applyPreset(preset)}>
-              {preset.title}
+          {presets.map((preset) => (
+            <button type="button" key={preset.id} className="preset-chip" onClick={() => applyPreset(preset)} title={preset.description}>
+              {preset.name}
             </button>
           ))}
+          {presets.length === 0 && <span className="preset-empty">Save a bot as a preset from its profile.</span>}
         </div>
 
         <label className="panel-field">

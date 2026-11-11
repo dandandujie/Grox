@@ -1709,3 +1709,7 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: va
 
 .group-avatar-single { flex: 0 0 42px; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; }
 .group-avatar-single .mascot { display: block; }
+.preset-empty { color: var(--ink-3); font-size: 10.5px; }
+.preset-manage-list { display: flex; flex-direction: column; gap: 6px; }
+.preset-manage-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); }
+.preset-manage-row .mcp-copy { flex: 1; min-width: 0; }

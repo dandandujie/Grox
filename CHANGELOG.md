@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0
+
+- Replaced the New bot dialog's hardcoded preset chips with workspace presets.
+- Seeded Research, Inbox chief, Code review and Operations presets, with migration defaults for older state.
+- Added Save as preset on a bot profile, Settings -> General preset management and delete, and preset-driven
+  New bot fields.
+- Presets are persona-only; model, folder, approval, skills, memory and credentials never travel.
+- Added preset CRUD tests and refreshed the browser fixture.
+- Still not ported: presets that carry skills/notes, team package presets and organization presets.
+
 ## 0.12.0
 
 - Added user-managed remote streamable-HTTP MCP servers in Settings -> MCP servers.
