@@ -682,6 +682,10 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
   const [token, setToken] = useState("");
   const [headers, setHeaders] = useState("");
+  const [oauthTokenURL, setOAuthTokenURL] = useState(server?.oauthTokenUrl ?? "");
+  const [oauthClientID, setOAuthClientID] = useState("");
+  const [oauthClientSecret, setOAuthClientSecret] = useState("");
+  const [oauthScopes, setOAuthScopes] = useState("");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -695,6 +699,10 @@ function MCPEditor({ server, open, onClose, onSaved }: {
     setArgs((server?.args ?? []).join("\n"));
     setToken("");
     setHeaders("");
+    setOAuthTokenURL(server?.oauthTokenUrl ?? "");
+    setOAuthClientID("");
+    setOAuthClientSecret("");
+    setOAuthScopes("");
     setEnabled(server?.enabled ?? true);
     setError("");
     setBusy(false);
@@ -731,11 +739,17 @@ function MCPEditor({ server, open, onClose, onSaved }: {
           ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim() }),
           ...(transport === "http" && token.trim() ? { token: token.trim() } : {}),
           ...(transport === "http" && headers.trim() ? { headers: headerMap } : {}),
+          ...(transport === "http" ? {
+            oauthTokenUrl: oauthTokenURL.trim(),
+            oauthClientId: oauthClientID.trim(),
+            oauthClientSecret,
+            oauthScopes: oauthScopes.trim(),
+          } : {}),
         });
       } else {
         await backend.createMCPServer({
           name: name.trim(), transport, enabled,
-          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap }),
+          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap, oauthTokenUrl: oauthTokenURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim() }),
         });
       }
       onSaved();
@@ -785,6 +799,27 @@ function MCPEditor({ server, open, onClose, onSaved }: {
               <textarea rows={2} value={headers} onChange={(event) => setHeaders(event.target.value)} placeholder={"X-API-Key: ...\nX-Org: ..."} spellCheck={false} />
             </label>
             {server?.headerNames?.length ? <p className="panel-note">Existing headers: {server.headerNames.join(", ")}. Enter values only to replace all headers.</p> : null}
+            <div className="mcp-oauth">
+              <span className="panel-note">OAuth client credentials (optional). When a token URL is set, Grox fetches a bearer token and ignores the static bearer field.</span>
+              <label className="panel-field">
+                <span>OAuth token URL</span>
+                <input value={oauthTokenURL} onChange={(event) => setOAuthTokenURL(event.target.value)} placeholder="https://auth.example.com/oauth/token" spellCheck={false} />
+              </label>
+              <div className="form-two">
+                <label className="panel-field">
+                  <span>OAuth client ID</span>
+                  <input value={oauthClientID} onChange={(event) => setOAuthClientID(event.target.value)} placeholder={server?.oauthConfigured ? "Configured; leave blank to keep" : "Client ID"} spellCheck={false} />
+                </label>
+                <label className="panel-field">
+                  <span>OAuth client secret</span>
+                  <input type="password" value={oauthClientSecret} onChange={(event) => setOAuthClientSecret(event.target.value)} placeholder={server?.oauthConfigured ? "Configured; leave blank to keep" : "Optional for public clients"} autoComplete="off" />
+                </label>
+              </div>
+              <label className="panel-field">
+                <span>OAuth scopes</span>
+                <input value={oauthScopes} onChange={(event) => setOAuthScopes(event.target.value)} placeholder="optional, space-separated" spellCheck={false} />
+              </label>
+            </div>
           </>
         ) : (
           <>
@@ -869,7 +904,7 @@ function MCPSection() {
                 <div className="mcp-copy">
                   <strong>{server.name}</strong>
                   <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
-                  <small>{server.transport === "stdio" ? "Local command" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
+                  <small>{server.transport === "stdio" ? "Local command" : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>

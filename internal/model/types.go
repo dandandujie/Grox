@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.35.0"
+	AppVersion = "0.36.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -333,41 +333,51 @@ type TeamImportResult struct {
 // MCPServer is a user-managed remote streamable-HTTP MCP server. The bearer
 // token is stored in secrets.json, never in AppState or API responses.
 type MCPServer struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Transport      string    `json:"transport,omitempty"`
-	URL            string    `json:"url,omitempty"`
-	Command        string    `json:"command,omitempty"`
-	Args           []string  `json:"args,omitempty"`
-	Enabled        bool      `json:"enabled"`
-	AuthConfigured bool      `json:"authConfigured"`
-	HeaderNames    []string  `json:"headerNames,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Transport       string    `json:"transport,omitempty"`
+	URL             string    `json:"url,omitempty"`
+	Command         string    `json:"command,omitempty"`
+	Args            []string  `json:"args,omitempty"`
+	Enabled         bool      `json:"enabled"`
+	AuthConfigured  bool      `json:"authConfigured"`
+	HeaderNames     []string  `json:"headerNames,omitempty"`
+	OAuthTokenURL   string    `json:"oauthTokenUrl,omitempty"`
+	OAuthConfigured bool      `json:"oauthConfigured,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // MCPServerInput is the add form. Token is write-only.
 type MCPServerInput struct {
-	Name      string            `json:"name"`
-	Transport string            `json:"transport,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Command   string            `json:"command,omitempty"`
-	Args      []string          `json:"args,omitempty"`
-	Token     string            `json:"token,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	Enabled   bool              `json:"enabled"`
+	Name              string            `json:"name"`
+	Transport         string            `json:"transport,omitempty"`
+	URL               string            `json:"url,omitempty"`
+	Command           string            `json:"command,omitempty"`
+	Args              []string          `json:"args,omitempty"`
+	Token             string            `json:"token,omitempty"`
+	Headers           map[string]string `json:"headers,omitempty"`
+	OAuthTokenURL     string            `json:"oauthTokenUrl,omitempty"`
+	OAuthClientID     string            `json:"oauthClientId,omitempty"`
+	OAuthClientSecret string            `json:"oauthClientSecret,omitempty"`
+	OAuthScopes       string            `json:"oauthScopes,omitempty"`
+	Enabled           bool              `json:"enabled"`
 }
 
 // MCPServerPatch edits only fields that are set; an empty Token keeps the old one.
 type MCPServerPatch struct {
-	Name      *string            `json:"name,omitempty"`
-	Transport *string            `json:"transport,omitempty"`
-	URL       *string            `json:"url,omitempty"`
-	Command   *string            `json:"command,omitempty"`
-	Args      *[]string          `json:"args,omitempty"`
-	Token     *string            `json:"token,omitempty"`
-	Headers   *map[string]string `json:"headers,omitempty"`
-	Enabled   *bool              `json:"enabled,omitempty"`
+	Name              *string            `json:"name,omitempty"`
+	Transport         *string            `json:"transport,omitempty"`
+	URL               *string            `json:"url,omitempty"`
+	Command           *string            `json:"command,omitempty"`
+	Args              *[]string          `json:"args,omitempty"`
+	Token             *string            `json:"token,omitempty"`
+	Headers           *map[string]string `json:"headers,omitempty"`
+	OAuthTokenURL     *string            `json:"oauthTokenUrl,omitempty"`
+	OAuthClientID     *string            `json:"oauthClientId,omitempty"`
+	OAuthClientSecret *string            `json:"oauthClientSecret,omitempty"`
+	OAuthScopes       *string            `json:"oauthScopes,omitempty"`
+	Enabled           *bool              `json:"enabled,omitempty"`
 }
 
 // MCPServerConfig is the runtime-only view; Token never leaves the Go process.

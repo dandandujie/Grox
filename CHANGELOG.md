@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.36.0
+
+- Added OAuth 2.0 client-credentials support for HTTP MCP servers. Token URL, client ID/secret and scopes
+  are stored in secrets.json; access tokens are fetched, cached in memory and sent as bearer tokens.
+- Added editor fields, OAuth-configured status, and a mock token-endpoint test.
+- Still not ported: OAuth authorization-code/PKCE, dynamic registration, refresh tokens and revocation.
+
 ## 0.35.0
 
 - Added a local first-run welcome with Create a bot, Start with demo and Connect an engine actions; closing

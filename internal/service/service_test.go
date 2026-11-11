@@ -1998,3 +1998,47 @@ func TestOnboardingSettingPersists(t *testing.T) {
 		t.Fatal("onboarding flag was not saved")
 	}
 }
+
+func TestMCPServerOAuthClientCredentials(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("token method = %s", r.Method)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("token form: %v", err)
+		}
+		if r.Form.Get("grant_type") != "client_credentials" || r.Form.Get("client_id") != "client-1" || r.Form.Get("scope") != "mcp.read" {
+			t.Errorf("token form = %v", r.Form)
+		}
+		username, password, _ := r.BasicAuth()
+		if username != "client-1" || password != "secret-1" {
+			t.Errorf("basic auth = %q/%q", username, password)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"oauth-token","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+	svc, _, _ := newTestService(t)
+	server, err := svc.CreateMCPServer(model.MCPServerInput{
+		Name: "OAuth MCP", URL: "https://mcp.example.test/mcp", Enabled: true,
+		OAuthTokenURL: tokenServer.URL, OAuthClientID: "client-1", OAuthClientSecret: "secret-1", OAuthScopes: "mcp.read",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !server.OAuthConfigured || server.OAuthTokenURL != tokenServer.URL {
+		t.Fatalf("oauth server = %+v", server)
+	}
+	svc.mu.Lock()
+	configs := svc.mcpConfigsLocked()
+	svc.mu.Unlock()
+	found := false
+	for _, config := range configs {
+		if config.ID == server.ID && config.Token == "oauth-token" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("configs = %+v", configs)
+	}
+}

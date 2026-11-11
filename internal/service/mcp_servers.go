@@ -168,6 +168,15 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 		headers = nil
 		headerNames = nil
 	}
+	oauthConfig := mcpOAuthConfig{
+		TokenURL: strings.TrimSpace(input.OAuthTokenURL), ClientID: strings.TrimSpace(input.OAuthClientID),
+		ClientSecret: input.OAuthClientSecret, Scopes: strings.TrimSpace(input.OAuthScopes),
+	}
+	if oauthConfig.TokenURL != "" {
+		if err := validateMCPOAuth(oauthConfig.TokenURL, oauthConfig.ClientID); err != nil {
+			return model.MCPServer{}, err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	server.Name = s.uniqueMCPNameLocked(input.Name)
@@ -184,6 +193,14 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 				return model.MCPServer{}, err
 			}
 			server.HeaderNames = headerNames
+			server.AuthConfigured = true
+		}
+		if oauthConfig.TokenURL != "" {
+			if err := s.saveMCPOAuthLocked(server.ID, oauthConfig); err != nil {
+				return model.MCPServer{}, err
+			}
+			server.OAuthTokenURL = oauthConfig.TokenURL
+			server.OAuthConfigured = true
 			server.AuthConfigured = true
 		}
 		if err := s.st.SaveSecrets(); err != nil {
@@ -238,6 +255,9 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 		delete(s.st.Secrets, mcpHeadersSecretName(id))
 		server.AuthConfigured = false
 		server.HeaderNames = nil
+		server.OAuthConfigured = false
+		server.OAuthTokenURL = ""
+		delete(s.st.Secrets, mcpOAuthSecretName(id))
 		_ = s.st.SaveSecrets()
 	} else {
 		if patch.URL != nil {
@@ -266,11 +286,42 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 					return model.MCPServer{}, err
 				}
 				server.HeaderNames = names
-				server.AuthConfigured = len(headers) > 0 || s.st.Secrets[mcpSecretName(id)] != ""
+				server.AuthConfigured = len(headers) > 0 || s.st.Secrets[mcpSecretName(id)] != "" || server.OAuthConfigured
 			}
 		}
 		if err := s.st.SaveSecrets(); err != nil {
 			return model.MCPServer{}, err
+		}
+	}
+	if patch.OAuthTokenURL != nil || patch.OAuthClientID != nil || patch.OAuthClientSecret != nil || patch.OAuthScopes != nil {
+		config, _ := s.mcpOAuthConfigLocked(id)
+		if patch.OAuthTokenURL != nil {
+			config.TokenURL = strings.TrimSpace(*patch.OAuthTokenURL)
+		}
+		if patch.OAuthClientID != nil && strings.TrimSpace(*patch.OAuthClientID) != "" {
+			config.ClientID = strings.TrimSpace(*patch.OAuthClientID)
+		}
+		if patch.OAuthClientSecret != nil && *patch.OAuthClientSecret != "" {
+			config.ClientSecret = *patch.OAuthClientSecret
+		}
+		if patch.OAuthScopes != nil {
+			config.Scopes = strings.TrimSpace(*patch.OAuthScopes)
+		}
+		if config.TokenURL == "" {
+			delete(s.st.Secrets, mcpOAuthSecretName(id))
+			server.OAuthConfigured = false
+			server.OAuthTokenURL = ""
+			server.AuthConfigured = s.st.Secrets[mcpSecretName(id)] != "" || len(server.HeaderNames) > 0
+		} else {
+			if err := validateMCPOAuth(config.TokenURL, config.ClientID); err != nil {
+				return model.MCPServer{}, err
+			}
+			if err := s.saveMCPOAuthLocked(id, config); err != nil {
+				return model.MCPServer{}, err
+			}
+			server.OAuthConfigured = true
+			server.OAuthTokenURL = config.TokenURL
+			server.AuthConfigured = true
 		}
 	}
 	if patch.Enabled != nil {
@@ -293,6 +344,7 @@ func (s *Service) DeleteMCPServer(id string) error {
 		s.st.State.MCPServers = append(s.st.State.MCPServers[:index], s.st.State.MCPServers[index+1:]...)
 		delete(s.st.Secrets, mcpSecretName(id))
 		delete(s.st.Secrets, mcpHeadersSecretName(id))
+		delete(s.st.Secrets, mcpOAuthSecretName(id))
 		_ = s.st.SaveSecrets()
 		s.touchLocked()
 		s.saveLocked()
@@ -313,7 +365,11 @@ func (s *Service) mcpConfigsLocked() []model.MCPServerConfig {
 			URL: server.URL, Command: server.Command, Args: append([]string(nil), server.Args...),
 		}
 		if item.Transport == "http" {
-			item.Token = s.st.Secrets[mcpSecretName(server.ID)]
+			if server.OAuthConfigured {
+				item.Token = s.mcpOAuthAccessTokenLocked(server.ID)
+			} else {
+				item.Token = s.st.Secrets[mcpSecretName(server.ID)]
+			}
 			item.Headers = s.mcpHeadersLocked(server.ID)
 		}
 		out = append(out, item)

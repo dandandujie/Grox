@@ -68,6 +68,9 @@ type Service struct {
 	apiErr      string
 	apiSubMu    sync.Mutex
 	apiSubs     map[chan model.Event]struct{}
+
+	oauthMu     sync.Mutex
+	oauthTokens map[string]mcpOAuthToken
 }
 
 type turnControl struct {
@@ -85,6 +88,7 @@ func New(dir string, emit func(model.Event)) (*Service, error) {
 		dir: dir, emit: emit, turns: map[string]*turnControl{}, stop: make(chan struct{}),
 		phoneSubs:      map[chan model.Event]struct{}{},
 		apiSubs:        map[chan model.Event]struct{}{},
+		oauthTokens:    map[string]mcpOAuthToken{},
 		approvalTokens: map[string]claudeHookTarget{}, hookApprovals: map[string]*claudeHookApproval{},
 		questionWaiters: map[string]*questionWaiter{}, webhookReplays: map[string]time.Time{},
 	}, nil

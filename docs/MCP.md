@@ -63,3 +63,14 @@ the bearer-token environment path and cannot carry arbitrary custom headers thro
 
 Editing with the header box empty keeps existing headers. Enter one or more lines to replace all of them.
 
+
+## OAuth client credentials
+
+An HTTP MCP server can use OAuth 2.0 client credentials instead of a static bearer token. Grox stores the
+token URL, client ID, optional client secret and scopes in secrets.json under mcp:<id>:oauth, requests an
+access token with grant_type=client_credentials, and caches the token in memory until shortly before expiry.
+
+Claude, Grok and Gemini receive the resulting bearer token in their temporary configs. Codex receives the
+same bearer-token environment path. Authorization-code/PKCE, dynamic client registration, refresh tokens and
+token revocation are not implemented yet; those require an interactive OAuth flow.
+

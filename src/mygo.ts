@@ -345,6 +345,8 @@ export interface MCPServer {
   enabled: boolean;
   authConfigured: boolean;
   headerNames?: string[];
+  oauthTokenUrl?: string;
+  oauthConfigured?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -358,6 +360,10 @@ export interface MCPServerInput {
   args?: string[];
   token?: string;
   headers?: Record<string, string>;
+  oauthTokenUrl?: string;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthScopes?: string;
   enabled: boolean;
 }
 
@@ -370,6 +376,10 @@ export interface MCPServerPatch {
   args?: string[];
   token?: string;
   headers?: Record<string, string>;
+  oauthTokenUrl?: string;
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthScopes?: string;
   enabled?: boolean;
 }
 
