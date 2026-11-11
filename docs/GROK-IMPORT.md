@@ -10,6 +10,16 @@ nothing existing is overwritten.
 - Scheduled routines with a simple readable cron (`minute hour * * day`) arrive paused.
 - Remote https MCP apps arrive as disabled MCP servers.
 
+## Split exports
+
+The pasted text can contain several JSON objects. Objects for the same bot name are merged, with list fields
+(skills, routines, memories, apps) deduplicated. This supports split Grok exports.
+
+## Event routines
+
+Routines with an event trigger or an unreadable cron are not scheduled. Their name, trigger and instruction
+are appended to the bot's MEMORY.md under Grok Bot event routines, and the result reports an event count.
+
 ## Skills
 
 Each bot gets its own workspace at `workspaces/<name>-grok/`. Imported skills are written under

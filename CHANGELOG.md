@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.56.0
+
+- Grok Bot import now merges split export documents by bot name, deduplicating list fields.
+- Event-triggered or unreadable-cron routines are preserved in the bot's MEMORY.md and counted as event notes.
+- Added split-document and event-routine coverage.
+- Still not ported: skill approval scanning, package v2 conversion and the full Grok prompt flow.
+
 ## 0.55.0
 
 - Presets can carry playbooks, isolated skills and starter MEMORY.md notes. Applying a preset writes the

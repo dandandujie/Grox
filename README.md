@@ -161,7 +161,7 @@ The table below is intentionally blunt.
 | Playbooks | **Partial**: per-bot Markdown playbooks selected by trigger words and injected as bounded process guidance. See [playbooks](docs/PLAYBOOKS.md) |
 | Continuous routines | **Partial**: continuous thread, local runs check, busy policy and failure backoff, carried through package v2. See [routines](docs/ROUTINES.md) |
 | Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |
-| Grok Bot import | **Partial**: paste a Grok Bot export to create new bots, isolated enabled skills, memory, paused simple routines and disabled MCP servers. See [import](docs/GROK-IMPORT.md) |
+| Grok Bot import | **Partial**: paste one or split Grok Bot exports to create bots, isolated enabled skills, memory, paused simple routines, event notes and disabled MCP servers. See [import](docs/GROK-IMPORT.md) |
 | BotMRR teams | **Partial**: import BotMRR Markdown agents, isolated skills, playbooks, rooms and paused routines. See [BotMRR](docs/BOTMRR.md) |
 | Package v2 | **Partial**: import/export openmaus.package v2 agents, seed memory, isolated skills, playbooks, rooms, paused routines, disabled connections, required value names and basic presets. See [package v2](docs/PACKAGE-V2.md) |
 | Token usage | **Partial**: API-engine and Claude/Grok result usage shows input/output/total tokens; optional local pricing adds a cost label. Codex/Gemini usage and provider price tables are unlabelled. See [usage](docs/USAGE.md) |

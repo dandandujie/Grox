@@ -2295,7 +2295,7 @@ func TestGrokBotImport(t *testing.T) {
 			"skills": []any{map[string]any{"name": "checklist", "instructions": "Use a checklist."}},
 			"routines": []any{map[string]any{
 				"name": "Morning brief", "instruction": "Write a short brief.", "trigger": "schedule", "schedule_cron": "0 8 * * 1-5",
-			}},
+			}, map[string]any{"name": "Webhook follow-up", "instruction": "Handle the webhook.", "trigger": "webhook"}},
 			"apps": []any{map[string]any{"name": "crm", "mcp_url": "https://mcp.example.test/mcp"}},
 		}},
 	}
@@ -2304,7 +2304,7 @@ func TestGrokBotImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Bots != 1 || result.Routines != 1 || result.Memories != 2 || result.Apps != 1 || result.Skills != 1 {
+	if result.Bots != 1 || result.Routines != 1 || result.Events != 1 || result.Memories != 2 || result.Apps != 1 || result.Skills != 1 {
 		t.Fatalf("result = %+v", result)
 	}
 	var imported *model.Bot
@@ -2329,7 +2329,7 @@ func TestGrokBotImport(t *testing.T) {
 		t.Fatalf("imported skills = %+v err=%v", skills, err)
 	}
 	state, err := svc.GetMemory(imported.ID)
-	if err != nil || !strings.Contains(state.Content, "prefers tea") {
+	if err != nil || !strings.Contains(state.Content, "prefers tea") || !strings.Contains(state.Content, "event routines") {
 		t.Fatalf("memory = %+v err=%v", state, err)
 	}
 	svc.mu.Lock()
@@ -2686,5 +2686,19 @@ func TestPresetAppliesPlaybookSkillAndMemory(t *testing.T) {
 	memory, err := svc.GetMemory(bot.ID)
 	if err != nil || !strings.Contains(memory.Content, "Remember the preset") {
 		t.Fatalf("memory = %+v err=%v", memory, err)
+	}
+}
+
+func TestGrokBotImportMergesSplitDocuments(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	first, _ := json.Marshal(map[string]any{"bots": []any{map[string]any{"name": "Split Bot", "memories": []any{"first fact"}}}})
+	second, _ := json.Marshal(map[string]any{"bots": []any{map[string]any{"name": "Split Bot", "memories": []any{"second fact"}}}})
+	raw := "part one:\n" + string(first) + "\npart two:\n" + string(second)
+	result, err := svc.ImportGrokBot(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bots != 1 || result.Memories != 2 {
+		t.Fatalf("split result = %+v", result)
 	}
 }

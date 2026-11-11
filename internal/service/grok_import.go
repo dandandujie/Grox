@@ -70,6 +70,92 @@ func extractJSONObject(text string) string {
 	return ""
 }
 
+func extractJSONObjects(text string) []string {
+	out := []string{}
+	for index := 0; index < len(text); {
+		start := strings.Index(text[index:], "{")
+		if start < 0 {
+			break
+		}
+		start += index
+		depth := 0
+		quoted := false
+		escaped := false
+		end := -1
+		for position := start; position < len(text); position++ {
+			ch := text[position]
+			if quoted {
+				if escaped {
+					escaped = false
+				} else if ch == '\\' {
+					escaped = true
+				} else if ch == '"' {
+					quoted = false
+				}
+				continue
+			}
+			switch ch {
+			case '"':
+				quoted = true
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					end = position
+				}
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			break
+		}
+		out = append(out, text[start:end+1])
+		index = end + 1
+	}
+	return out
+}
+
+func mergeListField(target, source map[string]any, key string) {
+	existing := listItems(target, key)
+	seen := map[string]bool{}
+	for _, item := range existing {
+		data, _ := json.Marshal(item)
+		seen[string(data)] = true
+	}
+	for _, item := range listItems(source, key) {
+		data, _ := json.Marshal(item)
+		if seen[string(data)] {
+			continue
+		}
+		seen[string(data)] = true
+		existing = append(existing, item)
+	}
+	if len(existing) > 0 {
+		target[key] = existing
+	}
+}
+
+func mergeStringList(record map[string]any, key string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	existing := stringList(record, key)
+	seen := map[string]bool{}
+	for _, value := range existing {
+		seen[value] = true
+	}
+	for _, value := range values {
+		if !seen[value] {
+			existing = append(existing, value)
+			seen[value] = true
+		}
+	}
+	record[key] = existing
+}
+
 func stringField(record map[string]any, key string) string {
 	value, _ := record[key].(string)
 	return strings.TrimSpace(value)
@@ -117,20 +203,49 @@ func (s *Service) ImportGrokBot(raw string) (model.GrokImportResult, error) {
 	if len(text) > 4*1024*1024 {
 		return model.GrokImportResult{}, fmt.Errorf("Grok export is too large")
 	}
-	object := extractJSONObject(text)
-	if object == "" {
+	objects := extractJSONObjects(text)
+	if len(objects) == 0 {
 		return model.GrokImportResult{}, fmt.Errorf("no Grok Bot export JSON found")
 	}
-	var generic map[string]any
-	if err := json.Unmarshal([]byte(object), &generic); err != nil {
-		return model.GrokImportResult{}, fmt.Errorf("invalid Grok export JSON")
+	mergedBots := []map[string]any{}
+	botIndex := map[string]int{}
+	for _, object := range objects {
+		var generic map[string]any
+		if err := json.Unmarshal([]byte(object), &generic); err != nil {
+			continue
+		}
+		if containsCredentialKey(generic) {
+			return model.GrokImportResult{}, fmt.Errorf("refusing an export that contains credential-looking keys")
+		}
+		bots := listItems(generic, "bots")
+		if len(bots) == 0 && stringField(generic, "name") != "" {
+			bots = []any{generic}
+		}
+		for _, rawBot := range bots {
+			item, ok := rawBot.(map[string]any)
+			if !ok {
+				continue
+			}
+			name := stringField(item, "name")
+			if name == "" {
+				continue
+			}
+			key := strings.ToLower(name)
+			index, exists := botIndex[key]
+			if !exists {
+				botIndex[key] = len(mergedBots)
+				mergedBots = append(mergedBots, item)
+				continue
+			}
+			existing := mergedBots[index]
+			for _, field := range []string{"memories", "user_facts", "skills", "routines", "apps"} {
+				mergeListField(existing, item, field)
+			}
+		}
 	}
-	if containsCredentialKey(generic) {
-		return model.GrokImportResult{}, fmt.Errorf("refusing an export that contains credential-looking keys")
-	}
-	bots := listItems(generic, "bots")
-	if len(bots) == 0 && stringField(generic, "name") != "" {
-		bots = []any{generic}
+	bots := make([]any, 0, len(mergedBots))
+	for _, bot := range mergedBots {
+		bots = append(bots, bot)
 	}
 	if len(bots) == 0 {
 		return model.GrokImportResult{}, fmt.Errorf("the export contains no bots")
@@ -217,6 +332,7 @@ func (s *Service) ImportGrokBot(raw string) (model.GrokImportResult, error) {
 				}
 			}
 		}
+		eventNotes := []string{}
 		for _, rawRoutine := range listItems(item, "routines") {
 			routine, ok := rawRoutine.(map[string]any)
 			if !ok {
@@ -224,6 +340,7 @@ func (s *Service) ImportGrokBot(raw string) (model.GrokImportResult, error) {
 			}
 			cadence, clock, ok := simpleCronSchedule(stringField(routine, "schedule_cron"))
 			if !ok {
+				eventNotes = append(eventNotes, "- "+stringField(routine, "name")+" ("+stringField(routine, "trigger")+"): "+stringField(routine, "instruction"))
 				continue
 			}
 			instruction := stringField(routine, "instruction")
@@ -236,6 +353,18 @@ func (s *Service) ImportGrokBot(raw string) (model.GrokImportResult, error) {
 			})
 			if err == nil {
 				result.Routines++
+			}
+		}
+		if len(eventNotes) > 0 {
+			if state, err := s.GetMemory(bot.ID); err == nil {
+				content := strings.TrimRight(state.Content, "\n")
+				if content != "" {
+					content += "\n\n"
+				}
+				content += "## Grok Bot event routines\n\n" + strings.Join(eventNotes, "\n") + "\n"
+				if _, err := s.SaveMemory(bot.ID, content, state.Revision); err == nil {
+					result.Events += len(eventNotes)
+				}
 			}
 		}
 		for _, rawApp := range listItems(item, "apps") {

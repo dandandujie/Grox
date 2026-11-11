@@ -321,6 +321,7 @@ export interface GrokImportResult {
   memories: number;
   apps: number;
   skills: number;
+  events: number;
   skillsSkipped: number;
   names: string[];
 }

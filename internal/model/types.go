@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.55.0"
+	AppVersion = "0.56.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -80,6 +80,7 @@ type GrokImportResult struct {
 	Memories      int      `json:"memories"`
 	Apps          int      `json:"apps"`
 	Skills        int      `json:"skills"`
+	Events        int      `json:"events"`
 	SkillsSkipped int      `json:"skillsSkipped"`
 	Names         []string `json:"names"`
 }
