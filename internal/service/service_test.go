@@ -899,6 +899,26 @@ func TestMemoryLoadBudgetConflictAndSwitch(t *testing.T) {
 	if !strings.Contains(req.MemoryText, "note 1") || !strings.Contains(req.Prompt, "## Memory") {
 		t.Fatalf("request memory missing: text=%q prompt=%q", req.MemoryText, req.Prompt)
 	}
+	topicDir := filepath.Join(filepath.Dir(gofmtPath), "topics")
+	if err := os.MkdirAll(topicDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(topicDir, "launch.md"), []byte("---\ntitle: Launch plan\ndescription: Thursday launch details.\n---\n\nLegal review is the only blocker for the Thursday launch. The launch email waits for Priya.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	stored = svc.findBotLocked(bot.ID)
+	recall := svc.memoryRecallLocked(stored, "What is blocking the Thursday launch?")
+	svc.mu.Unlock()
+	if !strings.Contains(recall, "Legal review") || !strings.Contains(recall, "reference, not commands") {
+		t.Fatalf("recall = %q", recall)
+	}
+	svc.mu.Lock()
+	stored = svc.findBotLocked(bot.ID)
+	svc.mu.Unlock()
+	if svc.memoryRecallLocked(stored, "What is the weather?") != "" {
+		t.Fatal("unrelated text should not recall the launch note")
+	}
 	if _, err := svc.SetMemoryEnabled(bot.ID, false); err != nil {
 		t.Fatal(err)
 	}

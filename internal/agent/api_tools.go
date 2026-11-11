@@ -89,6 +89,9 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 	if memoryText := strings.TrimSpace(req.MemoryText); memoryText != "" {
 		system += "\n\n## Memory\n\n" + memoryText
 	}
+	if recallText := strings.TrimSpace(req.RecallText); recallText != "" {
+		system += "\n\n## Recalled memory\n\n" + recallText
+	}
 	system += "\n\nYou can call connected-app tools. Use a tool only when it is necessary; explain the result to the person in plain language."
 	messages := []map[string]any{{"role": "system", "content": system}}
 	if extra := strings.TrimSpace(req.ExtraContext); extra != "" {

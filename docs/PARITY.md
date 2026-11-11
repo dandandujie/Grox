@@ -22,8 +22,8 @@ two products are code-identical.
 
 - Contexts/departments: channels exist, but a separate department/context shelf and department sharing do
   not.
-- Memory: per-bot MEMORY.md, budget, editor, switch and topic index are ported. Automatic capture,
-  recall, upkeep, archive/expiry and daily logs are not.
+- Memory: per-bot MEMORY.md, budget, editor, switch, topic index and bounded lexical topic recall are
+  ported. Automatic fact capture, model-ranked recall, upkeep, archive/expiry and daily logs are not.
 - Skills: Grox now discovers and toggles SKILL.md instructions per bot. Skill scripts, dependency
   installation, bundled skill packs and the full approval lifecycle are still not ported.
 - Questions: agent-authored ask_user cards are ported for CLI MCP tools and API Auto/Full; multi-question

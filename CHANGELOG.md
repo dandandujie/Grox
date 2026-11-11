@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0
+
+- Added bounded lexical memory recall: matching topic paragraphs are added to a turn before the model runs.
+- Recall searches topic files only, excludes frontmatter/archive/logs, returns at most four passages and
+  6 KB, and carries an explicit reference-not-commands heading.
+- Disabling memory disables recall; short or unmatched messages recall nothing.
+- Test: TestMemoryLoadBudgetConflictAndSwitch now covers a matching launch note, an unrelated message and
+  the off switch.
+- Still not ported: automatic fact capture, model-ranked recall over other conversations, upkeep,
+  archive/expiry and daily logs.
+
 ## 0.10.0
 
 - Added a real ask_user tool for agent-authored questions.

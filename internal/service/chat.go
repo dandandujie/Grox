@@ -207,11 +207,12 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	}
 	skillText := s.enabledSkillTextLocked(bot)
 	memoryText := s.memoryTextLocked(bot)
+	recallText := s.memoryRecallLocked(bot, agentText)
 	req := agent.Request{
 		Bot: botCopy, Thread: threadCopy, UserText: agentText, History: threadCopy.Messages,
 		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
-		ExtraContext: extraContext, SkillText: skillText, MemoryText: memoryText,
+		ExtraContext: extraContext, SkillText: skillText, MemoryText: memoryText, RecallText: recallText,
 	}
 	req.Prompt = agent.Compose(botCopy, threadCopy, agentText)
 	if skillText != "" {
@@ -219,6 +220,9 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	}
 	if memoryText != "" {
 		req.Prompt += "\n\n## Memory\n\n" + memoryText
+	}
+	if recallText != "" {
+		req.Prompt += "\n\n## Recalled memory\n\n" + recallText
 	}
 	if extraContext != "" {
 		req.Prompt += "\n\n" + extraContext

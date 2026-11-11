@@ -70,6 +70,8 @@ type Request struct {
 	SkillText string
 	// MemoryText is the bot's MEMORY.md notes, already loaded/capped.
 	MemoryText string
+	// RecallText is a bounded set of matching topic passages for this turn.
+	RecallText string
 }
 
 // Result is a finished turn.
