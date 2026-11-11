@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.0
+
+- Added editable memory topics: click a topic in the Memory tab to open its full markdown, save it with a
+  revision check, or delete it.
+- Topic revisions prevent overwriting a file changed while the editor was open; path traversal is refused.
+- Topics remain excluded from wholesale prompt loading and are still available to lexical recall.
+- Added topic read/save/delete and traversal tests.
+- Still not ported: memory_delete agent tool, automatic capture, model-ranked recall and scheduled upkeep.
+
 ## 0.17.0
 
 - Added TidyMemory: the oldest dated MEMORY.md entries move to topics/archive.md until the 200-line /

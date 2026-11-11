@@ -764,3 +764,5 @@
 .mcp-copy small { color: var(--ink-3); font-size: 9px; }
 .mcp-row .link-button { flex: 0 0 auto; font-size: 10px; }
 .memory-head-actions { display: flex; align-items: center; gap: 8px; }
+.memory-topic { width: 100%; text-align: left; color: inherit; cursor: pointer; }
+.memory-topic:hover { border-color: var(--hairline); background: var(--raised); }

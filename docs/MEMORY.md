@@ -43,7 +43,8 @@ A file under memory/<botId>/topics/ can start with frontmatter:
     description: Decisions and owners for the Thursday launch.
     ---
 
-The Memory tab shows the title, description and size.
+The Memory tab shows the title, description and size. Click a topic to edit its full markdown with a
+revision check, or delete it. Topic edits use the same atomic writer and 0600 permissions as MEMORY.md.
 
 ## Recall
 

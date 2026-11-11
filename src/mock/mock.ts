@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, MemoryTidyResult, Preset, PresetInput, PresetPatch, Settings, Skill,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -585,6 +585,29 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   private memory = new Map<string, { content: string; revision: string }>();
+
+  private memoryTopics = new Map<string, { content: string; revision: string }>();
+
+  async readMemoryTopic(botId: string, name: string): Promise<MemoryTopic> {
+    const stored = this.memoryTopics.get(botId + ":" + name);
+    if (!stored) throw new Error("Topic not found");
+    return {
+      name, title: name, description: "Preview topic", bytes: stored.content.length,
+      content: stored.content, revision: stored.revision, updatedAt: nowISO(),
+    };
+  }
+
+  async saveMemoryTopic(botId: string, name: string, content: string, revision: string): Promise<MemoryTopic> {
+    const key = botId + ":" + name;
+    const stored = this.memoryTopics.get(key);
+    if (stored && stored.revision !== revision) throw new Error("Topic changed on disk while you were editing; reload and try again");
+    this.memoryTopics.set(key, { content, revision: "preview-" + Date.now() });
+    return this.readMemoryTopic(botId, name);
+  }
+
+  async deleteMemoryTopic(botId: string, name: string): Promise<void> {
+    this.memoryTopics.delete(botId + ":" + name);
+  }
 
   async tidyMemory(botId: string): Promise<MemoryTidyResult> {
     const state = await this.getMemory(botId);

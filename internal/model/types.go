@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.17.0"
+	AppVersion = "0.18.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -137,6 +137,8 @@ type MemoryTopic struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Bytes       int       `json:"bytes"`
+	Content     string    `json:"content,omitempty"`
+	Revision    string    `json:"revision,omitempty"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 

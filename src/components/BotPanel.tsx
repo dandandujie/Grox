@@ -4,7 +4,7 @@ import {
   Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
-import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, MemoryState, Model, Skill } from "@/lib/bridge";
+import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, MemoryState, MemoryTopic, Model, Skill } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
@@ -625,13 +625,17 @@ function ActivityTab({ bot }: { bot: Bot }) {
 }
 
 function MemoryTab({ bot }: { bot: Bot }) {
-  const { backend, boot, toast } = useApp();
+  const { backend, boot, toast, requestConfirm } = useApp();
   const [memory, setMemory] = useState<MemoryState | null>(null);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tidying, setTidying] = useState(false);
   const [error, setError] = useState("");
+  const [topic, setTopic] = useState<MemoryTopic | null>(null);
+  const [topicDraft, setTopicDraft] = useState("");
+  const [topicSaving, setTopicSaving] = useState(false);
+  const [topicError, setTopicError] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -660,6 +664,51 @@ function MemoryTab({ bot }: { bot: Bot }) {
     } catch (cause) {
       toast({ kind: "error", title: "Memory switch not updated", body: cause instanceof Error ? cause.message : "Try again." });
     }
+  };
+
+  const openTopic = async (name: string) => {
+    setTopicError("");
+    try {
+      const next = await backend.readMemoryTopic(bot.id, name);
+      setTopic(next);
+      setTopicDraft(next.content ?? "");
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read topic", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const saveTopic = async () => {
+    if (!topic) return;
+    setTopicSaving(true);
+    setTopicError("");
+    try {
+      const next = await backend.saveMemoryTopic(bot.id, topic.name, topicDraft, topic.revision ?? "");
+      setTopic(next);
+      await load();
+      toast({ kind: "success", title: "Topic saved" });
+    } catch (cause) {
+      setTopicError(cause instanceof Error ? cause.message : "Could not save the topic.");
+    } finally {
+      setTopicSaving(false);
+    }
+  };
+
+  const deleteTopic = () => {
+    if (!topic) return;
+    requestConfirm({
+      title: "Delete topic?",
+      body: topic.title + " will be removed from this bot's memory. This cannot be undone.",
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: () => {
+        void backend.deleteMemoryTopic(bot.id, topic.name).then(async () => {
+          setTopic(null);
+          await load();
+        }).catch((cause: unknown) => {
+          toast({ kind: "error", title: "Topic not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+        });
+      },
+    });
   };
 
   const tidy = async () => {
@@ -749,17 +798,33 @@ function MemoryTab({ bot }: { bot: Bot }) {
         <div className="panel-card-title"><span>Topic files</span><span className="avatar-seed">{memory?.topics.length ?? 0}</span></div>
         {memory && memory.topics.length > 0 ? (
           <div className="memory-topics">
-            {memory.topics.map((topic) => (
-              <div key={topic.name} className="memory-topic">
-                <div><strong>{topic.title}</strong><span>{topic.description}</span></div>
-                <span>{formatBytes(topic.bytes)}</span>
-              </div>
+            {memory.topics.map((item) => (
+              <button type="button" key={item.name} className="memory-topic" onClick={() => void openTopic(item.name)}>
+                <div><strong>{item.title}</strong><span>{item.description}</span></div>
+                <span>{formatBytes(item.bytes)}</span>
+              </button>
             ))}
           </div>
         ) : (
           <p className="panel-note">Topic notes in memory/{bot.id}/topics are indexed here but never loaded automatically.</p>
         )}
       </section>
+      <Modal open={Boolean(topic)} onClose={() => setTopic(null)} title={topic?.title ?? "Memory topic"} width={720}>
+        {topic && (
+          <>
+            <textarea className="memory-editor" value={topicDraft} onChange={(event) => setTopicDraft(event.target.value)} spellCheck />
+            <p className="panel-note">Writes are checked against the revision you opened. A topic does not load into a prompt wholesale; matching passages can be recalled.</p>
+            {topicError && <p className="panel-note is-error">{topicError}</p>}
+            <div className="modal-actions split">
+              <button type="button" className="btn btn-danger" onClick={deleteTopic}>Delete topic</button>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setTopic(null)}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={() => void saveTopic()} disabled={topicSaving}>{topicSaving ? "Saving…" : "Save topic"}</button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

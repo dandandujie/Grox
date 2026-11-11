@@ -370,6 +370,8 @@ export interface MemoryTopic {
   title: string;
   description: string;
   bytes: number;
+  content?: string;
+  revision?: string;
   updatedAt: string;
 }
 
@@ -747,6 +749,9 @@ export const Grox = {
   deleteMCPServer(id: string): Promise<void> {
     return call("Grox.DeleteMCPServer", id);
   },
+  deleteMemoryTopic(botID: string, name: string): Promise<void> {
+    return call("Grox.DeleteMemoryTopic", botID, name);
+  },
   deletePreset(id: string): Promise<void> {
     return call("Grox.DeletePreset", id);
   },
@@ -862,6 +867,10 @@ export const Grox = {
   readComputerFile(botID: string, path: string): Promise<FilePreview> {
     return call("Grox.ReadComputerFile", botID, path);
   },
+  /** ReadMemoryTopic returns the full topic body plus its revision for editing. */
+  readMemoryTopic(botID: string, name: string): Promise<MemoryTopic> {
+    return call("Grox.ReadMemoryTopic", botID, name);
+  },
   /** ReadSkill returns the SKILL.md body for the instructions viewer. */
   readSkill(botID: string, skillID: string): Promise<Skill> {
     return call("Grox.ReadSkill", botID, skillID);
@@ -912,6 +921,13 @@ export const Grox = {
    */
   saveMemory(botID: string, content: string, revision: string): Promise<MemoryState> {
     return call("Grox.SaveMemory", botID, content, revision);
+  },
+  /**
+   * SaveMemoryTopic writes a topic only when the revision matches. A new topic
+   * may pass an empty revision.
+   */
+  saveMemoryTopic(botID: string, name: string, content: string, revision: string): Promise<MemoryTopic> {
+    return call("Grox.SaveMemoryTopic", botID, name, content, revision);
   },
   /** Select opens a conversation and marks it read. */
   select(botID: string, threadID: string): Promise<void> {

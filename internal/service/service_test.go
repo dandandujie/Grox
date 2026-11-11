@@ -1374,3 +1374,40 @@ func TestMemoryTidyArchivesOldDatedEntries(t *testing.T) {
 		t.Fatalf("archive topic missing: %+v", state.Topics)
 	}
 }
+
+func TestMemoryTopicReadSaveDelete(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Topic Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.appendMemory(bot.ID, "The launch is Tuesday.", "Launch notes"); err != nil {
+		t.Fatal(err)
+	}
+	topic, err := svc.ReadMemoryTopic(bot.ID, "launch-notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(topic.Content, "Tuesday") || topic.Revision == "" {
+		t.Fatalf("topic read = %+v", topic)
+	}
+	next, err := svc.SaveMemoryTopic(bot.ID, "launch-notes", topic.Content+"\nThe email waits for Priya.\n", topic.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(next.Content, "Priya") {
+		t.Fatalf("topic save = %+v", next)
+	}
+	if _, err := svc.SaveMemoryTopic(bot.ID, "launch-notes", "clobber", topic.Revision); err == nil {
+		t.Fatal("expected stale topic revision to fail")
+	}
+	if err := svc.DeleteMemoryTopic(bot.ID, "launch-notes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ReadMemoryTopic(bot.ID, "launch-notes"); err == nil {
+		t.Fatal("deleted topic still readable")
+	}
+	if _, err := svc.ReadMemoryTopic(bot.ID, "../secret"); err == nil {
+		t.Fatal("path traversal should be refused")
+	}
+}

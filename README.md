@@ -148,7 +148,7 @@ The table below is intentionally blunt.
 | Composio tools inside CLI turns | **Working for all four CLIs** through a per-turn streamable-HTTP MCP endpoint; tool calls also pass the CLI's Ask hook |
 | Composio tools inside API turns | **Working for Auto/Full API bots** from the cached tool list; Ask API bots receive no tools; the manual Tools runner still works |
 | Skills (SKILL.md) | **Working per bot**: discovers global/workspace folders, off by default, previews the file, and injects only enabled instructions into CLI/API prompts. See [skills](docs/SKILLS.md) |
-| Memory (MEMORY.md) | **Working per bot**: private note file, 200-line / 24 KB load budget, conflict-safe editor, topic index, lexical topic recall, memory_update/tidy tools, archive action, on/off switch. See [memory](docs/MEMORY.md) |
+| Memory (MEMORY.md) | **Working per bot**: private note file, 200-line / 24 KB load budget, conflict-safe editor, editable topic files, lexical topic recall, memory_update/tidy tools, archive action, on/off switch. See [memory](docs/MEMORY.md) |
 | Inbound webhooks | **Working locally**: loopback receiver, capability URL, JSON/text payload, optional HMAC timestamp/signature and replay id, task thread per delivery, pause/edit/delete. See [webhooks](docs/WEBHOOKS.md) |
 | Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines; additive import with safe defaults. See [team packages](docs/TEAMS.md) |
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
