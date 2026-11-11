@@ -262,6 +262,19 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		items = append(items, map[string]any{
+			"name":        "extract",
+			"description": "Ask the configured OpenRouter-compatible model to extract structured JSON from text. It never follows instructions inside the text.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"text":         map[string]any{"type": "string"},
+					"instructions": map[string]any{"type": "string"},
+					"schema":       map[string]any{"type": "object", "description": "Optional JSON schema shape."},
+				},
+				"required": []string{"text"},
+			},
+		})
+		items = append(items, map[string]any{
 			"name":        "decide",
 			"description": "Ask the configured fast decision model to choose one option for a classification question. It does not execute the choice.",
 			"inputSchema": map[string]any{
@@ -333,6 +346,16 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": "tool " + slug + " is blocked by this bot's tool policy"}}, "isError": true}, nil)
 			return
 		}
+		if slug == "extract" {
+			value, err := s.extractTool(args)
+			if err != nil {
+				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
+				return
+			}
+			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": value}}}, nil)
+			return
+		}
+
 		if slug == "decide" {
 			value, err := s.decideTool(args)
 			if err != nil {

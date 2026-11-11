@@ -4,7 +4,7 @@ Settings -> Data & privacy -> OpenMaus package v2 accepts an `openmaus.package` 
 
 ## Imported
 
-- Agents -> bots with name, title, description, soul and appearance colour.
+- Agents -> bots with name, title, description, soul, appearance colour and ask/auto/full approval.
 - Seed memory: `MEMORY.md` and `memory/*.md` topics.
 - Skills: written under each bot's own workspace `.grox/skills` and switched on.
 - Playbooks: attached to agents, with triggers and instructions.

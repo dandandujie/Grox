@@ -644,14 +644,14 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 6 || req.ExecuteTool == nil {
+	if len(req.Tools) != 7 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
 	}
 	names := map[string]bool{}
 	for _, tool := range req.Tools {
 		names[tool.Name] = true
 	}
-	if !names["ask_user"] || !names["decide"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
+	if !names["ask_user"] || !names["decide"] || !names["extract"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
 		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
@@ -2397,7 +2397,7 @@ func TestOpenMausPackageV2Import(t *testing.T) {
 		"package": map[string]any{
 			"name": "Imported Desk",
 			"agents": []any{
-				map[string]any{"key": "lead", "name": "Package Lead", "soul": "Coordinate.", "appearance": map[string]any{"color": "purple"}, "skills": []any{"research"}, "playbooks": []any{"qualify"}, "seed": map[string]any{"memory": map[string]any{"MEMORY.md": "- Remember the launch.\n"}}},
+				map[string]any{"key": "lead", "name": "Package Lead", "soul": "Coordinate.", "approval": "full", "appearance": map[string]any{"color": "purple"}, "skills": []any{"research"}, "playbooks": []any{"qualify"}, "seed": map[string]any{"memory": map[string]any{"MEMORY.md": "- Remember the launch.\n"}}},
 				map[string]any{"key": "writer", "name": "Package Writer"},
 			},
 			"rooms":       []any{map[string]any{"key": "desk", "name": "Package Room", "members": []any{"lead", "writer"}, "defaultResponder": map[string]any{"kind": "agent", "agent": "lead"}}},
@@ -2424,7 +2424,7 @@ func TestOpenMausPackageV2Import(t *testing.T) {
 		}
 	}
 	svc.mu.Unlock()
-	if lead == nil || lead.WorkingDir == "" {
+	if lead == nil || lead.WorkingDir == "" || lead.Approval != model.ApprovalFull {
 		t.Fatalf("lead = %+v", lead)
 	}
 	state, err := svc.GetMemory(lead.ID)
@@ -2606,5 +2606,33 @@ func TestDecideToolUsesProvider(t *testing.T) {
 	}
 	if !strings.Contains(value, `"choice":"red"`) || !strings.Contains(value, "0.9") {
 		t.Fatalf("decision = %s", value)
+	}
+}
+
+func TestExtractToolReturnsJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"name\":\"Ada\",\"deadline\":\"Tuesday\"}"}}]}`))
+	}))
+	defer server.Close()
+	svc, _, _ := newTestService(t)
+	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
+		t.Fatal(err)
+	}
+	settings := svc.st.State.Settings
+	settings.DeciderBaseURL = server.URL
+	settings.DeciderModel = "test"
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	value, err := svc.extractTool(map[string]any{
+		"text":   "Ada needs this by Tuesday.",
+		"schema": map[string]any{"name": "string", "deadline": "string"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(value, `"name":"Ada"`) || !strings.Contains(value, "Tuesday") {
+		t.Fatalf("extraction = %s", value)
 	}
 }

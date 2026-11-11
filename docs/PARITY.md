@@ -56,8 +56,9 @@ two products are code-identical.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
 - Jev/decision routing: Auto rooms can use OpenRouter chat, Workers AI Clef-flash or native Jev to pick one
-  member, with a 0.6 threshold, lead fallback, a metadata-only decision log and a bot decide tool.
-  OpenRouter's decisions API, the several-members option and extraction/triage are not ported.
+  member, with a 0.6 threshold, lead fallback, a metadata-only decision log and decide/extract tools.
+  OpenRouter's decisions API, the several-members option, Workers Clairic extraction and inbox triage are
+  not ported.
 - MCP OAuth/dynamic registration, connector requirements and full vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.
 - Email, phone numbers, meetings, Postiz/social publishing and related connectors.

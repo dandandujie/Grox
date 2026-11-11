@@ -231,6 +231,20 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	sel := agent.Select(req)
 	if bot.Approval != model.ApprovalAsk {
 		req.Tools = append(req.Tools, agent.Tool{
+			Name:        "extract",
+			Description: "Ask the configured OpenRouter-compatible model to extract structured JSON from text.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"text":         map[string]any{"type": "string"},
+					"instructions": map[string]any{"type": "string"},
+					"schema":       map[string]any{"type": "object"},
+				},
+				"required": []string{"text"},
+			},
+		})
+
+		req.Tools = append(req.Tools, agent.Tool{
 			Name:        "decide",
 			Description: "Ask the configured fast decision model to choose one option for a classification question. It does not execute the choice.",
 			Parameters: map[string]any{
@@ -305,6 +319,9 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
 			if !toolAllowed(bot.ToolPolicy, name) {
 				return "", fmt.Errorf("tool %s is blocked by this bot's tool policy", name)
+			}
+			if name == "extract" {
+				return s.extractTool(arguments)
 			}
 			if name == "decide" {
 				return s.decideTool(arguments)

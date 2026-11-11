@@ -35,6 +35,12 @@ Each room decision appends one JSON line to `<data>/decider-log/YYYY-MM.ndjson` 
 provider, ok, choice, pTop, latency, model and a short state hash. Message text and bot descriptions are never
 written. Month files are local and not part of a workspace export.
 
+## Extraction tool
+
+Bots can call `extract` with `text`, optional `instructions` and an optional JSON schema. It uses the
+OpenRouter-compatible chat key/base/model, treats the text as data, and returns one JSON object. Workers AI
+Clairic extraction and inbox triage are not ported.
+
 ## Bot decide tool
 
 Bots can call the `decide` MCP/API tool with `instructions` and an `options` object. It asks the configured

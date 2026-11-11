@@ -157,7 +157,7 @@ The table below is intentionally blunt.
 | Departments | **Working locally**: standalone shelves with add/rename/delete, empty shelves in the sidebar, bot counts, and General protection. See [departments](docs/DEPARTMENTS.md) |
 | Onboarding | **Working locally**: first-run welcome with create-bot, demo and engine actions; resettable from About. See [onboarding](docs/ONBOARDING.md) |
 | Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
-| Fast room decisions | **Partial**: Auto rooms use OpenRouter, Workers AI or native Jev to pick one member, with a 0.6 threshold, lead fallback, a metadata-only decision log and a bot decide tool. See [decisions](docs/DECIDER.md) |
+| Fast room decisions | **Partial**: Auto rooms use OpenRouter, Workers AI or native Jev to pick one member, with a 0.6 threshold, lead fallback, a metadata-only decision log, and bot decide/extract tools. See [decisions](docs/DECIDER.md) |
 | Playbooks | **Partial**: per-bot Markdown playbooks selected by trigger words and injected as bounded process guidance. See [playbooks](docs/PLAYBOOKS.md) |
 | Continuous routines | **Partial**: opt-in continuous thread and local runs check, carried through package v2. See [routines](docs/ROUTINES.md) |
 | Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |

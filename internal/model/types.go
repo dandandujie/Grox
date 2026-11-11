@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.51.0"
+	AppVersion = "0.52.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"

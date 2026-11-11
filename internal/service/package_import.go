@@ -74,6 +74,11 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 			return result, err
 		}
 		botsByKey[yamlString(agent, "key")] = &bot
+		switch yamlString(agent, "approval") {
+		case "ask", "auto", "full":
+			approval := yamlString(agent, "approval")
+			_, _ = s.UpdateBot(bot.ID, model.BotPatch{Approval: &approval})
+		}
 		for _, connectionKey := range yamlKeys(agent, "connections") {
 			connectionBots[connectionKey] = append(connectionBots[connectionKey], bot.ID)
 		}

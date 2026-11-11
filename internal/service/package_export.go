@@ -48,7 +48,7 @@ func (s *Service) ExportOpenMausPackage(groupID string) (string, error) {
 		botKeys[bot.ID] = key
 		agent := map[string]any{
 			"key": key, "name": bot.Name, "title": bot.Title, "description": bot.Description, "soul": bot.Soul,
-			"appearance": map[string]any{"color": bot.Color},
+			"approval": bot.Approval, "appearance": map[string]any{"color": bot.Color},
 		}
 		skillKeys := []string{}
 		if skills := s.scanSkillsLocked(bot); len(skills) > 0 {

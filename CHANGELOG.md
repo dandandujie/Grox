@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.52.0
+
+- Added the bot extract MCP/API tool for structured JSON using the OpenRouter-compatible extraction key; it
+  treats text as data and returns one JSON object.
+- Package v2 import/export now carries ask/auto/full approval mapping.
+- Added extraction and approval assertions.
+- Still not ported: Workers AI Clairic extraction, inbox triage, mail/calendar checks and package grants.
+
 ## 0.51.0
 
 - Added the bot-authored decide MCP/API tool: it asks the configured OpenRouter/Workers AI/Jev provider to
