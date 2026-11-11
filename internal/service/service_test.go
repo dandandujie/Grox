@@ -2404,7 +2404,7 @@ func TestOpenMausPackageV2Import(t *testing.T) {
 			"routines":    []any{map[string]any{"name": "Daily digest", "agent": "lead", "prompt": "Summarize the day.", "runOn": "maus", "schedule": map[string]any{"type": "daily", "time": "09:00"}}},
 			"playbooks":   []any{map[string]any{"key": "qualify", "name": "Qualify", "triggers": []any{"lead"}, "instructions": "Ask about budget."}},
 			"skills":      map[string]any{"version": float64(1), "entries": []any{map[string]any{"name": "research", "description": "Research", "instructions": "Research carefully."}}},
-			"connections": []any{map[string]any{"key": "crm", "label": "CRM", "mcp": map[string]any{"url": "https://mcp.example.test/crm"}}},
+			"connections": []any{map[string]any{"key": "crm", "label": "CRM", "mcp": map[string]any{"url": "https://mcp.example.test/crm", "valueNames": []any{"Authorization"}}}},
 		},
 	}
 	raw, _ := json.Marshal(document)
@@ -2440,6 +2440,17 @@ func TestOpenMausPackageV2Import(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("skills = %+v", skills)
+	}
+	svc.mu.Lock()
+	required := []string{}
+	for _, server := range svc.st.State.MCPServers {
+		if strings.EqualFold(server.Name, "crm") {
+			required = server.RequiredValues
+		}
+	}
+	svc.mu.Unlock()
+	if len(required) != 1 || required[0] != "Authorization" {
+		t.Fatalf("required values = %+v", required)
 	}
 }
 

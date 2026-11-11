@@ -155,6 +155,7 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 	transport := normalizeMCPTransport(input.Transport)
 	server := model.MCPServer{
 		ID: newID("mcp"), Name: "", Transport: transport, Enabled: input.Enabled, BotIDs: normalizeMCPBotIDs(input.BotIDs),
+		RequiredValues: normalizeMCPBotIDs(input.RequiredValues),
 	}
 	if transport == "stdio" {
 		command := strings.TrimSpace(input.Command)

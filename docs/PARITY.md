@@ -47,8 +47,8 @@ two products are code-identical.
 ## Not yet ported (local code in the reference repo)
 
 - Team packages: channel-level export/import, local ed25519 signing, BotMRR Markdown v1 and
-  openmaus.package v2 JSON import/export are ported. Requirements/grants, avatars, approval mapping, routine
-  continuity/cloud jobs, package signatures and a trust registry are not.
+  openmaus.package v2 JSON import/export are ported, including approval mapping and required value names.
+  Automatic grants, avatars, routine continuity/cloud jobs, package signatures and a trust registry are not.
 - Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
   playbook import/review and the full package metadata are not.
 - Routines: scheduled tasks, opt-in continuous threads and a local runs check are ported. Mail/calendar

@@ -50,6 +50,12 @@ the enabled state. The list shows the URL or command line and never a token valu
 - internal/agent/cli.go - Codex token environment and CLI wiring
 - src/components/SettingsModal.tsx - MCP servers settings
 
+## Required values
+
+A package can declare connection value names (for example `Authorization`). They are shown in the MCP list
+and editor as requirements; values are never carried in a package. Fill them as additional headers or a
+bearer token.
+
 ## Per-bot scope
 
 An MCP server can be limited to selected bots. Empty selection means every bot. The scope filters the

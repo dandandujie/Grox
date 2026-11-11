@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.53.0
+
+- Package v2 connections now retain their valueNames as required MCP values. They are visible in the MCP list
+  and editor without carrying any value.
+- Added the required-values assertion to the package test.
+- Still not ported: automatic connection setup/grants, Workers Clairic extraction and inbox triage.
+
 ## 0.52.0
 
 - Added the bot extract MCP/API tool for structured JSON using the OpenRouter-compatible extraction key; it

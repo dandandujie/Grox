@@ -221,9 +221,15 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 		if !strings.HasPrefix(url, "https://") {
 			continue
 		}
+		valueNames := []string{}
+		for _, value := range yamlList(mcp["valueNames"]) {
+			if name, ok := value.(string); ok && strings.TrimSpace(name) != "" {
+				valueNames = append(valueNames, strings.TrimSpace(name))
+			}
+		}
 		if _, err := s.CreateMCPServer(model.MCPServerInput{
 			Name: yamlString(connection, "label"), URL: url, Enabled: false,
-			BotIDs: connectionBots[yamlString(connection, "key")],
+			BotIDs: connectionBots[yamlString(connection, "key")], RequiredValues: valueNames,
 		}); err == nil {
 			result.Connections++
 		}

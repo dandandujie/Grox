@@ -926,6 +926,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
           </div>
           <p className="panel-note">No selection means all bots. This only filters the per-turn CLI config; it is not an access control boundary.</p>
         </div>
+        {server?.requiredValues?.length ? <p className="panel-note">Package requires values: {server.requiredValues.join(", ")}. Fill them as additional headers or a bearer token.</p> : null}
         <p className="panel-note">HTTP tokens are stored in the 0600 secrets file, never in AppState or the page. A local command is launched by the selected CLI, not by Grox; only enable a command you trust. Servers are enabled per turn only when this switch is on.</p>
         {error && <p className="panel-note is-error">{error}</p>}
         <div className="modal-actions">
@@ -997,7 +998,7 @@ function MCPSection() {
                 <div className="mcp-copy">
                   <strong>{server.name}</strong>
                   <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
-                  <small>{server.transport === "stdio" ? "Local command" : (server.botIds?.length ?? 0) > 0 ? (server.botIds?.length + " bot(s)") : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
+                  <small>{server.transport === "stdio" ? "Local command" : (server.requiredValues?.length ?? 0) > 0 ? ("Needs " + server.requiredValues?.join(", ")) : (server.botIds?.length ?? 0) > 0 ? (server.botIds?.length + " bot(s)") : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>

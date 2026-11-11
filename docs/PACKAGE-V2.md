@@ -11,7 +11,7 @@ Settings -> Data & privacy -> OpenMaus package v2 accepts an `openmaus.package` 
 - Rooms: members, lead and Auto responder.
 - Routines: daily/weekday schedules with a clock, created paused. Cloud and cron-only routines are skipped.
 - Connections: remote https MCP servers, created disabled with no values, scoped to the agents that
-  referenced each connection.
+  referenced each connection; `valueNames` are shown as required values.
 - Presets: basic name/title/description/soul/colour only.
 
 Everything is additive and credential-looking keys refuse the document.

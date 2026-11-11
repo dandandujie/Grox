@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.52.0"
+	AppVersion = "0.53.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -399,6 +399,7 @@ type MCPServer struct {
 	OAuthAuthorizationURL string    `json:"oauthAuthorizationUrl,omitempty"`
 	OAuthConfigured       bool      `json:"oauthConfigured,omitempty"`
 	BotIDs                []string  `json:"botIds,omitempty"`
+	RequiredValues        []string  `json:"requiredValues,omitempty"`
 	CreatedAt             time.Time `json:"createdAt"`
 	UpdatedAt             time.Time `json:"updatedAt"`
 }
@@ -419,6 +420,7 @@ type MCPServerInput struct {
 	OAuthScopes           string            `json:"oauthScopes,omitempty"`
 	OAuthRefreshToken     string            `json:"oauthRefreshToken,omitempty"`
 	BotIDs                []string          `json:"botIds,omitempty"`
+	RequiredValues        []string          `json:"requiredValues,omitempty"`
 	Enabled               bool              `json:"enabled"`
 }
 
