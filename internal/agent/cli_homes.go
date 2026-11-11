@@ -78,6 +78,19 @@ func tomlArgs(args []string) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
+func mcpHeaders(server model.MCPServerConfig) map[string]string {
+	out := map[string]string{}
+	for name, value := range server.Headers {
+		out[name] = value
+	}
+	if auth := mcpAuthorization(server); auth != "" {
+		if _, exists := out["Authorization"]; !exists {
+			out["Authorization"] = auth
+		}
+	}
+	return out
+}
+
 func mcpAuthorization(server model.MCPServerConfig) string {
 	if strings.TrimSpace(server.Token) == "" {
 		return ""
@@ -105,8 +118,12 @@ func prepareGrokHome(mcpURL, hookURL string, servers ...model.MCPServerConfig) (
 			continue
 		}
 		config += "\n[mcp_servers." + name + "]\nurl = " + tomlString(server.URL) + "\nenabled = true\n"
-		if auth := mcpAuthorization(server); auth != "" {
-			config += "\n[mcp_servers." + name + ".headers]\nAuthorization = " + tomlString(auth) + "\n"
+		headers := mcpHeaders(server)
+		if len(headers) > 0 {
+			config += "\n[mcp_servers." + name + ".headers]\n"
+			for header, value := range headers {
+				config += tomlString(header) + " = " + tomlString(value) + "\n"
+			}
 		}
 	}
 	if hookURL != "" {
@@ -172,8 +189,8 @@ func writeMCPConfig(mcpURL string, servers ...model.MCPServerConfig) (string, fu
 			continue
 		}
 		entry := map[string]any{"type": "http", "url": server.URL}
-		if auth := mcpAuthorization(server); auth != "" {
-			entry["headers"] = map[string]any{"Authorization": auth}
+		if headers := mcpHeaders(server); len(headers) > 0 {
+			entry["headers"] = headers
 		}
 		serverMap[mcpConfigName(server.Name)] = entry
 	}

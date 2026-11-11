@@ -49,3 +49,17 @@ the enabled state. The list shows the URL or command line and never a token valu
 - internal/agent/cli_homes.go - per-CLI temporary configuration
 - internal/agent/cli.go - Codex token environment and CLI wiring
 - src/components/SettingsModal.tsx - MCP servers settings
+
+## Custom headers
+
+HTTP servers can carry up to 16 additional headers, for example:
+
+    X-API-Key: value
+    X-Organization: launch
+
+Values are stored as JSON in the 0600 secrets file under mcp:<id>:headers. AppState exposes only
+headerNames. Claude, Grok and Gemini receive the headers in their temporary configs; Codex receives only
+the bearer-token environment path and cannot carry arbitrary custom headers through this slice.
+
+Editing with the header box empty keeps existing headers. Enter one or more lines to replace all of them.
+

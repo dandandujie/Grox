@@ -27,13 +27,13 @@ func TestPrepareCLIHomes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte("{\"theme\":\"dark\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	server := model.MCPServerConfig{ID: "mcp-1", Name: "Linear", URL: "https://mcp.example.test/mcp", Token: "tok"}
+	server := model.MCPServerConfig{ID: "mcp-1", Name: "Linear", URL: "https://mcp.example.test/mcp", Token: "tok", Headers: map[string]string{"X-Test": "header-value"}}
 	grokHome, grokCleanup, err := prepareGrokHome("http://127.0.0.1:1/mcp", "http://127.0.0.1:1/hook", server)
 	if err != nil {
 		t.Fatal(err)
 	}
 	grokConfig, _ := os.ReadFile(filepath.Join(grokHome, "config.toml"))
-	if !strings.Contains(string(grokConfig), "[mcp_servers.grox]") || !strings.Contains(string(grokConfig), "PreToolUse") || !strings.Contains(string(grokConfig), "[mcp_servers.linear]") || !strings.Contains(string(grokConfig), "Authorization") {
+	if !strings.Contains(string(grokConfig), "[mcp_servers.grox]") || !strings.Contains(string(grokConfig), "PreToolUse") || !strings.Contains(string(grokConfig), "[mcp_servers.linear]") || !strings.Contains(string(grokConfig), "Authorization") || !strings.Contains(string(grokConfig), "X-Test") {
 		t.Fatalf("grok config = %s", grokConfig)
 	}
 	grokCleanup()
@@ -67,7 +67,7 @@ func TestPrepareCLIHomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	mcpRaw, _ := os.ReadFile(mcpPath)
-	if !strings.Contains(string(mcpRaw), "mcpServers") || !strings.Contains(string(mcpRaw), "mcp.example.test") || !strings.Contains(string(mcpRaw), "Authorization") {
+	if !strings.Contains(string(mcpRaw), "mcpServers") || !strings.Contains(string(mcpRaw), "mcp.example.test") || !strings.Contains(string(mcpRaw), "Authorization") || !strings.Contains(string(mcpRaw), "X-Test") {
 		t.Fatalf("mcp config = %s", mcpRaw)
 	}
 	mcpCleanup()

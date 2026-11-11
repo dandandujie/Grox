@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.0
+
+- Added up to 16 custom HTTP headers per remote MCP server, stored write-only in secrets.json.
+- Claude, Grok and Gemini temporary configs include the headers; Codex keeps bearer-token env support only.
+- Added header name/secret redaction in AppState, header editor UI and runtime config tests.
+- Still not ported: MCP OAuth and arbitrary header support for Codex.
+
 ## 0.22.0
 
 - Added a webhook delivery journal: the last 50 accepted deliveries keep time, status, bot, thread and a

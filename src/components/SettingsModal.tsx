@@ -501,6 +501,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   const [command, setCommand] = useState(server?.command ?? "");
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
   const [token, setToken] = useState("");
+  const [headers, setHeaders] = useState("");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -513,6 +514,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
     setCommand(server?.command ?? "");
     setArgs((server?.args ?? []).join("\n"));
     setToken("");
+    setHeaders("");
     setEnabled(server?.enabled ?? true);
     setError("");
     setBusy(false);
@@ -535,6 +537,12 @@ function MCPEditor({ server, open, onClose, onSaved }: {
       return;
     }
     const argList = args.split("\n").map((arg) => arg.trim()).filter(Boolean);
+    const headerMap: Record<string, string> = {};
+    for (const line of headers.split("\n")) {
+      const separator = line.indexOf(":");
+      if (separator < 1) continue;
+      headerMap[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+    }
     setBusy(true);
     try {
       if (server) {
@@ -542,11 +550,12 @@ function MCPEditor({ server, open, onClose, onSaved }: {
           name: name.trim(), transport, enabled,
           ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim() }),
           ...(transport === "http" && token.trim() ? { token: token.trim() } : {}),
+          ...(transport === "http" && headers.trim() ? { headers: headerMap } : {}),
         });
       } else {
         await backend.createMCPServer({
           name: name.trim(), transport, enabled,
-          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim() }),
+          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap }),
         });
       }
       onSaved();
@@ -591,6 +600,11 @@ function MCPEditor({ server, open, onClose, onSaved }: {
               <span>Bearer token (optional)</span>
               <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder={server?.authConfigured ? "Configured; leave blank to keep" : "Stored in secrets.json"} autoComplete="off" />
             </label>
+            <label className="panel-field">
+              <span>Additional headers (optional)</span>
+              <textarea rows={2} value={headers} onChange={(event) => setHeaders(event.target.value)} placeholder={"X-API-Key: ...\nX-Org: ..."} spellCheck={false} />
+            </label>
+            {server?.headerNames?.length ? <p className="panel-note">Existing headers: {server.headerNames.join(", ")}. Enter values only to replace all headers.</p> : null}
           </>
         ) : (
           <>
@@ -675,7 +689,7 @@ function MCPSection() {
                 <div className="mcp-copy">
                   <strong>{server.name}</strong>
                   <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
-                  <small>{server.transport === "stdio" ? "Local command" : server.authConfigured ? "Bearer token configured" : "No bearer token"}</small>
+                  <small>{server.transport === "stdio" ? "Local command" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>

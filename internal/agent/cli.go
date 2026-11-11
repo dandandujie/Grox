@@ -566,8 +566,8 @@ func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerC
 				continue
 			}
 			entry := map[string]any{"url": server.URL, "type": "http"}
-			if auth := mcpAuthorization(server); auth != "" {
-				entry["headers"] = map[string]any{"Authorization": auth}
+			if headers := mcpHeaders(server); len(headers) > 0 {
+				entry["headers"] = headers
 			}
 			servers[mcpConfigName(server.Name)] = entry
 		}

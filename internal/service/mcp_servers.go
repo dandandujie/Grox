@@ -1,8 +1,10 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -10,6 +12,65 @@ import (
 )
 
 func mcpSecretName(id string) string { return "mcp:" + id }
+
+func mcpHeadersSecretName(id string) string { return "mcp:" + id + ":headers" }
+
+func normalizeMCPHeaders(values map[string]string) (map[string]string, []string, error) {
+	out := map[string]string{}
+	seen := map[string]bool{}
+	for name, value := range values {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if strings.ContainsAny(name, ":\r\n") || strings.ContainsAny(value, "\r\n") || strings.ContainsRune(value, 0) {
+			return nil, nil, fmt.Errorf("invalid MCP header")
+		}
+		if len(name) > 128 || len(value) > 4096 {
+			return nil, nil, fmt.Errorf("an MCP header is too long")
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out[name] = value
+	}
+	if len(out) > 16 {
+		return nil, nil, fmt.Errorf("too many MCP headers (16 max)")
+	}
+	names := make([]string, 0, len(out))
+	for name := range out {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return out, names, nil
+}
+
+func (s *Service) saveMCPHeadersLocked(id string, headers map[string]string) error {
+	if len(headers) == 0 {
+		delete(s.st.Secrets, mcpHeadersSecretName(id))
+		return s.st.SaveSecrets()
+	}
+	data, err := json.Marshal(headers)
+	if err != nil {
+		return err
+	}
+	s.st.Secrets[mcpHeadersSecretName(id)] = string(data)
+	return s.st.SaveSecrets()
+}
+
+func (s *Service) mcpHeadersLocked(id string) map[string]string {
+	raw := s.st.Secrets[mcpHeadersSecretName(id)]
+	if raw == "" {
+		return nil
+	}
+	out := map[string]string{}
+	if json.Unmarshal([]byte(raw), &out) != nil {
+		return nil
+	}
+	return out
+}
 
 func normalizeMCPTransport(value string) string {
 	if strings.EqualFold(strings.TrimSpace(value), "stdio") {
@@ -99,6 +160,14 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 		}
 		server.URL = target
 	}
+	headers, headerNames, err := normalizeMCPHeaders(input.Headers)
+	if err != nil {
+		return model.MCPServer{}, err
+	}
+	if transport == "stdio" {
+		headers = nil
+		headerNames = nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	server.Name = s.uniqueMCPNameLocked(input.Name)
@@ -108,10 +177,17 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 	if transport == "http" {
 		if token := strings.TrimSpace(input.Token); token != "" {
 			s.st.Secrets[mcpSecretName(server.ID)] = token
-			if err := s.st.SaveSecrets(); err != nil {
+			server.AuthConfigured = true
+		}
+		if len(headers) > 0 {
+			if err := s.saveMCPHeadersLocked(server.ID, headers); err != nil {
 				return model.MCPServer{}, err
 			}
+			server.HeaderNames = headerNames
 			server.AuthConfigured = true
+		}
+		if err := s.st.SaveSecrets(); err != nil {
+			return model.MCPServer{}, err
 		}
 	}
 	s.st.State.MCPServers = append(s.st.State.MCPServers, server)
@@ -159,7 +235,9 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 		}
 		server.URL = ""
 		delete(s.st.Secrets, mcpSecretName(id))
+		delete(s.st.Secrets, mcpHeadersSecretName(id))
 		server.AuthConfigured = false
+		server.HeaderNames = nil
 		_ = s.st.SaveSecrets()
 	} else {
 		if patch.URL != nil {
@@ -178,10 +256,21 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 			if token := strings.TrimSpace(*patch.Token); token != "" {
 				s.st.Secrets[mcpSecretName(id)] = token
 				server.AuthConfigured = true
-				if err := s.st.SaveSecrets(); err != nil {
+			}
+		}
+		if patch.Headers != nil {
+			if headers, names, err := normalizeMCPHeaders(*patch.Headers); err != nil {
+				return model.MCPServer{}, err
+			} else {
+				if err := s.saveMCPHeadersLocked(id, headers); err != nil {
 					return model.MCPServer{}, err
 				}
+				server.HeaderNames = names
+				server.AuthConfigured = len(headers) > 0 || s.st.Secrets[mcpSecretName(id)] != ""
 			}
+		}
+		if err := s.st.SaveSecrets(); err != nil {
+			return model.MCPServer{}, err
 		}
 	}
 	if patch.Enabled != nil {
@@ -203,6 +292,7 @@ func (s *Service) DeleteMCPServer(id string) error {
 		}
 		s.st.State.MCPServers = append(s.st.State.MCPServers[:index], s.st.State.MCPServers[index+1:]...)
 		delete(s.st.Secrets, mcpSecretName(id))
+		delete(s.st.Secrets, mcpHeadersSecretName(id))
 		_ = s.st.SaveSecrets()
 		s.touchLocked()
 		s.saveLocked()
@@ -224,6 +314,7 @@ func (s *Service) mcpConfigsLocked() []model.MCPServerConfig {
 		}
 		if item.Transport == "http" {
 			item.Token = s.st.Secrets[mcpSecretName(server.ID)]
+			item.Headers = s.mcpHeadersLocked(server.ID)
 		}
 		out = append(out, item)
 	}

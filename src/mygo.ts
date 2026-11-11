@@ -315,6 +315,7 @@ export interface MCPServer {
   args?: string[];
   enabled: boolean;
   authConfigured: boolean;
+  headerNames?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -327,6 +328,7 @@ export interface MCPServerInput {
   command?: string;
   args?: string[];
   token?: string;
+  headers?: Record<string, string>;
   enabled: boolean;
 }
 
@@ -338,6 +340,7 @@ export interface MCPServerPatch {
   command?: string;
   args?: string[];
   token?: string;
+  headers?: Record<string, string>;
   enabled?: boolean;
 }
 

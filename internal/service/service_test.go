@@ -1131,12 +1131,12 @@ func TestAskUserMCPWaitsForAnswer(t *testing.T) {
 
 func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 	svc, _, _ := newTestService(t)
-	server, err := svc.CreateMCPServer(model.MCPServerInput{Name: "Linear MCP", URL: "https://mcp.example.test/mcp", Token: "secret-token", Enabled: true})
+	server, err := svc.CreateMCPServer(model.MCPServerInput{Name: "Linear MCP", URL: "https://mcp.example.test/mcp", Token: "secret-token", Headers: map[string]string{"X-Test": "header-value"}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !server.AuthConfigured {
-		t.Fatal("server should report configured auth")
+	if !server.AuthConfigured || len(server.HeaderNames) != 1 {
+		t.Fatalf("server auth/header names = %+v", server)
 	}
 	if _, err := svc.CreateMCPServer(model.MCPServerInput{Name: "Bad", URL: "file:///tmp/x", Enabled: true}); err == nil {
 		t.Fatal("file URL should be refused")
@@ -1152,8 +1152,8 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 		t.Fatalf("stdio server = %+v", local)
 	}
 	state, _ := json.Marshal(svc.st.State)
-	if strings.Contains(string(state), "secret-token") {
-		t.Fatal("MCP token leaked into AppState")
+	if strings.Contains(string(state), "secret-token") || strings.Contains(string(state), "header-value") {
+		t.Fatal("MCP secret leaked into AppState")
 	}
 	svc.mu.Lock()
 	configs := svc.mcpConfigsLocked()
@@ -1163,6 +1163,9 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 	}
 	if configs[0].Token != "secret-token" && configs[1].Token != "secret-token" {
 		t.Fatalf("HTTP token missing from runtime config = %+v", configs)
+	}
+	if configs[0].Headers["X-Test"] != "header-value" && configs[1].Headers["X-Test"] != "header-value" {
+		t.Fatalf("HTTP header missing from runtime config = %+v", configs)
 	}
 	updated, err := svc.UpdateMCPServer(server.ID, model.MCPServerPatch{Enabled: new(bool)})
 	if err != nil {
