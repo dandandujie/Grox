@@ -2471,3 +2471,35 @@ func TestMCPServerBotScope(t *testing.T) {
 		t.Fatalf("scoped configs one=%+v two=%+v all=%+v", one, two, all)
 	}
 }
+
+func TestOpenMausPackageV2ExportRoundTrip(t *testing.T) {
+	source, _, _ := newTestService(t)
+	if _, err := source.SavePlaybook("bot-brody", model.PlaybookInput{Name: "Export checklist", Triggers: []string{"export"}, Instructions: "Check the export."}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := source.GetMemory("bot-brody")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.SaveMemory("bot-brody", "# Notes\n\n- Export this note.\n", state.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.CreateMCPServer(model.MCPServerInput{Name: "Export MCP", URL: "https://mcp.example.test/export", Enabled: true, BotIDs: []string{"bot-brody"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := source.ExportOpenMausPackage("group-launch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, `"format": "openmaus.package"`) || strings.Contains(raw, "secret-token") {
+		t.Fatalf("unexpected export: %s", raw[:min(len(raw), 200)])
+	}
+	target, _, _ := newTestService(t)
+	result, err := target.ImportOpenMausPackage(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bots < 3 || result.Groups != 1 || result.Playbooks < 1 || result.Connections < 1 {
+		t.Fatalf("roundtrip = %+v", result)
+	}
+}

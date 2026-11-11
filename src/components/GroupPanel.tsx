@@ -51,6 +51,25 @@ export function GroupPanel() {
     });
   };
 
+  const exportPackage = async () => {
+    if (!activeGroup) return;
+    try {
+      const raw = await backend.exportOpenMausPackage(activeGroup.id);
+      const blob = new Blob([raw], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = activeGroup.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".openmaus.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast({ kind: "success", title: "OpenMaus package exported", body: "Agents, skills, playbooks, memory, routines and disabled connections are in the file." });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not export the package", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
   const exportTeam = async () => {
     if (!activeGroup) return;
     try {
@@ -101,6 +120,9 @@ export function GroupPanel() {
           </div>
           <button type="button" className="btn btn-secondary group-export" onClick={() => void exportTeam()}>
             <Download size={14} /> Export team package
+          </button>
+          <button type="button" className="btn btn-secondary group-export" onClick={() => void exportPackage()}>
+            <Download size={14} /> Export OpenMaus package
           </button>
         </section>
 

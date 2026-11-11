@@ -23,6 +23,12 @@ Everything is additive and credential-looking keys refuse the document.
 - Routine continuity, overlap, timeout, room goals and cloud execution.
 - Examples, notes, publisher identity, package signatures and organization trust.
 
+## Export
+
+The channel panel offers Export OpenMaus package. It writes an `openmaus.package` v2 JSON with the channel's
+agents, enabled skills, playbooks, memory/topics, paused routines and disabled connections. Tokens, connection
+values and chat history never travel. A round-trip test imports the export into a fresh workspace.
+
 ## Files
 
 - internal/service/package_import.go

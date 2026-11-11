@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.48.0
+
+- Added openmaus.package v2 export from a channel: agents, enabled skills, playbooks, memory/topics, paused
+  routines and disabled scoped connections, with no tokens or chat history.
+- Added a channel-panel Export OpenMaus package action and a round-trip import test.
+- Still not ported: avatars, approval mapping, requirements/grants, routine continuity/cloud jobs, package
+  signatures and organization trust.
+
 ## 0.47.0
 
 - Added per-bot MCP server scope. Empty scope means every bot; selected bots filter the per-turn CLI config.

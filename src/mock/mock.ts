@@ -731,6 +731,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     throw new Error("Webhooks are only available in the desktop app.");
   }
 
+  async exportOpenMausPackage(_groupId: string): Promise<string> {
+    throw new Error("Package export is only available in the desktop app.");
+  }
+
   async exportTeam(_groupId: string): Promise<string> {
     throw new Error("Team packages are exported by the desktop app.");
   }

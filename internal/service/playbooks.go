@@ -78,6 +78,10 @@ func parsePlaybook(path string) (model.Playbook, bool) {
 func (s *Service) ListPlaybooks(botID string) ([]model.Playbook, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listPlaybooksLocked(botID)
+}
+
+func (s *Service) listPlaybooksLocked(botID string) ([]model.Playbook, error) {
 	if s.findBotLocked(botID) == nil {
 		return nil, fmt.Errorf("bot not found")
 	}

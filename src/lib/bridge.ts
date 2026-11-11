@@ -74,6 +74,7 @@ export interface Backend {
   setAPIEnabled(enabled: boolean): Promise<APIInfo>;
   rotateAPIToken(): Promise<APIInfo>;
   exportTeam(groupId: string): Promise<string>;
+  exportOpenMausPackage(groupId: string): Promise<string>;
   importTeam(raw: string): Promise<TeamImportResult>;
   listMCPServers(): Promise<MCPServer[]>;
   createMCPServer(input: MCPServerInput): Promise<MCPServer>;

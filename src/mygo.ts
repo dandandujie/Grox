@@ -969,6 +969,13 @@ export const Grox = {
     return call("Grox.ExecuteComposioTool", slug, arguments_);
   },
   /**
+   * ExportOpenMausPackage writes one channel as an openmaus.package v2 JSON
+   * document. It carries no tokens, connection values or chat history.
+   */
+  exportOpenMausPackage(groupID: string): Promise<string> {
+    return call("Grox.ExportOpenMausPackage", groupID);
+  },
+  /**
    * ExportTeam writes one channel and its member bots as a portable JSON package.
    * It includes only enabled SKILL.md bodies, persona text, MEMORY.md and routines;
    * no keys, connections, threads or app credentials travel.
