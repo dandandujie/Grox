@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.27.0"
+	AppVersion = "0.28.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -390,9 +390,18 @@ type Message struct {
 	Options     []Option     `json:"options,omitempty"`
 	Approval    *Approval    `json:"approval,omitempty"`
 	Activities  []Activity   `json:"activities,omitempty"`
+	Usage       *Usage       `json:"usage,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 	CreatedAt   time.Time    `json:"createdAt"`
 	UpdatedAt   time.Time    `json:"updatedAt"`
+}
+
+// Usage is token accounting when an engine reports it.
+type Usage struct {
+	InputTokens  int    `json:"inputTokens"`
+	OutputTokens int    `json:"outputTokens"`
+	TotalTokens  int    `json:"totalTokens"`
+	Source       string `json:"source,omitempty"`
 }
 
 // Attachment is a file copied into the Grox workspace and referenced by a message.

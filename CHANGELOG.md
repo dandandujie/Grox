@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0
+
+- Added token usage reporting for the OpenAI-compatible API engine. Usage is accumulated across tool rounds
+  and attached to the final message; the footer shows total tokens with an input/output tooltip.
+- Added the agent TokenUsage/UsageSink capability, SSE usage parsing and a service-level API turn test.
+- CLI engines remain unlabelled because their output formats do not share a stable usage shape; no cost is
+  fabricated.
+
 ## 0.27.0
 
 - Extended the loopback automation API with groups and routines inventories, group message/approval/answer

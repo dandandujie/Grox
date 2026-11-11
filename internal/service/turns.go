@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dandandujie/grox/internal/agent"
 	"github.com/dandandujie/grox/internal/model"
 )
 
@@ -20,6 +21,7 @@ type turnSink struct {
 	message  string
 	created  bool
 	canceled bool
+	usage    model.Usage
 }
 
 type sinkOwner struct {
@@ -62,6 +64,13 @@ func (t *turnSink) newMessage(kind string) model.Message {
 		SenderID: senderID, SenderName: senderName, Engine: t.engine, Model: t.model.Name,
 		CreatedAt: now, UpdatedAt: now,
 	}
+}
+
+func (t *turnSink) Usage(usage agent.TokenUsage) {
+	t.usage.InputTokens += usage.InputTokens
+	t.usage.OutputTokens += usage.OutputTokens
+	t.usage.TotalTokens += usage.TotalTokens
+	t.usage.Source = t.engine
 }
 
 func (t *turnSink) Text(delta string) {
@@ -255,6 +264,15 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 		}
 		thread.Messages = append(thread.Messages, msg)
 		final = ptr(cloneMessage(msg))
+	}
+	if sink.usage.TotalTokens > 0 {
+		usage := sink.usage
+		if final != nil {
+			final.Usage = &usage
+			if msg := s.findMessageLocked(thread, final.ID); msg != nil {
+				msg.Usage = &usage
+			}
+		}
 	}
 	thread.Busy = false
 	thread.Status = ""

@@ -15,12 +15,14 @@ type fakeSink struct {
 	options  []model.Option
 	question string
 	statuses []string
+	usage    TokenUsage
 }
 
 func (f *fakeSink) Text(delta string)         { f.text.WriteString(delta) }
 func (f *fakeSink) Status(status string)      { f.statuses = append(f.statuses, status) }
 func (f *fakeSink) Activity(a model.Activity) { f.activity = append(f.activity, a) }
 func (f *fakeSink) Approval(a model.Approval) { f.approval = &a }
+func (f *fakeSink) Usage(usage TokenUsage)    { f.usage = usage }
 func (f *fakeSink) Options(text string, options []model.Option) {
 	f.question = text
 	f.options = options

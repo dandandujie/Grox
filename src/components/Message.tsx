@@ -56,6 +56,9 @@ function MessageActions({ message, bot }: { message: Message; bot: Bot }) {
         </button>
       )}
       <span className="message-time">{clock(message.createdAt)}</span>
+      {message.usage && message.usage.totalTokens > 0 && (
+        <span className="message-usage" title={message.usage.inputTokens + " in / " + message.usage.outputTokens + " out"}>{message.usage.totalTokens.toLocaleString()} tok</span>
+      )}
       {message.engine && <span className="message-engine" title={message.engine}>{message.engine}</span>}
       {message.role === "bot" && bot.name && <span className="sr-only">from {bot.name}</span>}
     </div>

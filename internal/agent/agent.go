@@ -25,6 +25,28 @@ type Sink interface {
 	Options(text string, options []model.Option)
 }
 
+// TokenUsage is reported by engines that expose token accounting.
+type TokenUsage struct {
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+}
+
+// UsageSink is an optional capability on a Sink. Engines call reportUsage when
+// the provider returns a usage object.
+type UsageSink interface {
+	Usage(TokenUsage)
+}
+
+func reportUsage(sink Sink, usage TokenUsage) {
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
+	if usageSink, ok := sink.(UsageSink); ok {
+		usageSink.Usage(usage)
+	}
+}
+
 // Tool is one function exposed to an API agent. The schema is an OpenAI
 // function-tool parameters object.
 type Tool struct {

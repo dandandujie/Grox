@@ -26,6 +26,7 @@ func TestRunAPIStream(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
@@ -44,6 +45,9 @@ func TestRunAPIStream(t *testing.T) {
 	}
 	if !called || result != "Hello" || sink.text.String() != "Hello" {
 		t.Fatalf("called=%v result=%q sink=%q", called, result, sink.text.String())
+	}
+	if sink.usage.TotalTokens != 5 || sink.usage.InputTokens != 3 || sink.usage.OutputTokens != 2 {
+		t.Fatalf("usage = %+v", sink.usage)
 	}
 }
 

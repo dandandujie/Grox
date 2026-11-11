@@ -424,6 +424,7 @@ export interface Message {
   options?: Option[];
   approval?: Approval;
   activities?: Activity[];
+  usage?: Usage;
   attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
@@ -655,6 +656,14 @@ export interface Turn {
   busy: boolean;
   status?: string;
   engine?: string;
+}
+
+/** Usage is token accounting when an engine reports it. */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  source?: string;
 }
 
 /**

@@ -87,9 +87,10 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 	}
 
 	body, err := json.Marshal(map[string]any{
-		"model":    modelID,
-		"messages": messages,
-		"stream":   true,
+		"model":          modelID,
+		"messages":       messages,
+		"stream":         true,
+		"stream_options": map[string]any{"include_usage": true},
 	})
 	if err != nil {
 		return "", err
@@ -146,6 +147,9 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 		if errObj, ok := event["error"].(map[string]any); ok {
 			return "", fmt.Errorf("%s", str(errObj["message"]))
 		}
+		if usage, ok := usageFromEvent(event); ok {
+			reportUsage(sink, usage)
+		}
 		choices, _ := event["choices"].([]any)
 		if len(choices) == 0 {
 			continue
@@ -185,6 +189,28 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 		return "", fmt.Errorf("the API returned an empty reply")
 	}
 	return text.String(), nil
+}
+
+func usageFromEvent(event map[string]any) (TokenUsage, bool) {
+	raw, ok := event["usage"].(map[string]any)
+	if !ok || raw == nil {
+		return TokenUsage{}, false
+	}
+	number := func(value any) int {
+		if parsed, ok := value.(float64); ok {
+			return int(parsed)
+		}
+		return 0
+	}
+	usage := TokenUsage{
+		InputTokens:  number(raw["prompt_tokens"]),
+		OutputTokens: number(raw["completion_tokens"]),
+		TotalTokens:  number(raw["total_tokens"]),
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
+	return usage, usage.TotalTokens > 0
 }
 
 func contentText(content any) string {

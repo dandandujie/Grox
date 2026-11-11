@@ -1783,3 +1783,46 @@ func TestAutomationAPIGroupsAndRoutines(t *testing.T) {
 		return ev.Type == "message" && ev.GroupID == group.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
 	})
 }
+
+func TestAPITurnRecordsUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Usage reply\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	svc, _, events := newTestService(t)
+	if _, err := svc.SetSecret("openai", "test-key"); err != nil {
+		t.Fatal(err)
+	}
+	settings := svc.st.State.Settings
+	settings.EngineMode = "api"
+	settings.APIBaseURL = server.URL
+	settings.APIModel = "gpt-5.2"
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Usage Bot", ModelID: "gpt-5.2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread := bot.Threads[0]
+	if _, err := svc.Send(bot.ID, thread.ID, "measure this"); err != nil {
+		t.Fatal(err)
+	}
+	var final *model.Message
+	waitFor(t, events, 5*time.Second, "the usage turn", func(ev model.Event) bool {
+		if ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && ev.Message.Usage != nil {
+			final = ev.Message
+			return true
+		}
+		return false
+	})
+	if final.Usage.TotalTokens != 10 || final.Usage.InputTokens != 7 || final.Usage.OutputTokens != 3 || final.Usage.Source != "OpenAI-compatible API" {
+		t.Fatalf("usage = %+v", final.Usage)
+	}
+}

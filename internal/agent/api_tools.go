@@ -195,7 +195,7 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 }
 
 func streamAPIRound(ctx context.Context, endpoint, modelID, apiKey string, messages []map[string]any, tools []map[string]any, sink Sink) (apiRound, error) {
-	payload := map[string]any{"model": modelID, "messages": messages, "stream": true}
+	payload := map[string]any{"model": modelID, "messages": messages, "stream": true, "stream_options": map[string]any{"include_usage": true}}
 	if len(tools) > 0 {
 		payload["tools"] = tools
 		payload["tool_choice"] = "auto"
@@ -250,6 +250,9 @@ func streamAPIRound(ctx context.Context, endpoint, modelID, apiKey string, messa
 		}
 		if errObj, ok := event["error"].(map[string]any); ok {
 			return apiRound{}, fmt.Errorf("%s", str(errObj["message"]))
+		}
+		if usage, ok := usageFromEvent(event); ok {
+			reportUsage(sink, usage)
 		}
 		choices, _ := event["choices"].([]any)
 		if len(choices) == 0 {
