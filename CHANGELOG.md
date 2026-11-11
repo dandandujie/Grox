@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.57.0
+
+- Busy routines with Retry shortly now keep one queued occurrence and run it once when the bot frees up,
+  instead of polling every two minutes. Skip still advances to the next schedule.
+- Added a queue regression test covering busy -> queued -> free -> run.
+- Still not ported: FIFO queueing, cloud jobs, room goals, timeouts and mail/calendar checks.
+
 ## 0.56.0
 
 - Grok Bot import now merges split export documents by bot name, deduplicating list fields.

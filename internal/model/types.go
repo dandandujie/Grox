@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.56.0"
+	AppVersion = "0.57.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -645,6 +645,7 @@ type Routine struct {
 	Continuity          bool      `json:"continuity,omitempty"`
 	Checks              []string  `json:"checks,omitempty"`
 	Overlap             string    `json:"overlap,omitempty"`
+	Queued              bool      `json:"queued,omitempty"`
 	ConsecutiveFailures int       `json:"consecutiveFailures,omitempty"`
 	LastCheckAt         time.Time `json:"lastCheckAt,omitempty"`
 	LastThreadID        string    `json:"lastThreadId,omitempty"`

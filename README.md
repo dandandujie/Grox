@@ -159,7 +159,7 @@ The table below is intentionally blunt.
 | Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
 | Fast room decisions | **Partial**: Auto rooms use OpenRouter, Workers AI or native Jev to pick one member, with a 0.6 threshold, lead fallback, a metadata-only decision log, and bot decide/extract tools. See [decisions](docs/DECIDER.md) |
 | Playbooks | **Partial**: per-bot Markdown playbooks selected by trigger words and injected as bounded process guidance. See [playbooks](docs/PLAYBOOKS.md) |
-| Continuous routines | **Partial**: continuous thread, local runs check, busy policy and failure backoff, carried through package v2. See [routines](docs/ROUTINES.md) |
+| Continuous routines | **Partial**: continuous thread, local runs check, queued retry, failure backoff, carried through package v2. See [routines](docs/ROUTINES.md) |
 | Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |
 | Grok Bot import | **Partial**: paste one or split Grok Bot exports to create bots, isolated enabled skills, memory, paused simple routines, event notes and disabled MCP servers. See [import](docs/GROK-IMPORT.md) |
 | BotMRR teams | **Partial**: import BotMRR Markdown agents, isolated skills, playbooks, rooms and paused routines. See [BotMRR](docs/BOTMRR.md) |

@@ -2702,3 +2702,46 @@ func TestGrokBotImportMergesSplitDocuments(t *testing.T) {
 		t.Fatalf("split result = %+v", result)
 	}
 }
+
+func TestRoutineQueueRetriesAfterBusy(t *testing.T) {
+	svc, _, events := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Queue Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routine, err := svc.CreateRoutine(model.RoutineInput{
+		BotID: bot.ID, Name: "Queued routine", Prompt: "Run once after busy.", Cadence: "daily", TimeOfDay: "09:00", Overlap: "queue", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	for index := range svc.st.State.Routines {
+		if svc.st.State.Routines[index].ID == routine.ID {
+			svc.st.State.Routines[index].NextRun = time.Now().Add(-time.Minute)
+		}
+	}
+	if current := svc.findBotLocked(bot.ID); current != nil {
+		current.Threads[0].Busy = true
+	}
+	svc.mu.Unlock()
+	svc.runDueRoutines()
+	svc.mu.Lock()
+	queued := false
+	for _, item := range svc.st.State.Routines {
+		if item.ID == routine.ID && item.Queued {
+			queued = true
+		}
+	}
+	if current := svc.findBotLocked(bot.ID); current != nil {
+		current.Threads[0].Busy = false
+	}
+	svc.mu.Unlock()
+	if !queued {
+		t.Fatal("routine was not queued while busy")
+	}
+	svc.runDueRoutines()
+	waitFor(t, events, 5*time.Second, "the queued routine turn", func(ev model.Event) bool {
+		return ev.Type == "turn" && ev.BotID == bot.ID && ev.Turn != nil && !ev.Turn.Busy
+	})
+}

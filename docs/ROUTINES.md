@@ -13,9 +13,10 @@ goals and timeouts are not ported.
 
 ## Busy and failure behavior
 
-While the bot is busy, **Skip this run** advances to the next scheduled time; **Retry shortly** checks again in
-about two minutes. This is a retry, not a FIFO queue. When a run fails, the next retry backs off from 15
-minutes, doubles per consecutive failure and caps at four hours; a completed run resets the counter.
+While the bot is busy, **Skip this run** advances to the next scheduled time; **Retry shortly** marks the
+routine queued and runs it once when the bot becomes free. Only one queued occurrence is kept per routine.
+When a run fails, the next retry backs off from 15 minutes, doubles per consecutive failure and caps at four
+hours; a completed run resets the counter.
 
 ## Runs check
 

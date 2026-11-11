@@ -643,6 +643,7 @@ export interface Routine {
   continuity?: boolean;
   checks?: string[];
   overlap?: string;
+  queued?: boolean;
   consecutiveFailures?: number;
   lastCheckAt?: string;
   lastThreadId?: string;

@@ -237,6 +237,7 @@ func (s *Service) runRoutine(id string, scheduled bool) (model.SendResult, error
 	}
 	r.LastRun = now
 	r.LastStatus = "running"
+	r.Queued = false
 	r.NextRun = schedule.Next(*r, now)
 	if scheduled {
 		r.NextRun = schedule.Next(*r, now)
@@ -296,12 +297,16 @@ func (s *Service) runDueRoutines() {
 	changed := false
 	for i := range s.st.State.Routines {
 		r := &s.st.State.Routines[i]
-		if !r.Enabled || r.NextRun.IsZero() || r.NextRun.After(now) {
+		queued := r.Queued
+		if !r.Enabled {
+			continue
+		}
+		if !queued && (r.NextRun.IsZero() || r.NextRun.After(now)) {
 			continue
 		}
 		// A laptop that slept through a run should not replay a week of
 		// work at once. Note the miss and move the schedule forward.
-		if now.Sub(r.NextRun) > 45*time.Minute {
+		if !queued && now.Sub(r.NextRun) > 45*time.Minute {
 			r.LastStatus = "missed"
 			r.NextRun = schedule.Next(*r, now)
 			r.UpdatedAt = now
@@ -325,13 +330,18 @@ func (s *Service) runDueRoutines() {
 		}
 		if busy {
 			if normalizeRoutineOverlap(r.Overlap) == "queue" {
-				r.NextRun = now.Add(2 * time.Minute)
+				r.Queued = true
+				r.NextRun = now
 			} else {
 				r.NextRun = schedule.Next(*r, now)
 			}
 			r.UpdatedAt = now
 			changed = true
 			continue
+		}
+		if queued {
+			r.Queued = false
+			changed = true
 		}
 		dueRuns = append(dueRuns, due{id: r.ID})
 	}
