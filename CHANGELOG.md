@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.0
+
+- Signed exported team packages with a local ed25519 key (signature, publicKey, signedAt) and verify the
+  signature on import, failing closed on tampering or incomplete signatures.
+- Older unsigned packages remain importable. The signing seed stays in secrets.json.
+- Added signed-export, tampered-package and valid-import coverage.
+- Still not ported: organization trust registry, signed release discovery, revocation and hosted libraries.
+
 ## 0.32.0
 
 - Added optional local token pricing (USD per 1M input/output) and a per-message six-decimal cost label.

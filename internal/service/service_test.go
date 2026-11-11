@@ -1031,6 +1031,21 @@ func TestTeamPackageExportImport(t *testing.T) {
 	if pkg.Format != "grox.team" || len(pkg.Bots) != 1 || len(pkg.Bots[0].Skills) != 1 {
 		t.Fatalf("exported package = %+v", pkg)
 	}
+	if pkg.Signature == "" || pkg.PublicKey == "" || pkg.SignedAt.IsZero() {
+		t.Fatalf("exported package is unsigned = %+v", pkg)
+	}
+	if err := verifyTeamPackage(pkg); err != nil {
+		t.Fatalf("signature verify = %v", err)
+	}
+	tampered := pkg
+	tampered.Bots[0].Name += " tampered"
+	if err := verifyTeamPackage(tampered); err == nil {
+		t.Fatal("tampered package verified")
+	}
+	tamperedRaw, _ := json.Marshal(tampered)
+	if _, err := svc.ImportTeam(string(tamperedRaw)); err == nil {
+		t.Fatal("tampered package imported")
+	}
 	result, err := svc.ImportTeam(raw)
 	if err != nil {
 		t.Fatal(err)

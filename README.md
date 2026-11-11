@@ -150,7 +150,7 @@ The table below is intentionally blunt.
 | Skills (SKILL.md) | **Working per bot**: discovers global/workspace folders, off by default, previews the file, and injects only enabled instructions into CLI/API prompts. See [skills](docs/SKILLS.md) |
 | Memory (MEMORY.md) | **Working per bot**: private note file, 200-line / 24 KB load budget, conflict-safe editor, editable topic files, lexical topic recall, memory_update/tidy/forget tools, expiry markers, optional daily logs, manual/automatic archive, on/off switch. See [memory](docs/MEMORY.md) |
 | Inbound webhooks | **Working locally**: loopback receiver, capability URL, JSON/text payload, optional HMAC timestamp/signature and replay id, delivery journal and local replay, task thread per delivery, pause/edit/delete. See [webhooks](docs/WEBHOOKS.md) |
-| Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines; additive import with safe defaults. See [team packages](docs/TEAMS.md) |
+| Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines, plus local ed25519 signatures and tamper verification; additive import. See [team packages](docs/TEAMS.md) |
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
 | MCP servers | **Working locally**: remote HTTP/HTTPS with write-only bearer token and custom headers, or local stdio command/args; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
 | New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |

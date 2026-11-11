@@ -1,6 +1,9 @@
 package service
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,7 +15,10 @@ import (
 	"github.com/dandandujie/grox/internal/schedule"
 )
 
-const teamPackageFormat = "grox.team"
+const (
+	teamPackageFormat = "grox.team"
+	teamSigningSecret = "team:signing-key"
+)
 
 func (s *Service) uniqueBotNameLocked(name string) string {
 	name = strings.TrimSpace(name)
@@ -44,6 +50,67 @@ func (s *Service) uniqueGroupNameLocked(name string) string {
 		candidate = fmt.Sprintf("%s %d", name, suffix)
 	}
 	return candidate
+}
+
+func (s *Service) teamSigningKeyLocked() (ed25519.PrivateKey, error) {
+	if encoded := strings.TrimSpace(s.st.Secrets[teamSigningSecret]); encoded != "" {
+		seed, err := base64.StdEncoding.DecodeString(encoded)
+		if err == nil && len(seed) == ed25519.SeedSize {
+			return ed25519.NewKeyFromSeed(seed), nil
+		}
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	s.st.Secrets[teamSigningSecret] = base64.StdEncoding.EncodeToString(private.Seed())
+	if err := s.st.SaveSecrets(); err != nil {
+		return nil, err
+	}
+	_ = public
+	return private, nil
+}
+
+func canonicalTeamPackage(pkg model.TeamPackage) []byte {
+	copy := pkg
+	copy.Signature = ""
+	copy.PublicKey = ""
+	copy.SignedAt = time.Time{}
+	data, _ := json.Marshal(copy)
+	return data
+}
+
+func (s *Service) signTeamPackageLocked(pkg *model.TeamPackage) error {
+	private, err := s.teamSigningKeyLocked()
+	if err != nil {
+		return err
+	}
+	signature := ed25519.Sign(private, canonicalTeamPackage(*pkg))
+	pkg.Signature = base64.StdEncoding.EncodeToString(signature)
+	pkg.PublicKey = base64.StdEncoding.EncodeToString(private.Public().(ed25519.PublicKey))
+	pkg.SignedAt = time.Now().UTC()
+	return nil
+}
+
+func verifyTeamPackage(pkg model.TeamPackage) error {
+	if pkg.Signature == "" && pkg.PublicKey == "" && pkg.SignedAt.IsZero() {
+		return nil
+	}
+	if pkg.Signature == "" || pkg.PublicKey == "" {
+		return fmt.Errorf("team package signature is incomplete")
+	}
+	public, err := base64.StdEncoding.DecodeString(pkg.PublicKey)
+	if err != nil || len(public) != ed25519.PublicKeySize {
+		return fmt.Errorf("team package public key is invalid")
+	}
+	signature, err := base64.StdEncoding.DecodeString(pkg.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return fmt.Errorf("team package signature is invalid")
+	}
+	if !ed25519.Verify(ed25519.PublicKey(public), canonicalTeamPackage(pkg), signature) {
+		return fmt.Errorf("team package signature does not match")
+	}
+	return nil
 }
 
 // ExportTeam writes one channel and its member bots as a portable JSON package.
@@ -108,6 +175,9 @@ func (s *Service) ExportTeam(groupID string) (string, error) {
 			})
 		}
 	}
+	if err := s.signTeamPackageLocked(&pkg); err != nil {
+		return "", err
+	}
 	data, err := json.MarshalIndent(pkg, "", "  ")
 	if err != nil {
 		return "", err
@@ -133,6 +203,9 @@ func (s *Service) ImportTeam(raw string) (model.TeamImportResult, error) {
 	var pkg model.TeamPackage
 	if err := json.Unmarshal([]byte(raw), &pkg); err != nil {
 		return model.TeamImportResult{}, fmt.Errorf("invalid team package: %w", err)
+	}
+	if err := verifyTeamPackage(pkg); err != nil {
+		return model.TeamImportResult{}, err
 	}
 	if pkg.Format != teamPackageFormat || pkg.Version != 1 {
 		return model.TeamImportResult{}, fmt.Errorf("unsupported team package format")

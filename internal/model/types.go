@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.32.0"
+	AppVersion = "0.33.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -265,6 +265,9 @@ type TeamPackage struct {
 	Group      PackageGroup     `json:"group"`
 	Bots       []PackageBot     `json:"bots"`
 	Routines   []PackageRoutine `json:"routines,omitempty"`
+	Signature  string           `json:"signature,omitempty"`
+	PublicKey  string           `json:"publicKey,omitempty"`
+	SignedAt   time.Time        `json:"signedAt,omitempty"`
 }
 
 type PackageGroup struct {

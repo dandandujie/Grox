@@ -55,3 +55,20 @@ Import is additive. It is not a merge and it does not carry a host or organizati
 - Presets and complete Markdown team files from BotMRR.
 - Signed packages, package ids/versions and update-in-place releases.
 - Photo/avatar images; Grox portraits are generated from the bot name.
+
+## Signed packages
+
+ExportTeam now signs the package with a local ed25519 key and includes:
+
+- signature: base64 signature
+- publicKey: base64 public key
+- signedAt: UTC timestamp
+
+The signature covers the canonical package JSON with those three fields cleared. ImportTeam verifies the
+signature when present and fails closed if it is incomplete or does not match. Unsigned packages from older
+Grox versions are still accepted.
+
+The signing seed lives in secrets.json under team:signing-key and is generated on first signed export. A
+signature detects accidental or deliberate edits after export; it does not prove who authored the package
+or establish a trust registry. Organization-signed releases, revocation and key discovery are not ported.
+

@@ -44,8 +44,9 @@ two products are code-identical.
 
 ## Not yet ported (local code in the reference repo)
 
-- Team packages: channel-level export/import of bots, skills, memory and routines is ported. Organization
-  libraries, presets, signed releases and department shelves are not.
+- Team packages: channel-level export/import of bots, skills, memory and routines, plus local ed25519
+  package signing and tamper verification, are ported. Organization libraries, presets, a trust registry,
+  signed release discovery and department shelves are not.
 - Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
 - Jeev/decision-model routing with multiple decision providers.
