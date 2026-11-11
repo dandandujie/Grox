@@ -1,18 +1,21 @@
 # Remote MCP servers
 
-Grox can add user-managed streamable-HTTP MCP servers to every CLI turn. This is the first local CRUD
-slice of OpenMausBot's MCP settings: remote URLs, optional bearer tokens, enable/disable and delete.
-Local stdio commands, OAuth login, per-tool policy and the full value vault are not ported.
+Grox can add user-managed remote HTTP or local stdio MCP servers to every CLI turn. This is the local CRUD
+slice of OpenMausBot's MCP settings: a remote URL with an optional bearer token, or a local command with
+arguments, plus enable/disable and delete. OAuth login, per-tool policy and the full value vault are not
+ported.
 
 ## What happens
 
 Enabled servers are added to the temporary CLI configuration for the next turn:
 
-- Claude: a temporary --mcp-config JSON entry, including the Authorization header.
-- Grok: a temporary GROK_HOME config.toml entry, including the Authorization header.
-- Codex: a temporary CODEX_HOME config.toml entry with bearer_token_env_var; the token is passed only
-  through that subprocess environment.
-- Gemini: a temporary GEMINI_CLI_HOME settings.json entry, including the Authorization header.
+- Claude: a temporary --mcp-config JSON entry; HTTP includes the Authorization header, stdio includes
+  command and args.
+- Grok: a temporary GROK_HOME config.toml entry; HTTP includes headers, stdio includes command and args.
+- Codex: a temporary CODEX_HOME config.toml entry; HTTP uses bearer_token_env_var (the token is passed only
+  through that subprocess environment), stdio includes command and args.
+- Gemini: a temporary GEMINI_CLI_HOME settings.json entry; HTTP includes headers, stdio includes command
+  and args.
 
 The per-turn Grox MCP gateway (Composio tools plus ask_user) is always present separately.
 
@@ -26,8 +29,10 @@ Editing a server with a blank token keeps the existing token. Deleting the serve
 
 ## Limits
 
-- HTTP and HTTPS streamable-HTTP URLs only; a file:// URL is rejected.
-- No local command/stdio MCP server execution from this UI.
+- HTTP and HTTPS URLs only for HTTP transport; file:// is rejected.
+- Local stdio commands are launched by the selected CLI, not by Grox. Only add a command you trust; the
+  command runs with the CLI's permissions and is not sandboxed by Grox.
+- Arguments are one per line and limited to 32 entries.
 - No OAuth flow, dynamic registration or per-server scopes.
 - Server tools are still subject to the CLI's own tool approval behavior and Grox's per-turn hooks.
 - The CLI may cache or surface a remote server's tools according to its own semantics; Grox does not
@@ -35,8 +40,8 @@ Editing a server with a blank token keeps the existing token. Deleting the serve
 
 ## UI
 
-Settings -> MCP servers. Add a name, URL, optional bearer token and enabled state. The list shows the URL
-and whether a token is configured, never the token itself.
+Settings -> MCP servers. Add a name, choose HTTP or Local command, then fill URL or command/arguments and
+the enabled state. The list shows the URL or command line and never a token value.
 
 ## Files
 

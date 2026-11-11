@@ -63,6 +63,21 @@ func mcpEnvName(id string) string {
 	return "GROX_MCP_TOKEN_" + value
 }
 
+func mcpTransport(server model.MCPServerConfig) string {
+	if strings.EqualFold(strings.TrimSpace(server.Transport), "stdio") {
+		return "stdio"
+	}
+	return "http"
+}
+
+func tomlArgs(args []string) string {
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		parts = append(parts, tomlString(arg))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
 func mcpAuthorization(server model.MCPServerConfig) string {
 	if strings.TrimSpace(server.Token) == "" {
 		return ""
@@ -85,6 +100,10 @@ func prepareGrokHome(mcpURL, hookURL string, servers ...model.MCPServerConfig) (
 	}
 	for _, server := range servers {
 		name := mcpConfigName(server.Name)
+		if mcpTransport(server) == "stdio" {
+			config += "\n[mcp_servers." + name + "]\ncommand = " + tomlString(server.Command) + "\nargs = " + tomlArgs(server.Args) + "\nenabled = true\n"
+			continue
+		}
 		config += "\n[mcp_servers." + name + "]\nurl = " + tomlString(server.URL) + "\nenabled = true\n"
 		if auth := mcpAuthorization(server); auth != "" {
 			config += "\n[mcp_servers." + name + ".headers]\nAuthorization = " + tomlString(auth) + "\n"
@@ -115,6 +134,10 @@ func prepareCodexHome(mcpURL, hookScript string, servers ...model.MCPServerConfi
 	}
 	for _, server := range servers {
 		name := mcpConfigName(server.Name)
+		if mcpTransport(server) == "stdio" {
+			config += "\n[mcp_servers." + name + "]\ncommand = " + tomlString(server.Command) + "\nargs = " + tomlArgs(server.Args) + "\nenabled = true\n"
+			continue
+		}
 		config += "\n[mcp_servers." + name + "]\nurl = " + tomlString(server.URL) + "\nenabled = true\n"
 		if strings.TrimSpace(server.Token) != "" {
 			config += "bearer_token_env_var = " + tomlString(mcpEnvName(server.ID)) + "\n"
@@ -142,6 +165,12 @@ func writeMCPConfig(mcpURL string, servers ...model.MCPServerConfig) (string, fu
 		serverMap["grox"] = map[string]any{"type": "http", "url": mcpURL}
 	}
 	for _, server := range servers {
+		if mcpTransport(server) == "stdio" {
+			serverMap[mcpConfigName(server.Name)] = map[string]any{
+				"type": "stdio", "command": server.Command, "args": append([]string(nil), server.Args...),
+			}
+			continue
+		}
 		entry := map[string]any{"type": "http", "url": server.URL}
 		if auth := mcpAuthorization(server); auth != "" {
 			entry["headers"] = map[string]any{"Authorization": auth}

@@ -559,6 +559,12 @@ func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerC
 			servers["grox"] = map[string]any{"url": mcpURL, "type": "http"}
 		}
 		for _, server := range serversConfig {
+			if mcpTransport(server) == "stdio" {
+				servers[mcpConfigName(server.Name)] = map[string]any{
+					"type": "stdio", "command": server.Command, "args": append([]string(nil), server.Args...),
+				}
+				continue
+			}
 			entry := map[string]any{"url": server.URL, "type": "http"}
 			if auth := mcpAuthorization(server); auth != "" {
 				entry["headers"] = map[string]any{"Authorization": auth}

@@ -496,7 +496,10 @@ function MCPEditor({ server, open, onClose, onSaved }: {
 }) {
   const { backend, toast } = useApp();
   const [name, setName] = useState(server?.name ?? "");
+  const [transport, setTransport] = useState<"http" | "stdio">(server?.transport === "stdio" ? "stdio" : "http");
   const [url, setUrl] = useState(server?.url ?? "");
+  const [command, setCommand] = useState(server?.command ?? "");
+  const [args, setArgs] = useState((server?.args ?? []).join("\n"));
   const [token, setToken] = useState("");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [busy, setBusy] = useState(false);
@@ -505,7 +508,10 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   useEffect(() => {
     if (!open) return;
     setName(server?.name ?? "");
+    setTransport(server?.transport === "stdio" ? "stdio" : "http");
     setUrl(server?.url ?? "");
+    setCommand(server?.command ?? "");
+    setArgs((server?.args ?? []).join("\n"));
     setToken("");
     setEnabled(server?.enabled ?? true);
     setError("");
@@ -516,19 +522,32 @@ function MCPEditor({ server, open, onClose, onSaved }: {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || !url.trim()) {
-      setError("Give the server a name and a full URL.");
+    if (!name.trim()) {
+      setError("Give the server a name.");
       return;
     }
+    if (transport === "http" && !url.trim()) {
+      setError("Enter a full MCP URL.");
+      return;
+    }
+    if (transport === "stdio" && !command.trim()) {
+      setError("Enter the local MCP command.");
+      return;
+    }
+    const argList = args.split("\n").map((arg) => arg.trim()).filter(Boolean);
     setBusy(true);
     try {
       if (server) {
         await backend.updateMCPServer(server.id, {
-          name: name.trim(), url: url.trim(), enabled,
-          ...(token.trim() ? { token: token.trim() } : {}),
+          name: name.trim(), transport, enabled,
+          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim() }),
+          ...(transport === "http" && token.trim() ? { token: token.trim() } : {}),
         });
       } else {
-        await backend.createMCPServer({ name: name.trim(), url: url.trim(), token: token.trim(), enabled });
+        await backend.createMCPServer({
+          name: name.trim(), transport, enabled,
+          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim() }),
+        });
       }
       onSaved();
       onClose();
@@ -553,15 +572,39 @@ function MCPEditor({ server, open, onClose, onSaved }: {
             <div className="switch-row-inline"><Switch checked={enabled} label="Enable MCP server" onChange={setEnabled} /></div>
           </label>
         </div>
-        <label className="panel-field">
-          <span>Streamable HTTP URL</span>
-          <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://mcp.example.com/mcp" spellCheck={false} />
-        </label>
-        <label className="panel-field">
-          <span>Bearer token (optional)</span>
-          <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder={server?.authConfigured ? "Configured; leave blank to keep" : "Stored in secrets.json"} autoComplete="off" />
-        </label>
-        <p className="panel-note">Tokens are stored in the 0600 secrets file, never in AppState or the page. Claude/Grok/Gemini receive the Authorization header in a temporary 0600 config; Codex receives a temporary environment variable. Servers are enabled per turn only when this switch is on.</p>
+        <div className="panel-field">
+          <span>Transport</span>
+          <Segmented
+            label="MCP transport"
+            value={transport}
+            options={[{ value: "http", label: "HTTP" }, { value: "stdio", label: "Local command" }]}
+            onChange={(value) => setTransport(value as "http" | "stdio")}
+          />
+        </div>
+        {transport === "http" ? (
+          <>
+            <label className="panel-field">
+              <span>Streamable HTTP URL</span>
+              <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://mcp.example.com/mcp" spellCheck={false} />
+            </label>
+            <label className="panel-field">
+              <span>Bearer token (optional)</span>
+              <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder={server?.authConfigured ? "Configured; leave blank to keep" : "Stored in secrets.json"} autoComplete="off" />
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="panel-field">
+              <span>Command</span>
+              <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="/usr/local/bin/mcp-server" spellCheck={false} />
+            </label>
+            <label className="panel-field">
+              <span>Arguments (one per line)</span>
+              <textarea rows={3} value={args} onChange={(event) => setArgs(event.target.value)} placeholder={"--stdio\n--profile\nwork"} spellCheck={false} />
+            </label>
+          </>
+        )}
+        <p className="panel-note">HTTP tokens are stored in the 0600 secrets file, never in AppState or the page. A local command is launched by the selected CLI, not by Grox; only enable a command you trust. Servers are enabled per turn only when this switch is on.</p>
         {error && <p className="panel-note is-error">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
@@ -631,8 +674,8 @@ function MCPSection() {
                 <span className="mcp-icon"><Plug size={15} /></span>
                 <div className="mcp-copy">
                   <strong>{server.name}</strong>
-                  <span>{server.url}</span>
-                  <small>{server.authConfigured ? "Bearer token configured" : "No bearer token"}</small>
+                  <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
+                  <small>{server.transport === "stdio" ? "Local command" : server.authConfigured ? "Bearer token configured" : "No bearer token"}</small>
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>

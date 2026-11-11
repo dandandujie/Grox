@@ -28,8 +28,8 @@ two products are code-identical.
   installation, bundled skill packs and the full approval lifecycle are still not ported.
 - Questions: agent-authored ask_user cards are ported for CLI MCP tools and API Auto/Full; multi-question
   forms are not.
-- MCP: the per-turn Composio gateway and remote HTTP MCP server CRUD with bearer tokens are ported; local
-  stdio commands, OAuth, per-tool policy and the value vault are not.
+- MCP: the per-turn Composio gateway, remote HTTP MCP CRUD with bearer tokens and local stdio MCP CRUD are
+  ported. OAuth, per-tool policy and the value vault are not.
 - Artifacts: attachments and file previews exist; a first-class artifact browser does not.
 - Triggers: schedules and a loopback inbound webhook receiver exist; Composio app-event triggers,
   signature/replay protection, retries and a delivery journal do not.
@@ -43,7 +43,7 @@ two products are code-identical.
 - Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and the full webhook delivery journal.
 - Jeev/decision-model routing with multiple decision providers.
-- Local stdio MCP commands, connector requirements and full vault-secret handling.
+- MCP OAuth/dynamic registration, per-tool policy, connector requirements and full vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.
 - Email, phone numbers, meetings, Postiz/social publishing and related connectors.
 - App/headless HTTP API and MCP orchestration surface.

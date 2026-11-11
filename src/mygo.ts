@@ -302,7 +302,10 @@ export interface GroupPatch {
 export interface MCPServer {
   id: string;
   name: string;
-  url: string;
+  transport?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
   enabled: boolean;
   authConfigured: boolean;
   createdAt: string;
@@ -312,15 +315,21 @@ export interface MCPServer {
 /** MCPServerInput is the add form. Token is write-only. */
 export interface MCPServerInput {
   name: string;
-  url: string;
-  token: string;
+  transport?: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  token?: string;
   enabled: boolean;
 }
 
 /** MCPServerPatch edits only fields that are set; an empty Token keeps the old one. */
 export interface MCPServerPatch {
   name?: string;
+  transport?: string;
   url?: string;
+  command?: string;
+  args?: string[];
   token?: string;
   enabled?: boolean;
 }
@@ -792,7 +801,7 @@ export const Grox = {
   listComputerFiles(botID: string, path: string): Promise<FolderListing> {
     return call("Grox.ListComputerFiles", botID, path);
   },
-  /** ListMCPServers returns user-managed remote MCP servers without token values. */
+  /** ListMCPServers returns user-managed MCP servers without token values. */
   listMCPServers(): Promise<MCPServer[]> {
     return call("Grox.ListMCPServers");
   },

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0
+
+- Added local stdio MCP servers alongside remote HTTP servers in Settings -> MCP servers.
+- A stdio entry carries a command and up to 32 arguments; it is launched by the selected CLI, never by Grox.
+- Claude/Grok/Codex/Gemini temporary configs now emit stdio entries; HTTP token handling is unchanged.
+- Added transport switching, command/argument validation, and runtime config tests for all four CLIs.
+- Local commands run with the CLI's permissions and are not sandboxed by Grox; the UI warns explicitly.
+- Still not ported: MCP OAuth/dynamic registration, per-tool policy and the full vault.
+
 ## 0.13.0
 
 - Replaced the New bot dialog's hardcoded preset chips with workspace presets.
