@@ -998,6 +998,8 @@ function MCPSection() {
 function DataSection() {
   const { boot, exportWorkspace, resetWorkspace, revealDataFolder, backend, toast } = useApp();
   const importRef = useRef<HTMLInputElement>(null);
+  const [grokText, setGrokText] = useState("");
+  const [grokBusy, setGrokBusy] = useState(false);
 
   const importTeam = async (file: File | undefined) => {
     if (!file) return;
@@ -1051,6 +1053,21 @@ function DataSection() {
             onChange={(event) => void importTeam(event.target.files?.[0])}
           />
         </div>
+      </SectionCard>
+      <SectionCard title="Move from Grok Bot" hint="Paste a Grok Bot export JSON. Grox creates new bots and never overwrites existing ones. Skills are not imported because Grox skills are global.">
+        <label className="panel-field">
+          <span>Grok Bot export</span>
+          <textarea rows={5} value={grokText} onChange={(event) => setGrokText(event.target.value)} placeholder="Paste the grok-bot-export JSON or the chat reply containing it" spellCheck={false} />
+        </label>
+        <button type="button" className="btn btn-secondary" disabled={grokBusy || !grokText.trim()} onClick={() => {
+          setGrokBusy(true);
+          void backend.importGrokBot(grokText).then((result) => {
+            setGrokText("");
+            toast({ kind: "success", title: "Grok Bot import complete", body: result.bots + " bots, " + result.routines + " routines, " + result.memories + " notes, " + result.apps + " MCP servers." });
+          }).catch((cause: unknown) => {
+            toast({ kind: "error", title: "Grok Bot import failed", body: cause instanceof Error ? cause.message : "Try again." });
+          }).finally(() => setGrokBusy(false));
+        }}>{grokBusy ? "Importing…" : "Import from Grok Bot"}</button>
       </SectionCard>
       <SectionCard title="Reset" hint="Replace the workspace with the first-run team. Keys are kept.">
         <div className="data-row">

@@ -2284,3 +2284,59 @@ func TestJevRoomDecision(t *testing.T) {
 		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-emaily" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
 	})
 }
+
+func TestGrokBotImport(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	export := map[string]any{
+		"format": "grok-bot-export", "version": 1,
+		"bots": []any{map[string]any{
+			"name": "Moved Bot", "title": "Research bot", "instructions": "Be concise.",
+			"memories": []any{"The launch is Tuesday."}, "user_facts": []any{"The person prefers tea."},
+			"skills": []any{map[string]any{"name": "checklist", "instructions": "Use a checklist."}},
+			"routines": []any{map[string]any{
+				"name": "Morning brief", "instruction": "Write a short brief.", "trigger": "schedule", "schedule_cron": "0 8 * * 1-5",
+			}},
+			"apps": []any{map[string]any{"name": "crm", "mcp_url": "https://mcp.example.test/mcp"}},
+		}},
+	}
+	raw, _ := json.Marshal(export)
+	result, err := svc.ImportGrokBot(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bots != 1 || result.Routines != 1 || result.Memories != 2 || result.Apps != 1 || result.SkillsSkipped != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	var imported *model.Bot
+	svc.mu.Lock()
+	for index := range svc.st.State.Bots {
+		if svc.st.State.Bots[index].Name == "Moved Bot" {
+			imported = &svc.st.State.Bots[index]
+		}
+	}
+	svc.mu.Unlock()
+	if imported == nil {
+		t.Fatal("imported bot missing")
+	}
+	state, err := svc.GetMemory(imported.ID)
+	if err != nil || !strings.Contains(state.Content, "prefers tea") {
+		t.Fatalf("memory = %+v err=%v", state, err)
+	}
+	svc.mu.Lock()
+	routines := append([]model.Routine(nil), svc.st.State.Routines...)
+	svc.mu.Unlock()
+	found := false
+	for _, routine := range routines {
+		if routine.BotID == imported.ID && routine.Name == "Moved Bot: Morning brief" && !routine.Enabled {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("imported routine missing")
+	}
+	bad := map[string]any{"bots": []any{map[string]any{"name": "Bad", "api_key": "secret"}}}
+	badRaw, _ := json.Marshal(bad)
+	if _, err := svc.ImportGrokBot(string(badRaw)); err == nil {
+		t.Fatal("credential-looking export should be refused")
+	}
+}

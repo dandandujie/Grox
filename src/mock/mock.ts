@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  APIInfo, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -662,6 +662,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   private playbooks = new Map<string, Playbook[]>();
+
+  async importGrokBot(_raw: string): Promise<GrokImportResult> {
+    throw new Error("Grok Bot import is only available in the desktop app.");
+  }
 
   async listPlaybooks(botId: string): Promise<Playbook[]> {
     return this.playbooks.get(botId) ?? [];

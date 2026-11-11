@@ -304,6 +304,16 @@ export interface FolderListing {
   entries: FileEntry[];
 }
 
+/** GrokImportResult reports a local Grok Bot export import. */
+export interface GrokImportResult {
+  bots: number;
+  routines: number;
+  memories: number;
+  apps: number;
+  skillsSkipped: number;
+  names: string[];
+}
+
 /**
  * Group is a channel: a shared conversation with a roster of bots. The lead
  * answers by default; @mentions route a message to another member.
@@ -963,6 +973,13 @@ export const Grox = {
   /** GetWebhookInfo reports the loopback receiver and the current trigger list. */
   getWebhookInfo(): Promise<WebhookInfo> {
     return call("Grox.GetWebhookInfo");
+  },
+  /**
+   * ImportGrokBot imports a pasted Grok Bot export. It creates new bots and never
+   * overwrites an existing one; skills are skipped because Grox skills are global.
+   */
+  importGrokBot(raw: string): Promise<GrokImportResult> {
+    return call("Grox.ImportGrokBot", raw);
   },
   /**
    * ImportTeam adds a package as new records. Bots start at Ask approval, skills

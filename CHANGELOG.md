@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.43.0
+
+- Added a basic Grok Bot export import in Settings -> Data & privacy: pasted JSON creates new bots, starter
+  MEMORY.md, paused simple scheduled routines and disabled remote MCP servers. Credential-looking keys refuse
+  the whole document.
+- Added an import test covering counts, memory, routines, MCP and credential refusal.
+- Skills are skipped because Grox skills are global; split exports, event routines and the full package v2
+  conversion are not ported.
+
 ## 0.42.0
 
 - Added a decision-provider layer: OpenRouter chat, Cloudflare Workers AI Clef-flash and native TypeSafe Jev

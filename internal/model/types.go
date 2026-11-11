@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.42.0"
+	AppVersion = "0.43.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -50,6 +50,16 @@ type AppState struct {
 	ActiveThreadID    string                `json:"activeThreadId"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	UpdatedAt         time.Time             `json:"updatedAt"`
+}
+
+// GrokImportResult reports a local Grok Bot export import.
+type GrokImportResult struct {
+	Bots          int      `json:"bots"`
+	Routines      int      `json:"routines"`
+	Memories      int      `json:"memories"`
+	Apps          int      `json:"apps"`
+	SkillsSkipped int      `json:"skillsSkipped"`
+	Names         []string `json:"names"`
 }
 
 // Playbook is a trigger-selected instruction attached to one bot.
