@@ -61,6 +61,11 @@ type Service struct {
 	webhookErr       string
 	webhookReplays   map[string]time.Time
 	lastMemoryUpkeep time.Time
+
+	apiMu       sync.Mutex
+	apiServer   *http.Server
+	apiListener net.Listener
+	apiErr      string
 }
 
 type turnControl struct {
@@ -94,6 +99,9 @@ func Open(s *Service) error {
 	s.mu.Unlock()
 	s.startApprovalServer()
 	s.startWebhookServer()
+	if s.st.State.Settings.APIEnabled {
+		s.startAPIServer()
+	}
 	s.startPhoneIfEnabled()
 	return nil
 }
@@ -152,6 +160,7 @@ func (s *Service) shutdown() {
 	s.once.Do(func() { close(s.stop) })
 	s.stopApprovalServer()
 	s.stopWebhookServer()
+	s.stopAPIServer()
 	s.stopPhone()
 	s.mu.Lock()
 	defer s.mu.Unlock()

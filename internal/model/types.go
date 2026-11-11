@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.24.0"
+	AppVersion = "0.25.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -554,8 +554,19 @@ type Settings struct {
 	Notifications bool   `json:"notifications"`
 	Sounds        bool   `json:"sounds"`
 	EngineMode    string `json:"engineMode"`
+	APIEnabled    bool   `json:"apiEnabled,omitempty"`
 	APIBaseURL    string `json:"apiBaseUrl"`
 	APIModel      string `json:"apiModel"`
+}
+
+// APIInfo reports the optional loopback automation API. Token is returned
+// only when it is newly generated or rotated.
+type APIInfo struct {
+	Enabled         bool   `json:"enabled"`
+	URL             string `json:"url,omitempty"`
+	Error           string `json:"error,omitempty"`
+	Token           string `json:"token,omitempty"`
+	TokenConfigured bool   `json:"tokenConfigured"`
 }
 
 // Provider groups models by the engine that serves them.

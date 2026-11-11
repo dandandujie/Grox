@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.0
+
+- Added an optional loopback automation API (off by default) with a generated bearer token, rotation,
+  AppState/bots reads, message sends, approvals and question answers.
+- Added the Settings -> Automation panel, one-time token reveal, and a real HTTP test covering
+  unauthenticated rejection, state reads, message dispatch and shutdown.
+- Still not ported: CORS/SSE, groups/routines endpoints, public orchestration and hosted APIs.
+
 ## 0.24.0
 
 - Added per-bot automatic memory archive. When enabled, the scheduler checks at most once an hour and moves

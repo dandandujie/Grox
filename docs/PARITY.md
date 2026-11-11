@@ -35,6 +35,8 @@ two products are code-identical.
 - Triggers: schedules, a loopback inbound webhook receiver, optional HMAC signatures, delivery-id replay
   protection, a delivery journal and manual local replay exist. Composio app-event triggers and automatic
   retries do not.
+- Automation API: a token-gated loopback JSON API for state, bots, messages, approvals and answers is
+  ported. CORS/SSE, groups/routines endpoints and public orchestration are not.
 - Usage: token/cost accounting is not shown.
 - Onboarding/import: no team pack, preset, or Grok Bot migration flow.
 
@@ -43,12 +45,12 @@ two products are code-identical.
 - Team packages: channel-level export/import of bots, skills, memory and routines is ported. Organization
   libraries, presets, signed releases and department shelves are not.
 - Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
-- App-event triggers, trigger broker and the full webhook delivery journal.
+- App-event triggers, trigger broker and automatic delivery retries.
 - Jeev/decision-model routing with multiple decision providers.
-- MCP OAuth/dynamic registration, per-tool policy, connector requirements and full vault-secret handling.
+- MCP OAuth/dynamic registration, connector requirements and full vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.
 - Email, phone numbers, meetings, Postiz/social publishing and related connectors.
-- App/headless HTTP API and MCP orchestration surface.
+- MCP orchestration surface beyond the local automation API.
 - Organization/admin, billing, usage metering and enterprise policy.
 - Native mobile companion and store distribution.
 

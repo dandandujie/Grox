@@ -1632,3 +1632,55 @@ func TestMemoryAutoUpkeep(t *testing.T) {
 		t.Fatal("auto upkeep did not archive")
 	}
 }
+
+func TestAutomationAPIStateAndMessage(t *testing.T) {
+	svc, _, events := newTestService(t)
+	info, err := svc.SetAPIEnabled(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.URL == "" || info.Token == "" {
+		t.Fatalf("API info = %+v", info)
+	}
+	response, err := http.Get(info.URL + "/v1/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated state = %d", response.StatusCode)
+	}
+	request, _ := http.NewRequest(http.MethodGet, info.URL+"/v1/state", nil)
+	request.Header.Set("Authorization", "Bearer "+info.Token)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("authenticated state = %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	bot := svc.st.State.Bots[0]
+	thread := bot.Threads[0]
+	payload, _ := json.Marshal(map[string]string{"text": "hello from the API"})
+	request, _ = http.NewRequest(http.MethodPost, info.URL+"/v1/bots/"+bot.ID+"/threads/"+thread.ID+"/messages", bytes.NewReader(payload))
+	request.Header.Set("Authorization", "Bearer "+info.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("API message status = %d", response.StatusCode)
+	}
+	waitFor(t, events, 5*time.Second, "the API message turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+	if _, err := svc.SetAPIEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	if info := svc.GetAPIInfo(); info.Enabled || info.URL != "" {
+		t.Fatalf("API should be stopped = %+v", info)
+	}
+}

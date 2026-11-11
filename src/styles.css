@@ -1714,3 +1714,7 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: va
 .preset-manage-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); }
 .preset-manage-row .mcp-copy { flex: 1; min-width: 0; }
 .sidebar-department-label { margin: 8px 10px 4px; color: var(--ink-3); font-size: 9.5px; font-weight: 600; letter-spacing: 0.045em; text-transform: uppercase; }
+.inline-field { display: flex; align-items: center; gap: 8px; }
+.inline-field input { flex: 1; min-width: 0; }
+.settings-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.settings-callout { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 9px 10px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); color: var(--ink-3); font-size: 10.5px; line-height: 1.45; }

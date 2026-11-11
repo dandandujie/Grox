@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight, Cloud, Database, Eye, EyeOff, FolderOpen, Globe, Info, KeyRound, Laptop,
-  Languages, MonitorSpeaker, Palette, Play, Plug, Plus, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Trash2,
+  Languages, MonitorSpeaker, Palette, Play, Plug, Plus, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Terminal, Trash2,
   Upload, Volume2, X,
 } from "lucide-react";
 import { useApp, type SettingsSection } from "@/state/store";
@@ -10,7 +10,7 @@ import { speak } from "@/lib/speech";
 import { GroxLogo, ProviderMark } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
-import type { MCPServer, Settings } from "@/lib/bridge";
+import type { APIInfo, MCPServer, Settings } from "@/lib/bridge";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Palette size={16} /> },
@@ -19,6 +19,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] 
   { id: "mcp", label: "MCP servers", icon: <Plug size={16} /> },
   { id: "computer", label: "Computers", icon: <Laptop size={16} /> },
   { id: "phone", label: "Phone", icon: <Smartphone size={16} /> },
+  { id: "automation", label: "Automation", icon: <Terminal size={16} /> },
   { id: "voice", label: "Voice", icon: <Volume2 size={16} /> },
   { id: "data", label: "Data & privacy", icon: <Database size={16} /> },
   { id: "about", label: "About", icon: <Info size={16} /> },
@@ -372,6 +373,80 @@ function ComputerSection() {
         </ul>
       </SectionCard>
     </>
+  );
+}
+
+function AutomationSection() {
+  const { backend, toast } = useApp();
+  const [info, setInfo] = useState<APIInfo | null>(null);
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      setInfo(await backend.getAPIInfo());
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read the automation API", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      const next = await backend.setAPIEnabled(enabled);
+      setInfo(next);
+      setToken(next.token ?? "");
+      toast({ kind: "success", title: enabled ? "Automation API enabled" : "Automation API disabled" });
+    } catch (cause) {
+      toast({ kind: "error", title: "Automation API unchanged", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rotate = async () => {
+    setBusy(true);
+    try {
+      const next = await backend.rotateAPIToken();
+      setInfo(next);
+      setToken(next.token ?? "");
+      toast({ kind: "success", title: "API token rotated", body: "The previous token no longer works." });
+    } catch (cause) {
+      toast({ kind: "error", title: "Token not rotated", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard title="Automation API" hint="A loopback JSON API for local scripts and CI. The bearer token is stored in secrets.json and is never loaded into a bot prompt.">
+      <div className="switch-row">
+        <span className="row-copy">
+          <span className="row-title">Enable the loopback API</span>
+          <span className="row-sub">127.0.0.1 only. Every request needs Authorization: Bearer &lt;token&gt;.</span>
+        </span>
+        <Switch checked={Boolean(info?.enabled)} label="Enable automation API" onChange={(value) => void toggle(value)} disabled={busy} />
+      </div>
+      {info?.error && <p className="panel-note is-warning">{info.error}</p>}
+      {info?.url && <code className="webhook-base">{info.url}</code>}
+      {token && (
+        <label className="panel-field">
+          <span>New token (shown once)</span>
+          <div className="inline-field">
+            <input readOnly value={token} onFocus={(event) => event.currentTarget.select()} />
+            <button type="button" className="btn btn-secondary" onClick={() => { void navigator.clipboard?.writeText(token); toast({ kind: "success", title: "Token copied" }); }}>Copy</button>
+          </div>
+        </label>
+      )}
+      <div className="settings-actions">
+        <button type="button" className="btn btn-secondary" onClick={() => void rotate()} disabled={busy || !info?.enabled}>Rotate token</button>
+      </div>
+      <div className="settings-callout">
+        <Terminal size={14} />
+        <span>GET /v1/state, GET /v1/bots, and POST /v1/bots/&lt;id&gt;/threads/&lt;id&gt;/messages. This is a local control surface, not a hosted service.</span>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -850,6 +925,7 @@ export function SettingsModal() {
             {section === "engines" && <EnginesSection />}
             {section === "computer" && <ComputerSection />}
             {section === "phone" && <PhoneSection />}
+            {section === "automation" && <AutomationSection />}
             {section === "voice" && <VoiceSection />}
             {section === "data" && <DataSection />}
             {section === "about" && <AboutSection />}

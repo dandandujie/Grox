@@ -4,6 +4,18 @@ import { call, event } from "mygo-runtime";
 
 // ---- Types ----
 
+/**
+ * APIInfo reports the optional loopback automation API. Token is returned
+ * only when it is newly generated or rotated.
+ */
+export interface APIInfo {
+  enabled: boolean;
+  url?: string;
+  error?: string;
+  token?: string;
+  tokenConfigured: boolean;
+}
+
 /** Activity is a tool run reported above a bot's answer. */
 export interface Activity {
   label: string;
@@ -573,6 +585,7 @@ export interface Settings {
   notifications: boolean;
   sounds: boolean;
   engineMode: string;
+  apiEnabled?: boolean;
   apiBaseUrl: string;
   apiModel: string;
 }
@@ -845,6 +858,10 @@ export const Grox = {
   forgetMemory(botID: string, query: string): Promise<MemoryForgetResult> {
     return call("Grox.ForgetMemory", botID, query);
   },
+  /** GetAPIInfo reports the automation API without returning its bearer token. */
+  getAPIInfo(): Promise<APIInfo> {
+    return call("Grox.GetAPIInfo");
+  },
   /** GetMemory returns the editable MEMORY.md plus the read-only topic index. */
   getMemory(botID: string): Promise<MemoryState> {
     return call("Grox.GetMemory", botID);
@@ -955,6 +972,10 @@ export const Grox = {
   revealWorkingFolder(botID: string): Promise<string> {
     return call("Grox.RevealWorkingFolder", botID);
   },
+  /** RotateAPIToken replaces the bearer token and returns the new value once. */
+  rotateAPIToken(): Promise<APIInfo> {
+    return call("Grox.RotateAPIToken");
+  },
   /**
    * RunComputerCommand runs a command the person typed in the Computer panel.
    * It is intentionally not exposed to the agent as an unattended tool.
@@ -1014,6 +1035,13 @@ export const Grox = {
    */
   sendWithAttachments(botID: string, threadID: string, text: string, attachments: Attachment[]): Promise<SendResult> {
     return call("Grox.SendWithAttachments", botID, threadID, text, attachments);
+  },
+  /**
+   * SetAPIEnabled starts or stops the loopback automation API and returns the
+   * freshly generated token when enabling.
+   */
+  setAPIEnabled(enabled: boolean): Promise<APIInfo> {
+    return call("Grox.SetAPIEnabled", enabled);
   },
   setConnection(appID: string, connected: boolean): Promise<AppEntry> {
     return call("Grox.SetConnection", appID, connected);
