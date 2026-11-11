@@ -620,6 +620,8 @@ export interface Routine {
   lastRun?: string;
   lastStatus?: string;
   continuity?: boolean;
+  checks?: string[];
+  lastCheckAt?: string;
   lastThreadId?: string;
   createdAt: string;
   updatedAt: string;
@@ -634,6 +636,7 @@ export interface RoutineInput {
   timeOfDay: string;
   weekday: number;
   continuity?: boolean;
+  checks?: string[];
   enabled: boolean;
 }
 
@@ -645,6 +648,7 @@ export interface RoutinePatch {
   timeOfDay?: string;
   weekday?: number;
   continuity?: boolean;
+  checks?: string[];
   enabled?: boolean;
 }
 
@@ -898,7 +902,6 @@ export const Grox = {
   createPreset(input: PresetInput): Promise<Preset> {
     return call("Grox.CreatePreset", input);
   },
-  /** CreateRoutine adds a scheduled task. */
   createRoutine(input: RoutineInput): Promise<Routine> {
     return call("Grox.CreateRoutine", input);
   },

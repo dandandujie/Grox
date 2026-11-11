@@ -66,6 +66,7 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
   const [timeOfDay, setTimeOfDay] = useState("09:00");
   const [weekday, setWeekday] = useState(1);
   const [continuity, setContinuity] = useState(false);
+  const [checkRuns, setCheckRuns] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -79,6 +80,7 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
     setTimeOfDay(routine?.timeOfDay ?? "09:00");
     setWeekday(routine?.weekday || 1);
     setContinuity(Boolean(routine?.continuity));
+    setCheckRuns(Boolean(routine?.checks?.includes("runs")));
     setEnabled(routine?.enabled ?? true);
     setError("");
     setBusy(false);
@@ -94,9 +96,9 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
     }
     setBusy(true);
     if (routine) {
-      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, enabled });
+      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], enabled });
     } else {
-      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, enabled });
+      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], enabled });
     }
     setBusy(false);
     onClose();
@@ -157,6 +159,13 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
             <span className="row-sub">Continue the previous routine thread instead of creating a fresh task each run.</span>
           </span>
           <Switch checked={continuity} label="Keep one routine thread" onChange={setContinuity} />
+        </div>
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Only when there is news</span>
+            <span className="row-sub">Check other routines' finished runs first; skip the turn when nothing new finished.</span>
+          </span>
+          <Switch checked={checkRuns} label="Check routine runs" onChange={setCheckRuns} />
         </div>
         <div className="switch-row routine-enabled">
           <span className="row-copy">

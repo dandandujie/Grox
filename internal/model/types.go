@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.49.0"
+	AppVersion = "0.50.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -622,6 +622,8 @@ type Routine struct {
 	LastRun      time.Time `json:"lastRun,omitempty"`
 	LastStatus   string    `json:"lastStatus,omitempty"`
 	Continuity   bool      `json:"continuity,omitempty"`
+	Checks       []string  `json:"checks,omitempty"`
+	LastCheckAt  time.Time `json:"lastCheckAt,omitempty"`
 	LastThreadID string    `json:"lastThreadId,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
@@ -842,25 +844,27 @@ type BotPatch struct {
 
 // RoutineInput is the New routine form.
 type RoutineInput struct {
-	BotID      string `json:"botId"`
-	Name       string `json:"name"`
-	Prompt     string `json:"prompt"`
-	Cadence    string `json:"cadence"`
-	TimeOfDay  string `json:"timeOfDay"`
-	Weekday    int    `json:"weekday"`
-	Continuity bool   `json:"continuity,omitempty"`
-	Enabled    bool   `json:"enabled"`
+	BotID      string   `json:"botId"`
+	Name       string   `json:"name"`
+	Prompt     string   `json:"prompt"`
+	Cadence    string   `json:"cadence"`
+	TimeOfDay  string   `json:"timeOfDay"`
+	Weekday    int      `json:"weekday"`
+	Continuity bool     `json:"continuity,omitempty"`
+	Checks     []string `json:"checks,omitempty"`
+	Enabled    bool     `json:"enabled"`
 }
 
 // RoutinePatch edits only the fields it sets.
 type RoutinePatch struct {
-	Name       *string `json:"name,omitempty"`
-	Prompt     *string `json:"prompt,omitempty"`
-	Cadence    *string `json:"cadence,omitempty"`
-	TimeOfDay  *string `json:"timeOfDay,omitempty"`
-	Weekday    *int    `json:"weekday,omitempty"`
-	Continuity *bool   `json:"continuity,omitempty"`
-	Enabled    *bool   `json:"enabled,omitempty"`
+	Name       *string   `json:"name,omitempty"`
+	Prompt     *string   `json:"prompt,omitempty"`
+	Cadence    *string   `json:"cadence,omitempty"`
+	TimeOfDay  *string   `json:"timeOfDay,omitempty"`
+	Weekday    *int      `json:"weekday,omitempty"`
+	Continuity *bool     `json:"continuity,omitempty"`
+	Checks     *[]string `json:"checks,omitempty"`
+	Enabled    *bool     `json:"enabled,omitempty"`
 }
 
 // SendResult points at the user message and the bot reply it started.

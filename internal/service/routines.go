@@ -10,6 +10,16 @@ import (
 )
 
 // CreateRoutine adds a scheduled task.
+func normalizeRoutineChecks(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value)) == "runs" {
+			out = append(out, "runs")
+		}
+	}
+	return out
+}
+
 func (s *Service) CreateRoutine(input model.RoutineInput) (model.Routine, error) {
 	name := strings.TrimSpace(input.Name)
 	prompt := strings.TrimSpace(input.Prompt)
@@ -29,7 +39,7 @@ func (s *Service) CreateRoutine(input model.RoutineInput) (model.Routine, error)
 	r := model.Routine{
 		ID: newID("routine"), BotID: input.BotID, Name: name, Prompt: prompt,
 		Cadence: normalCadence(input.Cadence), TimeOfDay: schedule.Clock(input.TimeOfDay),
-		Weekday: input.Weekday, Continuity: input.Continuity, Enabled: input.Enabled,
+		Weekday: input.Weekday, Continuity: input.Continuity, Checks: normalizeRoutineChecks(input.Checks), Enabled: input.Enabled,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	r.NextRun = schedule.Next(r, now)
@@ -85,6 +95,9 @@ func (s *Service) UpdateRoutine(id string, patch model.RoutinePatch) (model.Rout
 	}
 	if patch.Continuity != nil {
 		r.Continuity = *patch.Continuity
+	}
+	if patch.Checks != nil {
+		r.Checks = normalizeRoutineChecks(*patch.Checks)
 	}
 	if patch.Enabled != nil {
 		r.Enabled = *patch.Enabled
@@ -149,6 +162,34 @@ func (s *Service) runRoutine(id string, scheduled bool) (model.SendResult, error
 		return model.SendResult{}, fmt.Errorf("the routine's bot is gone")
 	}
 	now := time.Now()
+	prompt := r.Prompt
+	if scheduled && containsString(r.Checks, "runs") {
+		if !r.LastCheckAt.IsZero() {
+			var changes []string
+			for _, run := range s.st.State.Runs {
+				if run.RoutineID == r.ID || run.FinishedAt.IsZero() || !run.FinishedAt.After(r.LastCheckAt) {
+					continue
+				}
+				line := "- " + run.Title + " (" + run.Status + ")"
+				if run.Summary != "" {
+					line += ": " + run.Summary
+				}
+				changes = append(changes, line)
+			}
+			if len(changes) == 0 {
+				r.LastCheckAt = now
+				r.UpdatedAt = now
+				r.NextRun = schedule.Next(*r, now)
+				s.touchLocked()
+				s.saveLocked()
+				s.emitStateLocked()
+				s.mu.Unlock()
+				return model.SendResult{}, nil
+			}
+			prompt += "\n\nNew routine results:\n" + strings.Join(changes, "\n")
+		}
+		r.LastCheckAt = now
+	}
 	thread := model.Thread{}
 	reused := false
 	if r.Continuity && r.LastThreadID != "" {
@@ -196,7 +237,6 @@ func (s *Service) runRoutine(id string, scheduled bool) (model.SendResult, error
 	s.emitStateLocked()
 	botID := bot.ID
 	threadID := thread.ID
-	prompt := r.Prompt
 	runID := run.ID
 	s.mu.Unlock()
 

@@ -2531,3 +2531,50 @@ func TestRoutineContinuityReusesThread(t *testing.T) {
 		t.Fatalf("continuity threads = %q and %q", first.ThreadID, second.ThreadID)
 	}
 }
+
+func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
+	svc, _, events := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Checked Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routine, err := svc.CreateRoutine(model.RoutineInput{
+		BotID: bot.ID, Name: "Checked routine", Prompt: "Report the new run.", Cadence: "daily", TimeOfDay: "09:00", Checks: []string{"runs"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	for index := range svc.st.State.Routines {
+		if svc.st.State.Routines[index].ID == routine.ID {
+			svc.st.State.Routines[index].LastCheckAt = time.Now().Add(-time.Hour)
+		}
+	}
+	before := len(bot.Threads)
+	svc.mu.Unlock()
+	result, err := svc.runRoutine(routine.ID, true)
+	if err != nil || result.ThreadID != "" {
+		t.Fatalf("quiet tick result=%+v err=%v", result, err)
+	}
+	svc.mu.Lock()
+	after := 0
+	for _, thread := range svc.findBotLocked(bot.ID).Threads {
+		after++
+		_ = thread
+	}
+	svc.st.State.Runs = append(svc.st.State.Runs, model.Run{
+		ID: "run-other", RoutineID: "other", BotID: bot.ID, Title: "Other run", Status: "completed",
+		StartedAt: time.Now(), FinishedAt: time.Now().Add(10 * time.Second),
+	})
+	svc.mu.Unlock()
+	if after != before {
+		t.Fatalf("threads before=%d after=%d", before, after)
+	}
+	result, err = svc.runRoutine(routine.ID, true)
+	if err != nil || result.ThreadID == "" {
+		t.Fatalf("news tick result=%+v err=%v", result, err)
+	}
+	waitFor(t, events, 5*time.Second, "the checked routine turn", func(ev model.Event) bool {
+		return ev.Type == "turn" && ev.BotID == bot.ID && ev.ThreadID == result.ThreadID && ev.Turn != nil && !ev.Turn.Busy
+	})
+}

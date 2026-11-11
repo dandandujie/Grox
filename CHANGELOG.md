@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.50.0
+
+- Added a local runs check for routines: a scheduled tick with no newly finished runs starts no turn and
+  records the check; when runs exist their summaries are appended to the prompt. Manual runs always run.
+- Added the editor switch, package v2 checks round-trip and a quiet/news tick test.
+- Still not ported: mail/calendar checks, brief delivery, backoff/catch-up, overlap queueing and cloud jobs.
+
 ## 0.49.0
 
 - Added continuous routines: opt-in reuse of one routine thread, with a busy-thread refusal. Continuity

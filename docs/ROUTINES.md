@@ -9,7 +9,16 @@ same thread. If that thread is still busy, a new run is refused instead of overl
 remains the default when continuity is off.
 
 Continuity is carried through openmaus.package v2 import/export. Overlap queueing, cloud execution, room
-goals, timeouts and routine checks are not ported.
+goals and timeouts are not ported.
+
+## Runs check
+
+A routine can opt into **Only when there is news**. On a scheduled tick, Grox looks for other routines' runs
+finished after the last check. If none finished, it updates the check time and starts no turn and no run. If
+some finished, their title/status/summary lines are appended to the routine prompt. Manual Run now always runs.
+
+Checks are limited to local routine runs; mail/calendar checks, brief delivery and backoff/catch-up semantics
+are not ported.
 
 ## Proactive routines
 
