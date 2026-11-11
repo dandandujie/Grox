@@ -59,7 +59,8 @@ func (s *Service) CreateBot(input model.CreateBotInput) (model.Bot, error) {
 	bot := model.Bot{
 		ID: botID, Name: name, Title: strings.TrimSpace(input.Title), Department: department,
 		Description: strings.TrimSpace(input.Description), Soul: strings.TrimSpace(input.Soul),
-		Color: color, MascotShape: "cursor", Expression: "idle", ModelID: modelID,
+		Color: color, ToolPolicy: model.ToolPolicy{Allow: normalizeToolPatterns(input.ToolPolicy.Allow), Deny: normalizeToolPatterns(input.ToolPolicy.Deny)},
+		MascotShape: "cursor", Expression: "idle", ModelID: modelID,
 		Approval: model.ApprovalAsk, Notifications: true,
 		CreatedAt: now, UpdatedAt: now, LastActiveAt: now,
 		Threads: []model.Thread{thread},
@@ -102,6 +103,12 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 	}
 	if patch.Color != nil && allowedColors[*patch.Color] {
 		bot.Color = *patch.Color
+	}
+	if patch.ToolPolicy != nil {
+		bot.ToolPolicy = model.ToolPolicy{
+			Allow: normalizeToolPatterns(patch.ToolPolicy.Allow),
+			Deny:  normalizeToolPatterns(patch.ToolPolicy.Deny),
+		}
 	}
 	if patch.Department != nil {
 		department := strings.TrimSpace(*patch.Department)

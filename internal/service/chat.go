@@ -282,7 +282,17 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		for _, tool := range s.cachedComposioTools() {
 			req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
 		}
+		filteredTools := req.Tools[:0]
+		for _, tool := range req.Tools {
+			if toolAllowed(bot.ToolPolicy, tool.Name) {
+				filteredTools = append(filteredTools, tool)
+			}
+		}
+		req.Tools = filteredTools
 		req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
+			if !toolAllowed(bot.ToolPolicy, name) {
+				return "", fmt.Errorf("tool %s is blocked by this bot's tool policy", name)
+			}
 			if name == "memory_forget" {
 				return s.memoryForgetTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
 			}

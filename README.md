@@ -155,6 +155,7 @@ The table below is intentionally blunt.
 | MCP servers | **Working locally**: remote HTTP/HTTPS with write-only bearer token, or local stdio command/args; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
 | New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
 | Departments | **Working locally**: every bot has a department; New bot/profile edit and the sidebar groups the roster. See [departments](docs/DEPARTMENTS.md) |
+| Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.

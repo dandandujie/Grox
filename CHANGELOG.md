@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0
+
+- Added a per-bot tool policy: allow/deny wildcard patterns with deny taking precedence.
+- The per-turn MCP gateway filters tools/list and rejects blocked tools/call; API Auto/Full filters
+  registration and execution.
+- Added a Tool policy editor in the bot profile, defaulting to allow-all.
+- Added pattern, API-filter and MCP list/call policy tests.
+- Remote MCP servers and CLI built-in tools remain governed by the CLI, not this gateway policy.
+
 ## 0.20.0
 
 - Added bot departments. New bot and the profile editor set a department; the sidebar groups the roster

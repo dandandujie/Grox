@@ -59,6 +59,45 @@ function AvatarCard({ bot }: { bot: Bot }) {
   );
 }
 
+function ToolPolicyCard({ bot }: { bot: Bot }) {
+  const { updateBot, toast } = useApp();
+  const [allow, setAllow] = useState((bot.toolPolicy?.allow ?? []).join("\n"));
+  const [deny, setDeny] = useState((bot.toolPolicy?.deny ?? []).join("\n"));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setAllow((bot.toolPolicy?.allow ?? []).join("\n"));
+    setDeny((bot.toolPolicy?.deny ?? []).join("\n"));
+  }, [bot.id]);
+
+  const patterns = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await updateBot(bot.id, { toolPolicy: { allow: patterns(allow), deny: patterns(deny) } });
+      toast({ kind: "success", title: "Tool policy saved" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="panel-card">
+      <div className="panel-card-title"><span><ShieldCheck size={14} /> Tool policy</span><span className="avatar-seed">per bot</span></div>
+      <p className="panel-note">Limit the tools exposed to this bot. One pattern per line or comma-separated; * is a wildcard. Empty allow means every tool. Deny always wins. Remote MCP tools are configured by the CLI, not this gateway.</p>
+      <label className="panel-field">
+        <span>Allow</span>
+        <textarea rows={3} value={allow} onChange={(event) => setAllow(event.target.value)} placeholder={"GITHUB_*\nask_user\nmemory_*"} spellCheck={false} />
+      </label>
+      <label className="panel-field">
+        <span>Deny</span>
+        <textarea rows={3} value={deny} onChange={(event) => setDeny(event.target.value)} placeholder={"GITHUB_DELETE_*"} spellCheck={false} />
+      </label>
+      <button type="button" className="btn btn-secondary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save tool policy"}</button>
+    </section>
+  );
+}
+
 function ProfileTab({ bot }: { bot: Bot }) {
   const { updateBot, providers, setUI, apps, deleteBot, state, runRoutine, backend, toast } = useApp();
   const drafts = useBotDrafts(bot);
@@ -105,6 +144,7 @@ function ProfileTab({ bot }: { bot: Bot }) {
   return (
     <div className="panel-body">
       <AvatarCard bot={bot} />
+      <ToolPolicyCard bot={bot} />
       <section className="panel-card">
         <div className="panel-card-title"><span>New bot preset</span><span className="avatar-seed">persona only</span></div>
         <p className="panel-note">Save this bot's role, description and instructions as a starting point. Model, folder, approval and credentials are not copied.</p>

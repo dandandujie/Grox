@@ -200,6 +200,12 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown MCP session", http.StatusNotFound)
 		return
 	}
+	s.mu.Lock()
+	policy := model.ToolPolicy{}
+	if bot := s.findBotLocked(target.BotID); bot != nil {
+		policy = bot.ToolPolicy
+	}
+	s.mu.Unlock()
 	var request map[string]any
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&request); err != nil {
 		writeMCP(w, nil, nil, &mcpError{Code: -32700, Message: "parse error"})
@@ -293,13 +299,23 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 				"name": tool.Slug, "description": tool.Description, "inputSchema": schema,
 			})
 		}
-		writeMCP(w, id, map[string]any{"tools": items}, nil)
+		filtered := items[:0]
+		for _, item := range items {
+			if toolAllowed(policy, toolString(item["name"])) {
+				filtered = append(filtered, item)
+			}
+		}
+		writeMCP(w, id, map[string]any{"tools": filtered}, nil)
 	case "tools/call":
 		params, _ := request["params"].(map[string]any)
 		slug := toolString(params["name"])
 		args, _ := params["arguments"].(map[string]any)
 		if slug == "" {
 			writeMCP(w, id, nil, &mcpError{Code: -32602, Message: "tool name is required"})
+			return
+		}
+		if !toolAllowed(policy, slug) {
+			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": "tool " + slug + " is blocked by this bot's tool policy"}}, "isError": true}, nil)
 			return
 		}
 		if slug == "memory_forget" {

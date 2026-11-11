@@ -93,6 +93,7 @@ export interface Bot {
   soul: string;
   color: string;
   department?: string;
+  toolPolicy?: ToolPolicy;
   mascotShape: string;
   expression: string;
   avatarUrl?: string;
@@ -127,6 +128,7 @@ export interface BotPatch {
   soul?: string;
   color?: string;
   department?: string;
+  toolPolicy?: ToolPolicy;
   modelId?: string;
   approval?: string;
   mascotShape?: string;
@@ -202,6 +204,7 @@ export interface CreateBotInput {
   soul: string;
   color: string;
   department?: string;
+  toolPolicy?: ToolPolicy;
   modelId: string;
 }
 
@@ -614,6 +617,15 @@ export interface Toast {
   kind: string;
   title: string;
   body?: string;
+}
+
+/**
+ * ToolPolicy limits tools exposed to a bot. Empty allow means all; deny
+ * always wins. Patterns use * as a wildcard.
+ */
+export interface ToolPolicy {
+  allow?: string[];
+  deny?: string[];
 }
 
 /** Turn describes the transient state of a bot working in a thread. */

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.20.0"
+	AppVersion = "0.21.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -59,6 +59,7 @@ type Bot struct {
 	Soul          string     `json:"soul"`
 	Color         string     `json:"color"`
 	Department    string     `json:"department,omitempty"`
+	ToolPolicy    ToolPolicy `json:"toolPolicy,omitempty"`
 	MascotShape   string     `json:"mascotShape"`
 	Expression    string     `json:"expression"`
 	AvatarURL     string     `json:"avatarUrl,omitempty"`
@@ -83,6 +84,13 @@ type Bot struct {
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastActiveAt  time.Time  `json:"lastActiveAt"`
 	Threads       []Thread   `json:"threads"`
+}
+
+// ToolPolicy limits tools exposed to a bot. Empty allow means all; deny
+// always wins. Patterns use * as a wildcard.
+type ToolPolicy struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
 }
 
 // BotSkill is the persisted on/off state for one discovered SKILL.md file.
@@ -641,35 +649,37 @@ type Event struct {
 
 // CreateBotInput is the New bot form.
 type CreateBotInput struct {
-	Name        string `json:"name"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Soul        string `json:"soul"`
-	Color       string `json:"color"`
-	Department  string `json:"department,omitempty"`
-	ModelID     string `json:"modelId"`
+	Name        string     `json:"name"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Soul        string     `json:"soul"`
+	Color       string     `json:"color"`
+	Department  string     `json:"department,omitempty"`
+	ToolPolicy  ToolPolicy `json:"toolPolicy,omitempty"`
+	ModelID     string     `json:"modelId"`
 }
 
 // BotPatch edits only the fields it sets.
 type BotPatch struct {
-	Name         *string `json:"name,omitempty"`
-	Title        *string `json:"title,omitempty"`
-	Description  *string `json:"description,omitempty"`
-	Soul         *string `json:"soul,omitempty"`
-	Color        *string `json:"color,omitempty"`
-	Department   *string `json:"department,omitempty"`
-	ModelID      *string `json:"modelId,omitempty"`
-	Approval     *string `json:"approval,omitempty"`
-	MascotShape  *string `json:"mascotShape,omitempty"`
-	Expression   *string `json:"expression,omitempty"`
-	AvatarURL    *string `json:"avatarUrl,omitempty"`
-	WorkingDir   *string `json:"workingDir,omitempty"`
-	ComputerMode *string `json:"computerMode,omitempty"`
-	SSHHost      *string `json:"sshHost,omitempty"`
-	SSHUser      *string `json:"sshUser,omitempty"`
-	SSHRoot      *string `json:"sshRoot,omitempty"`
-	SSHKeyPath   *string `json:"sshKeyPath,omitempty"`
-	SSHPort      *int    `json:"sshPort,omitempty"`
+	Name         *string     `json:"name,omitempty"`
+	Title        *string     `json:"title,omitempty"`
+	Description  *string     `json:"description,omitempty"`
+	Soul         *string     `json:"soul,omitempty"`
+	Color        *string     `json:"color,omitempty"`
+	Department   *string     `json:"department,omitempty"`
+	ToolPolicy   *ToolPolicy `json:"toolPolicy,omitempty"`
+	ModelID      *string     `json:"modelId,omitempty"`
+	Approval     *string     `json:"approval,omitempty"`
+	MascotShape  *string     `json:"mascotShape,omitempty"`
+	Expression   *string     `json:"expression,omitempty"`
+	AvatarURL    *string     `json:"avatarUrl,omitempty"`
+	WorkingDir   *string     `json:"workingDir,omitempty"`
+	ComputerMode *string     `json:"computerMode,omitempty"`
+	SSHHost      *string     `json:"sshHost,omitempty"`
+	SSHUser      *string     `json:"sshUser,omitempty"`
+	SSHRoot      *string     `json:"sshRoot,omitempty"`
+	SSHKeyPath   *string     `json:"sshKeyPath,omitempty"`
+	SSHPort      *int        `json:"sshPort,omitempty"`
 
 	Notifications *bool   `json:"notifications,omitempty"`
 	SpeakReplies  *bool   `json:"speakReplies,omitempty"`

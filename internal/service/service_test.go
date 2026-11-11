@@ -1479,3 +1479,63 @@ func TestBotDepartmentCreateAndPatch(t *testing.T) {
 		t.Fatalf("empty department = %q", updated.Department)
 	}
 }
+
+func TestToolPolicyFiltersAPITools(t *testing.T) {
+	if !toolPatternMatch("GITHUB_*", "github_get_repo") || toolPatternMatch("GITHUB_*", "SLACK_SEND") || toolPatternMatch("*", "anything") == false {
+		t.Fatal("tool pattern matching failed")
+	}
+	if toolAllowed(model.ToolPolicy{Allow: []string{"GITHUB_*"}, Deny: []string{"GITHUB_DELETE_*"}}, "GITHUB_DELETE_REPO") {
+		t.Fatal("deny should win")
+	}
+	svc, _, _ := newTestService(t)
+	svc.composioToolsMu.Lock()
+	svc.composioTools = []model.ComposioTool{
+		{Slug: "GITHUB_GET_REPO", Name: "Get repo", Description: "Read", InputSchema: map[string]any{"type": "object"}},
+		{Slug: "SLACK_SEND", Name: "Send", Description: "Send", InputSchema: map[string]any{"type": "object"}},
+	}
+	svc.composioToolsAt = time.Now()
+	svc.composioToolsMu.Unlock()
+	bot := model.Bot{Name: "Policy Bot", Approval: model.ApprovalAuto, ModelID: "gpt-5.2", ToolPolicy: model.ToolPolicy{Allow: []string{"GITHUB_*"}}}
+	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
+	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
+	if len(req.Tools) != 1 || req.Tools[0].Name != "GITHUB_GET_REPO" {
+		t.Fatalf("policy tools = %+v", req.Tools)
+	}
+}
+
+func TestToolPolicyFiltersMCPListAndCall(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	name := "Policy Bot"
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: name, ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpdateBot(bot.ID, model.BotPatch{ToolPolicy: &model.ToolPolicy{Allow: []string{"memory_*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	target := claudeHookTarget{BotID: bot.ID, ThreadID: bot.Threads[0].ID}
+	mcpURL, _, err := svc.newToolURLs(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listPayload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	response, err := http.Post(mcpURL, "application/json", bytes.NewReader(listPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if !strings.Contains(string(body), "memory_update") || strings.Contains(string(body), "ask_user") {
+		t.Fatalf("policy tools/list = %s", body)
+	}
+	callPayload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "ask_user", "arguments": map[string]any{"question": "hi"}}})
+	response, err = http.Post(mcpURL, "application/json", bytes.NewReader(callPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if !strings.Contains(string(body), "blocked by this bot's tool policy") {
+		t.Fatalf("policy tools/call = %s", body)
+	}
+}
