@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.42.0
+
+- Added a decision-provider layer: OpenRouter chat, Cloudflare Workers AI Clef-flash and native TypeSafe Jev
+  system-one. Each keeps its own write-only key.
+- Added provider/account controls and end-to-end Workers AI and Jev routing tests.
+- Still not ported: OpenRouter's decisions API, the several-members answer, extraction and triage.
+
 ## 0.41.0
 
 - Added per-bot playbooks: Markdown files with name/triggers/instructions, selected by message trigger words

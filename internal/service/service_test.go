@@ -2214,3 +2214,73 @@ func TestPlaybookSelectionAndPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWorkersAiRoomDecision(t *testing.T) {
+	account := strings.Repeat("a", 32)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts/"+account+"/ai/run/@cf/cloudflare/clef-flash" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"result":{"answers":{"room":{"choice":"bot-omiii","probabilities":{"bot-omiii":0.91,"bot-emaily":0.09}}}}}`))
+	}))
+	defer server.Close()
+	svc, _, events := newTestService(t)
+	if _, err := svc.SetSecret("decider-workers", "cloud-key"); err != nil {
+		t.Fatal(err)
+	}
+	settings := svc.st.State.Settings
+	settings.DeciderEnabled = true
+	settings.DeciderProvider = "workersai"
+	settings.DeciderBaseURL = server.URL
+	settings.DeciderAccountID = account
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	auto := "auto"
+	if _, err := svc.UpdateGroup("group-launch", model.GroupPatch{Responder: &auto}); err != nil {
+		t.Fatal(err)
+	}
+	group := svc.st.State.Groups[0]
+	thread := group.Threads[0]
+	if _, err := svc.SendGroup(group.ID, thread.ID, "Who handles this?"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, 5*time.Second, "the Workers AI routed turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-omiii" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+}
+
+func TestJevRoomDecision(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/systemone" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"answers":{"room":{"choice":"bot-emaily","probabilities":{"bot-emaily":0.88,"bot-omiii":0.12}}}}`))
+	}))
+	defer server.Close()
+	svc, _, events := newTestService(t)
+	if _, err := svc.SetSecret("decider-jev", "jev-key"); err != nil {
+		t.Fatal(err)
+	}
+	settings := svc.st.State.Settings
+	settings.DeciderEnabled = true
+	settings.DeciderProvider = "jev"
+	settings.DeciderBaseURL = server.URL
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	auto := "auto"
+	if _, err := svc.UpdateGroup("group-launch", model.GroupPatch{Responder: &auto}); err != nil {
+		t.Fatal(err)
+	}
+	group := svc.st.State.Groups[0]
+	thread := group.Threads[0]
+	if _, err := svc.SendGroup(group.ID, thread.ID, "Inbox question"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, 5*time.Second, "the Jev routed turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-emaily" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+}

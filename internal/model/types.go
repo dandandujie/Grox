@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.41.0"
+	AppVersion = "0.42.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -623,6 +623,8 @@ type Settings struct {
 	Advanced              bool    `json:"advanced"`
 	Onboarded             bool    `json:"onboarded,omitempty"`
 	DeciderEnabled        bool    `json:"deciderEnabled,omitempty"`
+	DeciderProvider       string  `json:"deciderProvider,omitempty"`
+	DeciderAccountID      string  `json:"deciderAccountId,omitempty"`
 	DeciderBaseURL        string  `json:"deciderBaseUrl,omitempty"`
 	DeciderModel          string  `json:"deciderModel,omitempty"`
 	ReduceMotion          bool    `json:"reduceMotion"`

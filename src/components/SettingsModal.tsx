@@ -41,6 +41,8 @@ const KEY_FIELDS = [
   { name: "composio", label: "Composio project key", hint: "Enables real OAuth links and the live tool runner in Connected apps.", placeholder: "ak_…" },
   { name: "api", label: "Custom API key", hint: "For an OpenAI-compatible gateway or a local model.", placeholder: "Optional" },
   { name: "decider", label: "OpenRouter decision key", hint: "Used by Auto rooms for fast bot routing. Write-only.", placeholder: "sk-or-…" },
+  { name: "decider-workers", label: "Cloudflare Workers AI token", hint: "For Clef decisions (requires an account ID).", placeholder: "Bearer token" },
+  { name: "decider-jev", label: "TypeSafe Jev key", hint: "Native Jev system-one decisions.", placeholder: "jev-…" },
 ];
 
 const ENGINE_LABEL: Record<string, string> = {
@@ -254,6 +256,8 @@ function EnginesSection() {
   const [deciderEnabled, setDeciderEnabled] = useState(Boolean(state.settings.deciderEnabled));
   const [deciderBase, setDeciderBase] = useState(state.settings.deciderBaseUrl ?? "https://openrouter.ai/api/v1");
   const [deciderModel, setDeciderModel] = useState(state.settings.deciderModel ?? "typesafe/jev-1.13");
+  const [deciderProvider, setDeciderProvider] = useState(state.settings.deciderProvider || "openrouter");
+  const [deciderAccount, setDeciderAccount] = useState(state.settings.deciderAccountId ?? "");
 
   useEffect(() => {
     setBaseUrl(state.settings.apiBaseUrl);
@@ -263,7 +267,9 @@ function EnginesSection() {
     setDeciderEnabled(Boolean(state.settings.deciderEnabled));
     setDeciderBase(state.settings.deciderBaseUrl ?? "https://openrouter.ai/api/v1");
     setDeciderModel(state.settings.deciderModel ?? "typesafe/jev-1.13");
-  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion, state.settings.deciderEnabled, state.settings.deciderBaseUrl, state.settings.deciderModel]);
+    setDeciderProvider(state.settings.deciderProvider || "openrouter");
+    setDeciderAccount(state.settings.deciderAccountId ?? "");
+  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion, state.settings.deciderEnabled, state.settings.deciderBaseUrl, state.settings.deciderModel, state.settings.deciderProvider, state.settings.deciderAccountId]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -361,16 +367,32 @@ function EnginesSection() {
           <Switch checked={deciderEnabled} label="Use fast decisions" onChange={setDeciderEnabled} />
         </div>
         <div className="settings-form">
+          <div className="panel-field">
+            <span>Decision provider</span>
+            <Segmented
+              label="Decision provider"
+              value={deciderProvider}
+              options={[{ value: "openrouter", label: "OpenRouter" }, { value: "workersai", label: "Workers AI" }, { value: "jev", label: "Jev" }]}
+              onChange={setDeciderProvider}
+            />
+          </div>
           <label className="panel-field">
             <span>Decision base URL</span>
-            <input value={deciderBase} onChange={(event) => setDeciderBase(event.target.value)} placeholder="https://openrouter.ai/api/v1" spellCheck={false} />
+            <input value={deciderBase} onChange={(event) => setDeciderBase(event.target.value)} placeholder={deciderProvider === "workersai" ? "https://api.cloudflare.com/client/v4" : deciderProvider === "jev" ? "https://api.typesafe.ai" : "https://openrouter.ai/api/v1"} spellCheck={false} />
           </label>
-          <label className="panel-field">
-            <span>Decision model</span>
-            <input value={deciderModel} onChange={(event) => setDeciderModel(event.target.value)} placeholder="typesafe/jev-1.13" spellCheck={false} />
-          </label>
+          {deciderProvider === "workersai" ? (
+            <label className="panel-field">
+              <span>Cloudflare account ID</span>
+              <input value={deciderAccount} onChange={(event) => setDeciderAccount(event.target.value)} placeholder="32 hexadecimal characters" spellCheck={false} />
+            </label>
+          ) : (
+            <label className="panel-field">
+              <span>Decision model</span>
+              <input value={deciderModel} onChange={(event) => setDeciderModel(event.target.value)} placeholder={deciderProvider === "jev" ? "jev-latest" : "typesafe/jev-1.13"} spellCheck={false} />
+            </label>
+          )}
           <div className="settings-form-actions">
-            <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ deciderEnabled, deciderBaseUrl: deciderBase.trim(), deciderModel: deciderModel.trim() })}><Save size={14} /> Save decisions</button>
+            <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ deciderEnabled, deciderProvider, deciderBaseUrl: deciderBase.trim(), deciderModel: deciderModel.trim(), deciderAccountId: deciderAccount.trim().toLowerCase() })}><Save size={14} /> Save decisions</button>
           </div>
         </div>
       </SectionCard>

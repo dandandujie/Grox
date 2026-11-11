@@ -12,10 +12,10 @@ import (
 // logDecision appends one metadata-only decision row. Message text and bot
 // descriptions never enter the log; a short state hash is enough to spot
 // repeats.
-func (s *Service) logDecision(choice string, probability float64, latency time.Duration, modelID string, prompt string, ok bool, reason string) {
+func (s *Service) logDecision(provider, choice string, probability float64, latency time.Duration, modelID string, prompt string, ok bool, reason string) {
 	sum := sha256.Sum256([]byte(prompt))
 	row := map[string]any{
-		"at": time.Now().UTC().Format(time.RFC3339), "seam": "roomRouting", "provider": "openrouter",
+		"at": time.Now().UTC().Format(time.RFC3339), "seam": "roomRouting", "provider": provider,
 		"ok": ok, "choice": choice, "pTop": probability, "latencyMs": latency.Milliseconds(),
 		"stateHash": hex.EncodeToString(sum[:8]), "model": modelID,
 	}

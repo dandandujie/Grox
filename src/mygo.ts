@@ -647,6 +647,8 @@ export interface Settings {
   advanced: boolean;
   onboarded?: boolean;
   deciderEnabled?: boolean;
+  deciderProvider?: string;
+  deciderAccountId?: string;
   deciderBaseUrl?: string;
   deciderModel?: string;
   reduceMotion: boolean;

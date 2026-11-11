@@ -409,6 +409,11 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 	cur.Advanced = settings.Advanced
 	cur.Onboarded = settings.Onboarded
 	cur.DeciderEnabled = settings.DeciderEnabled
+	switch settings.DeciderProvider {
+	case "openrouter", "workersai", "jev":
+		cur.DeciderProvider = settings.DeciderProvider
+	}
+	cur.DeciderAccountID = strings.ToLower(strings.TrimSpace(settings.DeciderAccountID))
 	cur.DeciderBaseURL = strings.TrimSpace(settings.DeciderBaseURL)
 	cur.DeciderModel = strings.TrimSpace(settings.DeciderModel)
 	cur.ReduceMotion = settings.ReduceMotion
@@ -435,7 +440,7 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 }
 
 func (s *Service) SetSecret(name, value string) (model.SecretStatus, error) {
-	allowed := map[string]bool{"xai": true, "openai": true, "anthropic": true, "google": true, "composio": true, "api": true, "decider": true}
+	allowed := map[string]bool{"xai": true, "openai": true, "anthropic": true, "google": true, "composio": true, "api": true, "decider": true, "decider-workers": true, "decider-jev": true}
 	if !allowed[name] {
 		return model.SecretStatus{}, fmt.Errorf("unknown key %q", name)
 	}
