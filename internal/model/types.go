@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.6.0"
+	AppVersion = "0.6.1"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -49,34 +49,56 @@ type AppState struct {
 
 // Bot is one contact in the roster: a persona, a model, and its own threads.
 type Bot struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	Soul          string    `json:"soul"`
-	Color         string    `json:"color"`
-	MascotShape   string    `json:"mascotShape"`
-	Expression    string    `json:"expression"`
-	AvatarURL     string    `json:"avatarUrl,omitempty"`
-	ModelID       string    `json:"modelId"`
-	Approval      string    `json:"approval"`
-	WorkingDir    string    `json:"workingDir,omitempty"`
-	ComputerMode  string    `json:"computerMode,omitempty"`
-	SSHHost       string    `json:"sshHost,omitempty"`
-	SSHUser       string    `json:"sshUser,omitempty"`
-	SSHRoot       string    `json:"sshRoot,omitempty"`
-	SSHKeyPath    string    `json:"sshKeyPath,omitempty"`
-	SSHPort       int       `json:"sshPort,omitempty"`
-	Notifications bool      `json:"notifications"`
-	SpeakReplies  bool      `json:"speakReplies"`
-	Voice         string    `json:"voice,omitempty"`
-	Pinned        bool      `json:"pinned"`
-	Hidden        bool      `json:"hidden"`
-	Archived      bool      `json:"archived"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	LastActiveAt  time.Time `json:"lastActiveAt"`
-	Threads       []Thread  `json:"threads"`
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	Title         string     `json:"title"`
+	Description   string     `json:"description"`
+	Soul          string     `json:"soul"`
+	Color         string     `json:"color"`
+	MascotShape   string     `json:"mascotShape"`
+	Expression    string     `json:"expression"`
+	AvatarURL     string     `json:"avatarUrl,omitempty"`
+	ModelID       string     `json:"modelId"`
+	Approval      string     `json:"approval"`
+	WorkingDir    string     `json:"workingDir,omitempty"`
+	ComputerMode  string     `json:"computerMode,omitempty"`
+	SSHHost       string     `json:"sshHost,omitempty"`
+	SSHUser       string     `json:"sshUser,omitempty"`
+	SSHRoot       string     `json:"sshRoot,omitempty"`
+	SSHKeyPath    string     `json:"sshKeyPath,omitempty"`
+	SSHPort       int        `json:"sshPort,omitempty"`
+	Notifications bool       `json:"notifications"`
+	SpeakReplies  bool       `json:"speakReplies"`
+	Voice         string     `json:"voice,omitempty"`
+	Skills        []BotSkill `json:"skills,omitempty"`
+	Pinned        bool       `json:"pinned"`
+	Hidden        bool       `json:"hidden"`
+	Archived      bool       `json:"archived"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	LastActiveAt  time.Time  `json:"lastActiveAt"`
+	Threads       []Thread   `json:"threads"`
+}
+
+// BotSkill is the persisted on/off state for one discovered SKILL.md file.
+// The skill text itself stays on disk; only the id and enabled flag live in state.
+type BotSkill struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+// Skill is a discovered SKILL.md file and its per-bot state. Body is filled by
+// ReadSkill and omitted from ListSkills to keep the state/event payloads small.
+type Skill struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Source      string    `json:"source"`
+	Path        string    `json:"path"`
+	Bytes       int       `json:"bytes"`
+	Enabled     bool      `json:"enabled"`
+	Body        string    `json:"body,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // Thread is one conversation with a bot: a chat, a task, or a routine run.

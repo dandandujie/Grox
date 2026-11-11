@@ -10,7 +10,7 @@ import type { Backend } from "@/lib/bridge";
 import { speak } from "@/lib/speech";
 
 export type View = "chat" | "routines" | "apps";
-export type Panel = "profile" | "computer" | "activity";
+export type Panel = "profile" | "skills" | "computer" | "activity";
 export type SettingsSection = "general" | "connections" | "engines" | "computer" | "phone" | "voice" | "data" | "about";
 
 export interface ToastItem {
@@ -253,7 +253,7 @@ function initialUI(boot: Bootstrap): UIState {
     activeBotId: activeBot?.id ?? "",
     activeGroupId: activeGroup?.id ?? "",
     activeThreadId: thread?.id ?? "",
-    panel: panelParam === "profile" || panelParam === "computer" || panelParam === "activity" ? panelParam : null,
+    panel: panelParam === "profile" || panelParam === "skills" || panelParam === "computer" || panelParam === "activity" ? panelParam : null,
     settingsOpen: settingsParam !== null,
     settingsSection: (settingsSections.includes(settingsParam ?? "") ? settingsParam : "general") as SettingsSection,
     modelPickerOpen: params.get("modelPicker") === "1",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1
+
+- Added a per-bot Skills tab that discovers SKILL.md folders from the Grox data folder, ~/.grox/skills,
+  the bot's workspace (.grox/skills and .claude/skills) and ~/.claude/skills.
+- Skills are off by default. Enabling one adds its instructions to the next prompt for CLI and API engines;
+  disabled skills are never sent, and skill files are never executed.
+- Added read-skill preview, a rescan action, source/path/size metadata, and a browser-preview skills list.
+- Skills are capped at 64 KB per file and 64 KB per prompt to keep a single skill from crowding out a turn.
+- Updated the parity ledger: SKILL.md instructions are ported; skill scripts, dependency installation and
+  the full approval lifecycle are still partial.
+
 ## 0.6.0
 
 Every bot now has an original deterministic 1-bit portrait.

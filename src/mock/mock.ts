@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  Settings, Thread,
+  Settings, Skill, Thread,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
 
@@ -577,6 +577,53 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
       enabled, url: enabled ? "http://192.168.1.20:4870/p/phone-demo" : "", token: enabled ? "phone-demo" : "",
       error: "", port: enabled ? 4870 : 0, connected: 0,
     };
+  }
+
+  async listSkills(botId: string): Promise<Skill[]> {
+    const bot = this.bot(botId);
+    const enabled = new Set((bot.skills ?? []).filter((item) => item.enabled).map((item) => item.id));
+    return [
+      {
+        id: "launch-report",
+        name: "Launch report",
+        description: "Turn a launch checklist into a short, sourced status brief.",
+        source: "Preview",
+        path: "skills/launch-report/SKILL.md",
+        bytes: 248,
+        enabled: enabled.has("launch-report"),
+        updatedAt: nowISO(),
+      },
+      {
+        id: "code-review",
+        name: "Code review",
+        description: "Review the diff before commenting; rank findings by risk.",
+        source: "Preview",
+        path: "skills/code-review/SKILL.md",
+        bytes: 196,
+        enabled: enabled.has("code-review"),
+        updatedAt: nowISO(),
+      },
+    ];
+  }
+
+  async readSkill(botId: string, skillId: string): Promise<Skill> {
+    const skills = await this.listSkills(botId);
+    const skill = skills.find((item) => item.id === skillId);
+    if (!skill) throw new Error("Skill not found");
+    return {
+      ...skill,
+      body: "---\nname: " + skill.name + "\ndescription: " + skill.description + "\n---\n\n# " + skill.name + "\n\nThis is the browser preview skill. The desktop app reads real SKILL.md files from the workspace.",
+    };
+  }
+
+  async setSkillEnabled(botId: string, skillId: string, enabled: boolean): Promise<Bot> {
+    const bot = this.bot(botId);
+    const next = (bot.skills ?? []).filter((item) => item.id !== skillId);
+    if (enabled) next.push({ id: skillId, enabled: true });
+    bot.skills = next;
+    bot.updatedAt = nowISO();
+    this.emitState();
+    return clone(bot);
   }
 
   async testRemoteComputer(_botId: string): Promise<string> {

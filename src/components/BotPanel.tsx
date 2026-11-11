@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity as ActivityIcon, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen,
+  Activity as ActivityIcon, BookOpen, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen,
   Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
-import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, Model } from "@/lib/bridge";
+import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, Model, Skill } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
-import { IconButton, Segmented, Switch } from "@/components/ui";
+import { IconButton, Modal, Segmented, Switch } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { generateAvatar } from "@/lib/pixel-avatar";
 import { clock, relative, sidebarTime } from "@/lib/format";
@@ -608,12 +608,121 @@ function ActivityTab({ bot }: { bot: Bot }) {
   );
 }
 
+function SkillsTab({ bot }: { bot: Bot }) {
+  const { backend, toast, boot } = useApp();
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [viewing, setViewing] = useState<Skill | null>(null);
+  const [viewingLoading, setViewingLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setSkills(await backend.listSkills(bot.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read skills.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id]);
+
+  const toggle = async (skill: Skill, enabled: boolean) => {
+    setSkills((current) => current.map((item) => item.id === skill.id ? { ...item, enabled } : item));
+    try {
+      await backend.setSkillEnabled(bot.id, skill.id, enabled);
+    } catch (cause) {
+      setSkills((current) => current.map((item) => item.id === skill.id ? { ...item, enabled: !enabled } : item));
+      toast({ kind: "error", title: "Skill not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const view = async (skill: Skill) => {
+    setViewing({ ...skill, body: "" });
+    setViewingLoading(true);
+    try {
+      setViewing(await backend.readSkill(bot.id, skill.id));
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read skill", body: cause instanceof Error ? cause.message : "Try again." });
+      setViewing(null);
+    } finally {
+      setViewingLoading(false);
+    }
+  };
+
+  const enabledCount = skills.filter((skill) => skill.enabled).length;
+  return (
+    <>
+      <div className="panel-scroll">
+        <section className="panel-card">
+          <div className="panel-card-title">
+            <span><BookOpen size={14} /> Skills</span>
+            <button type="button" className="link-button" onClick={() => void load()} disabled={loading}>
+              <RefreshCw size={12} /> Rescan
+            </button>
+          </div>
+          <p className="panel-note">
+            SKILL.md folders add reusable instructions to this bot. Skills start off; only enabled skills are
+            included in the next prompt. Nothing is executed. Only enable text you trust — skill instructions are
+            sent to the model.
+          </p>
+          <div className="skill-summary">
+            <span>{skills.length} discovered</span>
+            <span>{enabledCount} enabled</span>
+          </div>
+        </section>
+
+        {error && <section className="panel-card"><p className="panel-note is-error">{error}</p></section>}
+        {loading && <section className="panel-card"><div className="skill-loading"><Loader2 size={15} className="spin" /> Reading SKILL.md files…</div></section>}
+        {!loading && !error && skills.length === 0 && (
+          <section className="panel-card skill-empty">
+            <BookOpen size={24} />
+            <strong>No skills found</strong>
+            <p>Add a folder with a SKILL.md file, then rescan.</p>
+            <code>{boot.dataDir}/skills/&lt;name&gt;/SKILL.md</code>
+            <code>{bot.workingDir || "Working folder"}/.grox/skills/&lt;name&gt;/SKILL.md</code>
+          </section>
+        )}
+        {!loading && skills.map((skill) => (
+          <section key={skill.id} className={cn("panel-card skill-card", skill.enabled && "is-enabled")}>
+            <div className="skill-card-head">
+              <span className="skill-file-icon"><FileText size={15} /></span>
+              <div className="skill-title">
+                <strong>{skill.name}</strong>
+                <span>{skill.source}</span>
+              </div>
+              <Switch checked={skill.enabled} label={"Enable " + skill.name} onChange={(value) => void toggle(skill, value)} />
+            </div>
+            <p className="skill-description">{skill.description || "No description in the frontmatter."}</p>
+            <div className="skill-meta">
+              <span>{formatBytes(skill.bytes)}</span>
+              <span className="skill-path" title={skill.path}>{skill.path}</span>
+              <button type="button" className="link-button" onClick={() => void view(skill)}>View</button>
+            </div>
+          </section>
+        ))}
+      </div>
+      <Modal open={Boolean(viewing)} onClose={() => setViewing(null)} title={viewing?.name ?? "Skill"} width={720}>
+        {viewingLoading ? <div className="skill-loading"><Loader2 size={15} className="spin" /> Reading skill…</div> : (
+          <pre className="skill-body">{viewing?.body}</pre>
+        )}
+      </Modal>
+    </>
+  );
+}
+
 export function BotPanel() {
   const { activeBot, ui, setUI, state } = useApp();
   if (!activeBot) return null;
   const advanced = state.settings.advanced;
   const panel = ui.panel === "activity" && !advanced ? "profile" : ui.panel;
-  const title = panel === "profile" ? "Agent profile" : panel === "computer" ? "Computer" : "Activity";
+  const title = panel === "profile" ? "Agent profile" : panel === "skills" ? "Skills" : panel === "computer" ? "Computer" : "Activity";
   return (
     <aside className="side-panel">
       <header className="side-panel-head drag-region">
@@ -630,10 +739,12 @@ export function BotPanel() {
         </div>
       </header>
       {panel === "profile" && <ProfileTab bot={activeBot} />}
+      {panel === "skills" && <SkillsTab bot={activeBot} />}
       {panel === "computer" && <ComputerTab bot={activeBot} />}
       {panel === "activity" && <ActivityTab bot={activeBot} />}
       <div className="side-panel-tabs">
         <button type="button" className={cn(panel === "profile" && "is-active")} onClick={() => setUI({ panel: "profile" })}>Profile</button>
+        <button type="button" className={cn(panel === "skills" && "is-active")} onClick={() => setUI({ panel: "skills" })}>Skills</button>
         <button type="button" className={cn(panel === "computer" && "is-active")} onClick={() => setUI({ panel: "computer" })}>Computer</button>
         {advanced && <button type="button" className={cn(panel === "activity" && "is-active")} onClick={() => setUI({ panel: "activity" })}>Activity</button>}
       </div>

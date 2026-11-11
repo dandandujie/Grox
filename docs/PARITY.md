@@ -23,8 +23,8 @@ two products are code-identical.
 - Contexts/departments: channels exist, but a separate department/context shelf and department sharing do
   not.
 - Memory: per-bot instructions exist, but MEMORY.md/topic notes/daily logs do not.
-- Skills/plugins: engine-level skills may be discovered by a CLI; Grox has no skill shelf, approval
-  lifecycle, or per-bot skill toggles.
+- Skills: Grox now discovers and toggles SKILL.md instructions per bot. Skill scripts, dependency
+  installation, bundled skill packs and the full approval lifecycle are still not ported.
 - Questions: option cards exist; arbitrary agent-authored question cards are not a first-class tool.
 - MCP: the per-turn Composio gateway exists; user-managed remote MCP server CRUD and value vault do not.
 - Artifacts: attachments and file previews exist; a first-class artifact browser does not.
@@ -35,7 +35,8 @@ two products are code-identical.
 ## Not yet ported (local code in the reference repo)
 
 - Team/department packages, presets, shared instructions and import/export.
-- Skills, playbooks, memory files and their approval lifecycles.
+- Playbooks, memory files and the full skill approval lifecycle (SKILL.md instructions themselves are
+  ported).
 - Webhook receiver, app-event triggers, trigger broker and event log.
 - Jeev/decision-model routing with multiple decision providers.
 - MCP server management, connector requirements and vault-secret handling.

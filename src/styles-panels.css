@@ -691,3 +691,24 @@
 @keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: none; } }
 @keyframes palette-in { from { opacity: 0; transform: translateY(-6px) scale(0.99); } to { opacity: 1; transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Skills ─────────────────────────────────────────────────────────── */
+.skill-summary { display: flex; gap: 14px; margin-top: 10px; color: var(--ink-3); font-size: 10.5px; }
+.skill-loading { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 12px; }
+.skill-empty { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; padding: 22px 16px; color: var(--ink-3); }
+.skill-empty strong { color: var(--ink-2); font-size: 12.5px; }
+.skill-empty p { margin: 0 0 4px; font-size: 11px; line-height: 1.45; }
+.skill-empty code { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 7px; border: 1px solid var(--edge); border-radius: 6px; background: var(--inset); font-size: 10px; text-align: left; }
+.skill-card { padding: 12px 13px; }
+.skill-card.is-enabled { border-color: color-mix(in srgb, var(--success) 32%, var(--edge)); }
+.skill-card-head { display: flex; align-items: center; gap: 9px; }
+.skill-file-icon { display: flex; align-items: center; justify-content: center; width: 27px; height: 27px; flex: 0 0 27px; border-radius: 7px; border: 1px solid var(--edge); background: var(--inset); color: var(--ink-2); }
+.skill-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.skill-title strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-title span { color: var(--ink-3); font-size: 9.5px; flex: 0 0 auto; }
+.skill-description { margin: 9px 0 8px 36px; color: var(--ink-2); font-size: 11px; line-height: 1.5; }
+.skill-meta { display: flex; align-items: center; gap: 8px; margin-left: 36px; color: var(--ink-3); font-size: 9.5px; }
+.skill-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); }
+.skill-body { max-height: min(66vh, 620px); overflow: auto; margin: 0; padding: 14px; border: 1px solid var(--edge); border-radius: 9px; background: var(--inset); color: var(--ink-2); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+.panel-card-title .link-button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }

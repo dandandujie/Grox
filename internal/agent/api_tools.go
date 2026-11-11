@@ -83,6 +83,9 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 		system = "You are " + req.Bot.Name + ", a helpful assistant."
 	}
 	system += "\n\nYou are replying inside Grox, a chat app. Use GitHub-flavored Markdown when it helps."
+	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
+		system += "\n\n## Enabled skills\n\n" + skillText
+	}
 	system += "\n\nYou can call connected-app tools. Use a tool only when it is necessary; explain the result to the person in plain language."
 	messages := []map[string]any{{"role": "system", "content": system}}
 	if extra := strings.TrimSpace(req.ExtraContext); extra != "" {

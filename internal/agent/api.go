@@ -52,6 +52,9 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 		system = "You are " + req.Bot.Name + ", a helpful assistant."
 	}
 	system += "\n\nYou are replying inside Grox, a chat app. Use GitHub-flavored Markdown when it helps."
+	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
+		system += "\n\n## Enabled skills\n\n" + skillText
+	}
 	messages = append(messages, map[string]string{"role": "system", "content": system})
 	for _, m := range recent(req.History, 16) {
 		text := strings.TrimSpace(m.Text)

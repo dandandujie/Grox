@@ -201,13 +201,17 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 			cli[e.ProviderID] = true
 		}
 	}
+	skillText := s.enabledSkillTextLocked(bot)
 	req := agent.Request{
 		Bot: botCopy, Thread: threadCopy, UserText: agentText, History: threadCopy.Messages,
 		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
-		ExtraContext: extraContext,
+		ExtraContext: extraContext, SkillText: skillText,
 	}
 	req.Prompt = agent.Compose(botCopy, threadCopy, agentText)
+	if skillText != "" {
+		req.Prompt += "\n\n## Enabled skills\n\n" + skillText
+	}
 	if extraContext != "" {
 		req.Prompt += "\n\n" + extraContext
 	}

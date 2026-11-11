@@ -66,6 +66,8 @@ type Request struct {
 	MCPURL string
 	// HookURL is the per-turn PreToolUse approval hook for non-Claude CLIs.
 	HookURL string
+	// SkillText is the enabled SKILL.md instructions for this bot.
+	SkillText string
 }
 
 // Result is a finished turn.

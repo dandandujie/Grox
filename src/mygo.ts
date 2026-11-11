@@ -104,6 +104,7 @@ export interface Bot {
   notifications: boolean;
   speakReplies: boolean;
   voice?: string;
+  skills?: BotSkill[];
   pinned: boolean;
   hidden: boolean;
   archived: boolean;
@@ -138,6 +139,15 @@ export interface BotPatch {
   pinned?: boolean;
   hidden?: boolean;
   archived?: boolean;
+}
+
+/**
+ * BotSkill is the persisted on/off state for one discovered SKILL.md file.
+ * The skill text itself stays on disk; only the id and enabled flag live in state.
+ */
+export interface BotSkill {
+  id: string;
+  enabled: boolean;
 }
 
 /**
@@ -431,6 +441,22 @@ export interface Settings {
   apiModel: string;
 }
 
+/**
+ * Skill is a discovered SKILL.md file and its per-bot state. Body is filled by
+ * ReadSkill and omitted from ListSkills to keep the state/event payloads small.
+ */
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  path: string;
+  bytes: number;
+  enabled: boolean;
+  body?: string;
+  updatedAt: string;
+}
+
 /** Thread is one conversation with a bot: a chat, a task, or a routine run. */
 export interface Thread {
   id: string;
@@ -570,6 +596,13 @@ export const Grox = {
   listComputerFiles(botID: string, path: string): Promise<FolderListing> {
     return call("Grox.ListComputerFiles", botID, path);
   },
+  /**
+   * ListSkills discovers SKILL.md files visible to a bot and returns their
+   * per-bot enabled state. It never executes a skill.
+   */
+  listSkills(botID: string): Promise<Skill[]> {
+    return call("Grox.ListSkills", botID);
+  },
   /** MarkGroupRead clears the channel's unread count. */
   markGroupRead(groupID: string): Promise<void> {
     return call("Grox.MarkGroupRead", groupID);
@@ -604,6 +637,10 @@ export const Grox = {
   /** ReadComputerFile returns a bounded text or image preview. */
   readComputerFile(botID: string, path: string): Promise<FilePreview> {
     return call("Grox.ReadComputerFile", botID, path);
+  },
+  /** ReadSkill returns the SKILL.md body for the instructions viewer. */
+  readSkill(botID: string, skillID: string): Promise<Skill> {
+    return call("Grox.ReadSkill", botID, skillID);
   },
   /** RefreshCatalog re-probes the local CLIs and returns a fresh bootstrap. */
   refreshCatalog(): Promise<Bootstrap> {
@@ -681,6 +718,10 @@ export const Grox = {
   },
   setSecret(name: string, value: string): Promise<SecretStatus> {
     return call("Grox.SetSecret", name, value);
+  },
+  /** SetSkillEnabled stores the per-bot switch. The skill text stays on disk. */
+  setSkillEnabled(botID: string, skillID: string, enabled: boolean): Promise<Bot> {
+    return call("Grox.SetSkillEnabled", botID, skillID, enabled);
   },
   /** Stop interrupts the active turn in a conversation. */
   stop(botID: string, threadID: string): Promise<void> {

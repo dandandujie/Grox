@@ -762,3 +762,76 @@ func TestMCPAndGenericToolHook(t *testing.T) {
 		t.Fatal("generic hook did not reply")
 	}
 }
+
+func TestSkillsDiscoverAndInject(t *testing.T) {
+	svc, dataDir, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Skill Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workdir := t.TempDir()
+	if _, err := svc.UpdateBot(bot.ID, model.BotPatch{WorkingDir: &workdir}); err != nil {
+		t.Fatal(err)
+	}
+	globalDir := filepath.Join(dataDir, "skills", "launch")
+	workspaceDir := filepath.Join(workdir, ".grox", "skills", "code")
+	if err := os.MkdirAll(globalDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workspaceDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "SKILL.md"), []byte("---\nname: Launch report\ndescription: Build a launch brief.\n---\n\n# Launch\n\nCheck the checklist.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspaceDir, "SKILL.md"), []byte("---\nname: Code review\ndescription: Review a diff.\n---\n\nRead the diff before commenting.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	skills, err := svc.ListSkills(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skills) < 2 {
+		t.Fatalf("expected discovered skills, got %+v", skills)
+	}
+	var codeID string
+	for _, skill := range skills {
+		if skill.Name == "Code review" {
+			codeID = skill.ID
+			if skill.Enabled {
+				t.Fatal("skills must start disabled")
+			}
+		}
+	}
+	if codeID == "" {
+		t.Fatalf("code skill missing: %+v", skills)
+	}
+	if _, err := svc.SetSkillEnabled(bot.ID, codeID, true); err != nil {
+		t.Fatal(err)
+	}
+	read, err := svc.ReadSkill(bot.ID, codeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(read.Body, "Read the diff before commenting") {
+		t.Fatalf("read body = %q", read.Body)
+	}
+	svc.mu.Lock()
+	stored := svc.findBotLocked(bot.ID)
+	text := svc.enabledSkillTextLocked(stored)
+	svc.mu.Unlock()
+	if !strings.Contains(text, "Read the diff before commenting") || strings.Contains(text, "Check the checklist") {
+		t.Fatalf("enabled prompt = %q", text)
+	}
+	svc.mu.Lock()
+	stored = svc.findBotLocked(bot.ID)
+	thread := &stored.Threads[0]
+	req, _ := svc.engineRequestLocked(stored, thread, "Review this", "")
+	svc.mu.Unlock()
+	if !strings.Contains(req.SkillText, "Read the diff before commenting") {
+		t.Fatalf("request skill text = %q", req.SkillText)
+	}
+	if !strings.Contains(req.Prompt, "## Enabled skills") || !strings.Contains(req.Prompt, "Read the diff before commenting") {
+		t.Fatalf("request prompt missing skills = %q", req.Prompt)
+	}
+}

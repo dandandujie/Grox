@@ -80,9 +80,9 @@ open ?avatars=1 in the browser preview to inspect the layer recipes.
 | --- | --- |
 | ![Models](docs/screenshots/model.png) | ![Approval](docs/screenshots/approval.png) |
 
-| Tasks & routines |
-| --- |
-| ![Routines](docs/screenshots/routines.png) |
+| Skills | Tasks & routines |
+| --- | --- |
+| ![Skills](docs/screenshots/skills.png) | ![Routines](docs/screenshots/routines.png) |
 
 | Connected apps | Settings |
 | --- | --- |
@@ -143,6 +143,7 @@ The table below is intentionally blunt.
 | Tool-level approvals for Grok, Claude, Codex and Gemini | **Working in Ask mode.** Each CLI gets a per-turn local hook (HTTP or a tiny command that calls Grox); its tool calls become approval cards and block until Allow/Always/Deny |
 | Composio tools inside CLI turns | **Working for all four CLIs** through a per-turn streamable-HTTP MCP endpoint; tool calls also pass the CLI's Ask hook |
 | Composio tools inside API turns | **Working for Auto/Full API bots** from the cached tool list; Ask API bots receive no tools; the manual Tools runner still works |
+| Skills (SKILL.md) | **Working per bot**: discovers global/workspace folders, off by default, previews the file, and injects only enabled instructions into CLI/API prompts. See [skills](docs/SKILLS.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.
