@@ -491,6 +491,16 @@ export interface Skill {
   updatedAt: string;
 }
 
+/** TeamImportResult is the additive import receipt. */
+export interface TeamImportResult {
+  bots: number;
+  groups: number;
+  routines: number;
+  skills: number;
+  memories: number;
+  name: string;
+}
+
 /** Thread is one conversation with a bot: a chat, a task, or a routine run. */
 export interface Thread {
   id: string;
@@ -666,6 +676,14 @@ export const Grox = {
   executeComposioTool(slug: string, arguments_: Record<string, unknown>): Promise<unknown> {
     return call("Grox.ExecuteComposioTool", slug, arguments_);
   },
+  /**
+   * ExportTeam writes one channel and its member bots as a portable JSON package.
+   * It includes only enabled SKILL.md bodies, persona text, MEMORY.md and routines;
+   * no keys, connections, threads or app credentials travel.
+   */
+  exportTeam(groupID: string): Promise<string> {
+    return call("Grox.ExportTeam", groupID);
+  },
   exportWorkspace(): Promise<string> {
     return call("Grox.ExportWorkspace");
   },
@@ -676,6 +694,14 @@ export const Grox = {
   /** GetWebhookInfo reports the loopback receiver and the current trigger list. */
   getWebhookInfo(): Promise<WebhookInfo> {
     return call("Grox.GetWebhookInfo");
+  },
+  /**
+   * ImportTeam adds a package as new records. Bots start at Ask approval, skills
+   * are written to disk but left disabled, routines arrive paused and no app
+   * connection or secret can be carried by the format.
+   */
+  importTeam(raw: string): Promise<TeamImportResult> {
+    return call("Grox.ImportTeam", raw);
   },
   /** ListComposioTools returns tools from a fresh tool-router session. */
   listComposioTools(): Promise<ComposioTool[]> {

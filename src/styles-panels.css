@@ -750,3 +750,4 @@
 .webhook-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-left: 37px; color: var(--ink-3); font-size: 9.5px; }
 .webhook-actions { display: flex; gap: 10px; }
 .link-button.is-danger { color: var(--danger); }
+.group-export { width: 100%; margin-top: 10px; justify-content: center; }

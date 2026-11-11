@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+
+- Added Grox team packages: export a channel with its bots, enabled SKILL.md files, MEMORY.md and routines.
+- Added additive import: new bot names, new channel, imported approval at Ask, skills on disk but off,
+  routines paused, and no existing record overwritten.
+- The package format has no field for keys, OAuth connections, SSH credentials, chat history or attachments.
+- Added channel-panel export and Settings -> Data import, with a 4 MB cap and whole-file refusal on bad format.
+- Test: TestTeamPackageExportImport round-trips a real bot, group, skill, memory and routine and verifies
+  the safety defaults.
+- Still not ported: organization libraries, presets and Markdown BotMRR packages, signed package identities
+  and update-in-place team releases.
+
 ## 0.8.0
 
 - Added a loopback inbound webhook receiver with per-trigger capability tokens and JSON/text payloads.

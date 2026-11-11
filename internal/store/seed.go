@@ -199,7 +199,7 @@ There are 41 newsletters and 12 notifications I can archive.`,
 	}
 
 	state := model.AppState{
-		Version: 1, Bots: bots, Connections: map[string]model.Connection{},
+		Version: 1, Bots: bots, Connections: map[string]model.Connection{}, Webhooks: []model.Webhook{},
 		Groups: []model.Group{{
 			ID: "group-launch", Name: "Launch room", Description: "Brody, Omiii and Emaily keep the launch moving.", Color: "purple",
 			MemberIDs: []string{"bot-brody", "bot-omiii", "bot-emaily"}, LeadID: "bot-brody", Unread: 1,

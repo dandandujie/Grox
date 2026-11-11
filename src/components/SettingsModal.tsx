@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight, Cloud, Database, Eye, EyeOff, FolderOpen, Globe, Info, KeyRound, Laptop,
   Languages, MonitorSpeaker, Palette, Play, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Trash2,
-  Volume2, X,
+  Upload, Volume2, X,
 } from "lucide-react";
 import { useApp, type SettingsSection } from "@/state/store";
 import { Segmented, Switch, Spinner } from "@/components/ui";
@@ -456,7 +456,28 @@ function VoiceSection() {
 }
 
 function DataSection() {
-  const { boot, exportWorkspace, resetWorkspace, revealDataFolder } = useApp();
+  const { boot, exportWorkspace, resetWorkspace, revealDataFolder, backend, toast } = useApp();
+  const importRef = useRef<HTMLInputElement>(null);
+
+  const importTeam = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      toast({ kind: "error", title: "Team package is too large", body: "Use a file under 4 MB." });
+      return;
+    }
+    try {
+      const result = await backend.importTeam(await file.text());
+      toast({
+        kind: "success",
+        title: "Team package imported",
+        body: result.bots + " bots, " + result.groups + " channel, " + result.routines + " paused routines, " + result.skills + " skills.",
+      });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not import the team", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      if (importRef.current) importRef.current.value = "";
+    }
+  };
   return (
     <>
       <SectionCard title="Workspace" hint="The single JSON document that holds bots, conversations, routines, and connections.">
@@ -475,6 +496,20 @@ function DataSection() {
           <span className="data-label">Export</span>
           <span className="data-hint">A readable JSON copy, without keys.</span>
           <button type="button" className="btn btn-secondary" onClick={() => void exportWorkspace()}>Export workspace</button>
+        </div>
+      </SectionCard>
+      <SectionCard title="Team packages" hint="Move one channel with its bots, enabled skills, memory and routines. The file carries no keys or app connections.">
+        <div className="data-row">
+          <span className="data-label">Import</span>
+          <span className="data-hint">Adds new bots and a channel; imported routines arrive paused and skills start off. Nothing existing is overwritten.</span>
+          <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}><Upload size={14} /> Import team</button>
+          <input
+            ref={importRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={(event) => void importTeam(event.target.files?.[0])}
+          />
         </div>
       </SectionCard>
       <SectionCard title="Reset" hint="Replace the workspace with the first-run team. Keys are kept.">

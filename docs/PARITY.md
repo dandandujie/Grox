@@ -36,7 +36,8 @@ two products are code-identical.
 
 ## Not yet ported (local code in the reference repo)
 
-- Team/department packages, presets, shared instructions and import/export.
+- Team packages: channel-level export/import of bots, skills, memory and routines is ported. Organization
+  libraries, presets, signed releases and department shelves are not.
 - Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and the full webhook delivery journal.
 - Jeev/decision-model routing with multiple decision providers.

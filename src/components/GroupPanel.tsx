@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, Hash, MessagesSquare, Plus, Trash2, Users, X } from "lucide-react";
+import { ChevronLeft, Download, Hash, MessagesSquare, Plus, Trash2, Users, X } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
 import { IconButton } from "@/components/ui";
@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
 
 export function GroupPanel() {
-  const { activeGroup, state, setUI, updateGroup, deleteGroup, newTask } = useApp();
+  const { activeGroup, state, setUI, updateGroup, deleteGroup, newTask, backend, toast } = useApp();
   const [name, setName] = useState(activeGroup?.name ?? "");
   const [description, setDescription] = useState(activeGroup?.description ?? "");
   const [memberIds, setMemberIds] = useState<string[]>(activeGroup?.memberIds ?? []);
@@ -49,6 +49,25 @@ export function GroupPanel() {
     });
   };
 
+  const exportTeam = async () => {
+    if (!activeGroup) return;
+    try {
+      const raw = await backend.exportTeam(activeGroup.id);
+      const blob = new Blob([raw], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = activeGroup.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".grox-team.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast({ kind: "success", title: "Team package exported", body: "Bots, enabled skills, memory and routines are in the file." });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not export the team", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
   return (
     <aside className="side-panel group-panel">
       <header className="side-panel-head drag-region">
@@ -78,6 +97,9 @@ export function GroupPanel() {
             <span><Users size={13} /> {members.length} bots</span>
             <span><MessagesSquare size={13} /> {messages} messages</span>
           </div>
+          <button type="button" className="btn btn-secondary group-export" onClick={() => void exportTeam()}>
+            <Download size={14} /> Export team package
+          </button>
         </section>
 
         <section className="group-section">

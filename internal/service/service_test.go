@@ -947,3 +947,97 @@ func TestWebhookReceiverStartsTask(t *testing.T) {
 		t.Fatalf("deleted webhook status = %d", response.StatusCode)
 	}
 }
+
+func TestTeamPackageExportImport(t *testing.T) {
+	svc, dataDir, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Package Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := svc.CreateGroup(model.CreateGroupInput{Name: "Package Room", MemberIDs: []string{bot.ID}, LeadID: bot.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillDir := filepath.Join(dataDir, "skills", "team-skill")
+	if err := os.MkdirAll(skillDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: Team skill\ndescription: Carried with the package.\n---\n\nUse the team checklist.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	skills, err := svc.ListSkills(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range skills {
+		if skill.Name == "Team skill" {
+			if _, err := svc.SetSkillEnabled(bot.ID, skill.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	memory, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMemory(bot.ID, "- The package keeps this note.", memory.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRoutine(model.RoutineInput{BotID: bot.ID, Name: "Package routine", Prompt: "Check the checklist", Cadence: "daily", TimeOfDay: "09:00", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := svc.ExportTeam(group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, "secrets") || strings.Contains(raw, "apiKey") {
+		t.Fatalf("package leaked a credential-shaped field: %s", raw)
+	}
+	var pkg model.TeamPackage
+	if err := json.Unmarshal([]byte(raw), &pkg); err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Format != "grox.team" || len(pkg.Bots) != 1 || len(pkg.Bots[0].Skills) != 1 {
+		t.Fatalf("exported package = %+v", pkg)
+	}
+	result, err := svc.ImportTeam(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bots != 1 || result.Groups != 1 || result.Routines != 1 || result.Skills != 1 || result.Memories != 1 {
+		t.Fatalf("import result = %+v", result)
+	}
+	svc.mu.Lock()
+	var imported *model.Bot
+	for index := range svc.st.State.Bots {
+		if svc.st.State.Bots[index].Name == "Package Bot 2" {
+			imported = &svc.st.State.Bots[index]
+		}
+	}
+	svc.mu.Unlock()
+	if imported == nil {
+		t.Fatal("imported bot not found")
+	}
+	memory, err = svc.GetMemory(imported.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(memory.Content, "package keeps this note") {
+		t.Fatalf("imported memory = %q", memory.Content)
+	}
+	if len(imported.Skills) != 0 {
+		t.Fatalf("imported skills must start disabled: %+v", imported.Skills)
+	}
+	svc.mu.Lock()
+	routines := append([]model.Routine(nil), svc.st.State.Routines...)
+	svc.mu.Unlock()
+	for _, routine := range routines {
+		if routine.Name == "Package routine" && routine.BotID == imported.ID {
+			if routine.Enabled {
+				t.Fatal("imported routine must start paused")
+			}
+			return
+		}
+	}
+	t.Fatal("imported routine not found")
+}

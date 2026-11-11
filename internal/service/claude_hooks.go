@@ -144,13 +144,13 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	s.emitStateLocked()
 	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
 	s.mu.Unlock()
-	s.emitEvent(model.Event{Type: "message", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, MessageID: message.ID, Message: &message})
-	s.emitEvent(model.Event{Type: "turn", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Turn: turn})
-
 	pending := &claudeHookApproval{ch: make(chan string, 1), suggestions: input.PermissionSuggestions, target: target}
 	s.approvalMu.Lock()
 	s.hookApprovals[message.ID] = pending
 	s.approvalMu.Unlock()
+
+	s.emitEvent(model.Event{Type: "message", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, MessageID: message.ID, Message: &message})
+	s.emitEvent(model.Event{Type: "turn", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Turn: turn})
 
 	decision := "deny"
 	timer := time.NewTimer(240 * time.Second)

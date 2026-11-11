@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.8.0"
+	AppVersion = "0.9.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -165,6 +165,66 @@ type WebhookPatch struct {
 	Name    *string `json:"name,omitempty"`
 	Prompt  *string `json:"prompt,omitempty"`
 	Enabled *bool   `json:"enabled,omitempty"`
+}
+
+// TeamPackage is a portable channel/team export. It carries persona text,
+// skills, memory and paused routines, never API keys or app connections.
+type TeamPackage struct {
+	Format     string           `json:"format"`
+	Version    int              `json:"version"`
+	ExportedAt time.Time        `json:"exportedAt"`
+	Name       string           `json:"name"`
+	Group      PackageGroup     `json:"group"`
+	Bots       []PackageBot     `json:"bots"`
+	Routines   []PackageRoutine `json:"routines,omitempty"`
+}
+
+type PackageGroup struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Color       string   `json:"color"`
+	LeadKey     string   `json:"leadKey"`
+	MemberKeys  []string `json:"memberKeys"`
+}
+
+type PackageBot struct {
+	Key         string         `json:"key"`
+	Name        string         `json:"name"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Soul        string         `json:"soul"`
+	Color       string         `json:"color"`
+	ModelID     string         `json:"modelId"`
+	Skills      []PackageSkill `json:"skills,omitempty"`
+	Memory      string         `json:"memory,omitempty"`
+	MemoryOff   bool           `json:"memoryOff,omitempty"`
+}
+
+type PackageSkill struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Body        string `json:"body"`
+}
+
+type PackageRoutine struct {
+	BotKey    string `json:"botKey,omitempty"`
+	Name      string `json:"name"`
+	Prompt    string `json:"prompt"`
+	Cadence   string `json:"cadence"`
+	TimeOfDay string `json:"timeOfDay"`
+	Weekday   int    `json:"weekday"`
+	Enabled   bool   `json:"enabled"`
+}
+
+// TeamImportResult is the additive import receipt.
+type TeamImportResult struct {
+	Bots     int    `json:"bots"`
+	Groups   int    `json:"groups"`
+	Routines int    `json:"routines"`
+	Skills   int    `json:"skills"`
+	Memories int    `json:"memories"`
+	Name     string `json:"name"`
 }
 
 // Thread is one conversation with a bot: a chat, a task, or a routine run.
