@@ -2132,3 +2132,41 @@ func TestMCPServerOAuthAuthorizationCode(t *testing.T) {
 		t.Fatalf("configs = %+v", configs)
 	}
 }
+
+func TestAutoRoomDecisionChoosesMember(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer decision-key" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": `{"choice":"bot-omiii","pTop":0.94}`}}}})
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	svc, _, events := newTestService(t)
+	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
+		t.Fatal(err)
+	}
+	settings := svc.st.State.Settings
+	settings.DeciderEnabled = true
+	settings.DeciderBaseURL = server.URL
+	settings.DeciderModel = "test-decider"
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	auto := "auto"
+	if _, err := svc.UpdateGroup("group-launch", model.GroupPatch{Responder: &auto}); err != nil {
+		t.Fatal(err)
+	}
+	group := svc.st.State.Groups[0]
+	thread := group.Threads[0]
+	if _, err := svc.SendGroup(group.ID, thread.ID, "Who should take the pricing question?"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, 5*time.Second, "the auto-routed group turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-omiii" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+}

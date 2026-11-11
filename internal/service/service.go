@@ -408,6 +408,9 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 	}
 	cur.Advanced = settings.Advanced
 	cur.Onboarded = settings.Onboarded
+	cur.DeciderEnabled = settings.DeciderEnabled
+	cur.DeciderBaseURL = strings.TrimSpace(settings.DeciderBaseURL)
+	cur.DeciderModel = strings.TrimSpace(settings.DeciderModel)
 	cur.ReduceMotion = settings.ReduceMotion
 	cur.Notifications = settings.Notifications
 	cur.Sounds = settings.Sounds
@@ -432,7 +435,7 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 }
 
 func (s *Service) SetSecret(name, value string) (model.SecretStatus, error) {
-	allowed := map[string]bool{"xai": true, "openai": true, "anthropic": true, "google": true, "composio": true, "api": true}
+	allowed := map[string]bool{"xai": true, "openai": true, "anthropic": true, "google": true, "composio": true, "api": true, "decider": true}
 	if !allowed[name] {
 		return model.SecretStatus{}, fmt.Errorf("unknown key %q", name)
 	}

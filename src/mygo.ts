@@ -233,6 +233,7 @@ export interface CreateGroupInput {
   color: string;
   memberIds: string[];
   leadId: string;
+  responder?: string;
 }
 
 /**
@@ -314,6 +315,7 @@ export interface Group {
   color: string;
   memberIds: string[];
   leadId: string;
+  responder?: string;
   pinned: boolean;
   unread: number;
   createdAt: string;
@@ -328,6 +330,7 @@ export interface GroupPatch {
   color?: string;
   memberIds?: string[];
   leadId?: string;
+  responder?: string;
   pinned?: boolean;
 }
 
@@ -627,6 +630,9 @@ export interface Settings {
   sidebarWidth: number;
   advanced: boolean;
   onboarded?: boolean;
+  deciderEnabled?: boolean;
+  deciderBaseUrl?: string;
+  deciderModel?: string;
   reduceMotion: boolean;
   notifications: boolean;
   sounds: boolean;

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.38.0"
+	AppVersion = "0.39.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -494,6 +494,7 @@ type Group struct {
 	Color       string    `json:"color"`
 	MemberIDs   []string  `json:"memberIds"`
 	LeadID      string    `json:"leadId"`
+	Responder   string    `json:"responder,omitempty"`
 	Pinned      bool      `json:"pinned"`
 	Unread      int       `json:"unread"`
 	CreatedAt   time.Time `json:"createdAt"`
@@ -605,6 +606,9 @@ type Settings struct {
 	SidebarWidth          int     `json:"sidebarWidth"`
 	Advanced              bool    `json:"advanced"`
 	Onboarded             bool    `json:"onboarded,omitempty"`
+	DeciderEnabled        bool    `json:"deciderEnabled,omitempty"`
+	DeciderBaseURL        string  `json:"deciderBaseUrl,omitempty"`
+	DeciderModel          string  `json:"deciderModel,omitempty"`
 	ReduceMotion          bool    `json:"reduceMotion"`
 	Notifications         bool    `json:"notifications"`
 	Sounds                bool    `json:"sounds"`
@@ -817,6 +821,7 @@ type CreateGroupInput struct {
 	Color       string   `json:"color"`
 	MemberIDs   []string `json:"memberIds"`
 	LeadID      string   `json:"leadId"`
+	Responder   string   `json:"responder,omitempty"`
 }
 
 // GroupPatch edits only the fields it sets.
@@ -826,5 +831,6 @@ type GroupPatch struct {
 	Color       *string   `json:"color,omitempty"`
 	MemberIDs   *[]string `json:"memberIds,omitempty"`
 	LeadID      *string   `json:"leadId,omitempty"`
+	Responder   *string   `json:"responder,omitempty"`
 	Pinned      *bool     `json:"pinned,omitempty"`
 }

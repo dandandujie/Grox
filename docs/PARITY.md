@@ -51,7 +51,9 @@ two products are code-identical.
   signed release discovery and department shelves are not.
 - Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
-- Jeev/decision-model routing with multiple decision providers.
+- Jev/decision routing: Auto rooms can ask an OpenRouter-compatible chat model to pick one member, with a
+  0.6 threshold and lead fallback. Native Jev, Workers AI, the several-members option, decision logs and
+  extraction/triage are not ported.
 - MCP OAuth/dynamic registration, connector requirements and full vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.
 - Email, phone numbers, meetings, Postiz/social publishing and related connectors.

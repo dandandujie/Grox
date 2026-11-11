@@ -43,6 +43,11 @@ func (s *Service) groupResponderLocked(g *model.Group, text string) *model.Bot {
 			return bot
 		}
 	}
+	if g.Responder == "auto" {
+		if picked := s.decideRoomResponderLocked(g, text); picked != nil {
+			return picked
+		}
+	}
 	if lead := s.findBotLocked(g.LeadID); lead != nil {
 		return lead
 	}
@@ -98,7 +103,7 @@ func (s *Service) CreateGroup(input model.CreateGroupInput) (model.Group, error)
 	}
 	group := model.Group{
 		ID: newID("group"), Name: name, Description: strings.TrimSpace(input.Description), Color: color,
-		MemberIDs: members, LeadID: lead, CreatedAt: now, UpdatedAt: now, Threads: []model.Thread{thread},
+		MemberIDs: members, LeadID: lead, Responder: "lead", CreatedAt: now, UpdatedAt: now, Threads: []model.Thread{thread},
 	}
 	s.st.State.Groups = append(s.st.State.Groups, group)
 	s.st.State.ActiveGroupID = group.ID
@@ -150,6 +155,12 @@ func (s *Service) UpdateGroup(groupID string, patch model.GroupPatch) (model.Gro
 		g.MemberIDs = members
 		if !seen[g.LeadID] {
 			g.LeadID = members[0]
+		}
+	}
+	if patch.Responder != nil {
+		switch *patch.Responder {
+		case "lead", "auto":
+			g.Responder = *patch.Responder
 		}
 	}
 	if patch.LeadID != nil {

@@ -157,6 +157,7 @@ The table below is intentionally blunt.
 | Departments | **Working locally**: standalone shelves with add/rename/delete, empty shelves in the sidebar, bot counts, and General protection. See [departments](docs/DEPARTMENTS.md) |
 | Onboarding | **Working locally**: first-run welcome with create-bot, demo and engine actions; resettable from About. See [onboarding](docs/ONBOARDING.md) |
 | Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
+| Fast room decisions | **Partial**: Auto rooms ask an OpenRouter-compatible chat model to pick one member, with a 0.6 threshold and lead fallback. See [decisions](docs/DECIDER.md) |
 | Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |
 | Token usage | **Partial**: API-engine and Claude/Grok result usage shows input/output/total tokens; optional local pricing adds a cost label. Codex/Gemini usage and provider price tables are unlabelled. See [usage](docs/USAGE.md) |
 

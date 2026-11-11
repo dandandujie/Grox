@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, Download, Hash, MessagesSquare, Plus, Trash2, Users, X } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
-import { IconButton } from "@/components/ui";
+import { IconButton, Segmented } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
 
@@ -12,12 +12,14 @@ export function GroupPanel() {
   const [description, setDescription] = useState(activeGroup?.description ?? "");
   const [memberIds, setMemberIds] = useState<string[]>(activeGroup?.memberIds ?? []);
   const [leadId, setLeadId] = useState(activeGroup?.leadId ?? "");
+  const [responder, setResponder] = useState(activeGroup?.responder === "auto" ? "auto" : "lead");
 
   useEffect(() => {
     setName(activeGroup?.name ?? "");
     setDescription(activeGroup?.description ?? "");
     setMemberIds(activeGroup?.memberIds ?? []);
     setLeadId(activeGroup?.leadId ?? "");
+    setResponder(activeGroup?.responder === "auto" ? "auto" : "lead");
   }, [activeGroup?.id]);
 
   if (!activeGroup) return null;
@@ -35,7 +37,7 @@ export function GroupPanel() {
 
   const saveRoster = () => {
     if (memberIds.length === 0) return;
-    void updateGroup(activeGroup.id, { memberIds, leadId: memberIds.includes(leadId) ? leadId : memberIds[0] });
+    void updateGroup(activeGroup.id, { memberIds, leadId: memberIds.includes(leadId) ? leadId : memberIds[0], responder });
   };
 
   const toggle = (id: string) => {
@@ -149,6 +151,16 @@ export function GroupPanel() {
                 </div>
               );
             })}
+          </div>
+          <div className="panel-field">
+            <span>Who answers</span>
+            <Segmented
+              label="Who answers"
+              value={responder}
+              options={[{ value: "lead", label: "Lead" }, { value: "auto", label: "Auto (fast decisions)" }]}
+              onChange={setResponder}
+            />
+            <p className="panel-note">Auto asks the decision model only for messages that @mention nobody; any failure falls back to the lead.</p>
           </div>
           <button type="button" className="btn btn-secondary group-save" onClick={saveRoster} disabled={memberIds.length === 0}>
             Save roster

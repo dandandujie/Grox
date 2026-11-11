@@ -40,6 +40,7 @@ const KEY_FIELDS = [
   { name: "google", label: "Google AI API key", hint: "Used by Gemini models.", placeholder: "AIza…" },
   { name: "composio", label: "Composio project key", hint: "Enables real OAuth links and the live tool runner in Connected apps.", placeholder: "ak_…" },
   { name: "api", label: "Custom API key", hint: "For an OpenAI-compatible gateway or a local model.", placeholder: "Optional" },
+  { name: "decider", label: "OpenRouter decision key", hint: "Used by Auto rooms for fast bot routing. Write-only.", placeholder: "sk-or-…" },
 ];
 
 const ENGINE_LABEL: Record<string, string> = {
@@ -250,13 +251,19 @@ function EnginesSection() {
   const [apiModel, setApiModel] = useState(state.settings.apiModel);
   const [inputPrice, setInputPrice] = useState(String(state.settings.inputPricePerMillion ?? 0));
   const [outputPrice, setOutputPrice] = useState(String(state.settings.outputPricePerMillion ?? 0));
+  const [deciderEnabled, setDeciderEnabled] = useState(Boolean(state.settings.deciderEnabled));
+  const [deciderBase, setDeciderBase] = useState(state.settings.deciderBaseUrl ?? "https://openrouter.ai/api/v1");
+  const [deciderModel, setDeciderModel] = useState(state.settings.deciderModel ?? "typesafe/jev-1.13");
 
   useEffect(() => {
     setBaseUrl(state.settings.apiBaseUrl);
     setApiModel(state.settings.apiModel);
     setInputPrice(String(state.settings.inputPricePerMillion ?? 0));
     setOutputPrice(String(state.settings.outputPricePerMillion ?? 0));
-  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion]);
+    setDeciderEnabled(Boolean(state.settings.deciderEnabled));
+    setDeciderBase(state.settings.deciderBaseUrl ?? "https://openrouter.ai/api/v1");
+    setDeciderModel(state.settings.deciderModel ?? "typesafe/jev-1.13");
+  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion, state.settings.deciderEnabled, state.settings.deciderBaseUrl, state.settings.deciderModel]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -341,6 +348,29 @@ function EnginesSection() {
           </label>
           <div className="settings-form-actions">
             <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ inputPricePerMillion: Math.max(0, Number(inputPrice) || 0), outputPricePerMillion: Math.max(0, Number(outputPrice) || 0) })}><Save size={14} /> Save pricing</button>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Fast decisions" hint="Auto rooms ask an OpenRouter-compatible chat model to pick one member. A 1.5 second timeout or any failure falls back to the room lead.">
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Use fast decisions</span>
+            <span className="row-sub">Requires an OpenRouter decision key under Connections.</span>
+          </span>
+          <Switch checked={deciderEnabled} label="Use fast decisions" onChange={setDeciderEnabled} />
+        </div>
+        <div className="settings-form">
+          <label className="panel-field">
+            <span>Decision base URL</span>
+            <input value={deciderBase} onChange={(event) => setDeciderBase(event.target.value)} placeholder="https://openrouter.ai/api/v1" spellCheck={false} />
+          </label>
+          <label className="panel-field">
+            <span>Decision model</span>
+            <input value={deciderModel} onChange={(event) => setDeciderModel(event.target.value)} placeholder="typesafe/jev-1.13" spellCheck={false} />
+          </label>
+          <div className="settings-form-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ deciderEnabled, deciderBaseUrl: deciderBase.trim(), deciderModel: deciderModel.trim() })}><Save size={14} /> Save decisions</button>
           </div>
         </div>
       </SectionCard>

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.0
+
+- Added Auto room routing with an OpenRouter-compatible chat decision model. A 0.6 threshold, 1.5s timeout
+  and any failure fall back to the room lead; @mentions still win.
+- Added Settings -> Fast decisions, a write-only decision key and the channel Who answers control.
+- Added an end-to-end mock decision test.
+- Not ported: native Jev, Cloudflare Workers AI, the several-members option, decision logs and extraction.
+
 ## 0.38.0
 
 - Added OAuth authorization-code + PKCE for MCP servers: one-shot loopback callback, state and S256
