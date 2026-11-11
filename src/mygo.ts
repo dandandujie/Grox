@@ -125,6 +125,7 @@ export interface Bot {
   skills?: BotSkill[];
   memoryOff?: boolean;
   memoryAutoTidy?: boolean;
+  memoryDailyLog?: boolean;
   pinned: boolean;
   hidden: boolean;
   archived: boolean;
@@ -160,6 +161,7 @@ export interface BotPatch {
   voice?: string;
   memoryOff?: boolean;
   memoryAutoTidy?: boolean;
+  memoryDailyLog?: boolean;
   pinned?: boolean;
   hidden?: boolean;
   archived?: boolean;
@@ -364,6 +366,13 @@ export interface MemoryForgetResult {
   archived: number;
 }
 
+/** MemoryLog is one daily conversation log file; it is never loaded into a prompt. */
+export interface MemoryLog {
+  date: string;
+  path: string;
+  bytes: number;
+}
+
 /**
  * MemoryState is the bot's editable MEMORY.md and the read-only topic index.
  * The bytes live under <dataDir>/memory/<botID>; only MemoryOff is in state.
@@ -382,6 +391,7 @@ export interface MemoryState {
   limitBytes: number;
   limitLines: number;
   topics: MemoryTopic[];
+  logs?: MemoryLog[];
 }
 
 /** MemoryTidyResult reports an archive pass over MEMORY.md. */
@@ -945,6 +955,10 @@ export const Grox = {
   /** ReadComputerFile returns a bounded text or image preview. */
   readComputerFile(botID: string, path: string): Promise<FilePreview> {
     return call("Grox.ReadComputerFile", botID, path);
+  },
+  /** ReadMemoryLog returns one daily log file. Logs are read-only. */
+  readMemoryLog(botID: string, date: string): Promise<string> {
+    return call("Grox.ReadMemoryLog", botID, date);
   },
   /** ReadMemoryTopic returns the full topic body plus its revision for editing. */
   readMemoryTopic(botID: string, name: string): Promise<MemoryTopic> {

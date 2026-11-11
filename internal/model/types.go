@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.30.0"
+	AppVersion = "0.31.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -79,6 +79,7 @@ type Bot struct {
 	Skills         []BotSkill `json:"skills,omitempty"`
 	MemoryOff      bool       `json:"memoryOff,omitempty"`
 	MemoryAutoTidy bool       `json:"memoryAutoTidy,omitempty"`
+	MemoryDailyLog bool       `json:"memoryDailyLog,omitempty"`
 	Pinned         bool       `json:"pinned"`
 	Hidden         bool       `json:"hidden"`
 	Archived       bool       `json:"archived"`
@@ -132,6 +133,14 @@ type MemoryState struct {
 	LimitBytes  int           `json:"limitBytes"`
 	LimitLines  int           `json:"limitLines"`
 	Topics      []MemoryTopic `json:"topics"`
+	Logs        []MemoryLog   `json:"logs,omitempty"`
+}
+
+// MemoryLog is one daily conversation log file; it is never loaded into a prompt.
+type MemoryLog struct {
+	Date  string `json:"date"`
+	Path  string `json:"path"`
+	Bytes int    `json:"bytes"`
 }
 
 // MemoryForgetResult reports a forget pass over MEMORY.md.
@@ -728,6 +737,7 @@ type BotPatch struct {
 	Voice          *string `json:"voice,omitempty"`
 	MemoryOff      *bool   `json:"memoryOff,omitempty"`
 	MemoryAutoTidy *bool   `json:"memoryAutoTidy,omitempty"`
+	MemoryDailyLog *bool   `json:"memoryDailyLog,omitempty"`
 	Pinned         *bool   `json:"pinned,omitempty"`
 	Hidden         *bool   `json:"hidden,omitempty"`
 	Archived       *bool   `json:"archived,omitempty"`

@@ -1875,3 +1875,36 @@ func TestMemoryExpirySkipsPastEntries(t *testing.T) {
 		t.Fatalf("tidy left expired content: %q", state.Content)
 	}
 }
+
+func TestDailyConversationLog(t *testing.T) {
+	svc, _, events := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Log Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	if _, err := svc.UpdateBot(bot.ID, model.BotPatch{MemoryDailyLog: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	thread := bot.Threads[0]
+	if _, err := svc.Send(bot.ID, thread.ID, "remember this day"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, 5*time.Second, "the daily log turn", func(ev model.Event) bool {
+		return ev.Type == "turn" && ev.BotID == bot.ID && ev.ThreadID == thread.ID && ev.Turn != nil && !ev.Turn.Busy
+	})
+	state, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Logs) != 1 || state.Logs[0].Date != time.Now().Format("2006-01-02") {
+		t.Fatalf("logs = %+v", state.Logs)
+	}
+	log, err := svc.ReadMemoryLog(bot.ID, state.Logs[0].Date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log, "remember this day") || !strings.Contains(log, "Log Bot") {
+		t.Fatalf("daily log = %q", log)
+	}
+}

@@ -52,6 +52,7 @@ export interface Backend {
   readMemoryTopic(botId: string, name: string): Promise<MemoryTopic>;
   saveMemoryTopic(botId: string, name: string, content: string, revision: string): Promise<MemoryTopic>;
   deleteMemoryTopic(botId: string, name: string): Promise<void>;
+  readMemoryLog(botId: string, date: string): Promise<string>;
   forgetMemory(botId: string, query: string): Promise<MemoryForgetResult>;
   getWebhookInfo(): Promise<WebhookInfo>;
   createWebhook(input: WebhookInput): Promise<Webhook>;

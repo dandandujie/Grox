@@ -691,6 +691,8 @@ function MemoryTab({ bot }: { bot: Bot }) {
   const [topicError, setTopicError] = useState("");
   const [forgetQuery, setForgetQuery] = useState("");
   const [forgetting, setForgetting] = useState(false);
+  const [log, setLog] = useState<{ date: string; content: string } | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -718,6 +720,18 @@ function MemoryTab({ bot }: { bot: Bot }) {
       setMemory(await backend.getMemory(bot.id));
     } catch (cause) {
       toast({ kind: "error", title: "Memory switch not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const openLog = async (date: string) => {
+    setLogLoading(true);
+    try {
+      const content = await backend.readMemoryLog(bot.id, date);
+      setLog({ date, content });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read log", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setLogLoading(false);
     }
   };
 
@@ -837,6 +851,13 @@ function MemoryTab({ bot }: { bot: Bot }) {
           </span>
           <Switch checked={Boolean(bot.memoryAutoTidy)} label="Automatically archive memory" onChange={(value) => void updateBot(bot.id, { memoryAutoTidy: value })} />
         </div>
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Daily conversation log</span>
+            <span className="row-sub">Append each finished turn to memory/{bot.id}/logs/YYYY-MM-DD.md. Logs are never loaded into prompts.</span>
+          </span>
+          <Switch checked={Boolean(bot.memoryDailyLog)} label="Daily conversation log" onChange={(value) => void updateBot(bot.id, { memoryDailyLog: value })} />
+        </div>
         <p className="panel-note">
           Notes live only on this machine. {memory?.enabled ? "This file is loaded into the next turn." : "The file is kept, but nothing is loaded while memory is off."}
         </p>
@@ -900,6 +921,24 @@ function MemoryTab({ bot }: { bot: Bot }) {
           <p className="panel-note">Topic notes in memory/{bot.id}/topics are indexed here but never loaded automatically.</p>
         )}
       </section>
+      <section className="panel-card">
+        <div className="panel-card-title"><span>Daily logs</span><span className="avatar-seed">{memory?.logs?.length ?? 0}</span></div>
+        {memory && (memory.logs?.length ?? 0) > 0 ? (
+          <div className="memory-topics">
+            {memory.logs?.map((item) => (
+              <button type="button" key={item.date} className="memory-topic" onClick={() => void openLog(item.date)} disabled={logLoading}>
+                <div><strong>{item.date}</strong><span>Conversation log</span></div>
+                <span>{formatBytes(item.bytes)}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="panel-note">Turn on Daily conversation log to keep a local day-by-day transcript.</p>
+        )}
+      </section>
+      <Modal open={Boolean(log)} onClose={() => setLog(null)} title={log ? "Log · " + log.date : "Daily log"} width={760}>
+        {log && <pre className="memory-log">{log.content}</pre>}
+      </Modal>
       <Modal open={Boolean(topic)} onClose={() => setTopic(null)} title={topic?.title ?? "Memory topic"} width={720}>
         {topic && (
           <>

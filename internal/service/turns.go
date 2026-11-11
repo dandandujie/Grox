@@ -265,6 +265,11 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 		thread.Messages = append(thread.Messages, msg)
 		final = ptr(cloneMessage(msg))
 	}
+	logBot := owner.bot
+	if logBot == nil {
+		logBot = s.findBotLocked(sink.botID)
+	}
+	s.appendDailyLogLocked(logBot, thread, final, now)
 	if sink.usage.TotalTokens > 0 {
 		usage := sink.usage
 		if final != nil {

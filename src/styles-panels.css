@@ -774,3 +774,4 @@
 .webhook-delivery-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .webhook-delivery-copy strong { font-size: 11px; font-weight: 600; }
 .webhook-delivery-copy span { color: var(--ink-3); font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-log { max-height: 58vh; overflow: auto; margin: 0; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); color: var(--ink-2); font-family: var(--font-mono, ui-monospace, monospace); font-size: 10.5px; line-height: 1.6; white-space: pre-wrap; }

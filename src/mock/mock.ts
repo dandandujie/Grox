@@ -605,6 +605,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     return this.readMemoryTopic(botId, name);
   }
 
+  async readMemoryLog(_botId: string, _date: string): Promise<string> {
+    throw new Error("Daily logs are only available in the desktop app.");
+  }
+
   async deleteMemoryTopic(botId: string, name: string): Promise<void> {
     this.memoryTopics.delete(botId + ":" + name);
   }

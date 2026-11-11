@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.0
+
+- Added an opt-in per-bot Daily conversation log. Finished turns append a bounded You/Bot entry to
+  memory/<botId>/logs/YYYY-MM-DD.md; logs are never loaded into prompts or recall.
+- Added read-only daily log listing/viewer actions in the Memory tab and a turn-end log test.
+- Still not ported: automatic fact capture and model-ranked recall.
+
 ## 0.30.0
 
 - Added memory expiry markers: entries ending in until YYYY-MM-DD are skipped once past, counted in the

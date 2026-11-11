@@ -166,7 +166,7 @@ func (s *Service) memoryStateLocked(bot *model.Bot) (model.MemoryState, error) {
 		BotID: bot.ID, Enabled: !bot.MemoryOff, Content: content, Path: path, Revision: revision,
 		Bytes: bytes, Lines: lines, LoadedBytes: loadedBytes, LoadedLines: loadedLines,
 		LimitBytes: memoryLimitBytes, LimitLines: memoryLimitLines, Expired: expired,
-		Topics: s.memoryTopicsLocked(bot.ID),
+		Topics: s.memoryTopicsLocked(bot.ID), Logs: s.memoryLogsLocked(bot.ID),
 	}, nil
 }
 

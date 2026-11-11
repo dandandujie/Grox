@@ -80,7 +80,11 @@ same TidyMemory archive pass only when MEMORY.md is over budget.
 
 A top-level entry may end with `· until YYYY-MM-DD`. Past entries are skipped when memory is loaded, are
 counted in the Memory tab, and are moved to topics/archive.md by Tidy. They stay on disk until Tidy runs.
-Automatic fact capture, model-ranked recall and daily logs are still not ported.
+
+Daily conversation log is an opt-in per-bot switch. Finished turns append a short You/Bot transcript to
+memory/<botId>/logs/YYYY-MM-DD.md. Logs are local, capped at 1 MB per day, never loaded into prompts and
+never included in lexical recall. The Memory tab lists them read-only. Automatic fact capture and
+model-ranked recall are still not ported.
 
 ## API
 
