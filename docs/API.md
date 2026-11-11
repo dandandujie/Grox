@@ -21,6 +21,10 @@ Every /v1 request needs:
 - GET /v1/bots - the bot roster.
 - GET /v1/events - authenticated server-sent events. The first event is ready; later frames use the same
   message/delta/turn/state event names as the desktop. A comment heartbeat is sent every 15 seconds.
+- GET /v1/groups and GET /v1/routines - channel and routine inventories.
+- POST /v1/groups/{groupID}/threads/{threadID}/messages, approvals/{messageID} and answers/{messageID} -
+  the same group send/approval/answer paths as the UI.
+- POST /v1/routines/{routineID}/run - run a routine now and return 202 with the SendResult.
 - POST /v1/bots/{botID}/threads/{threadID}/messages with {"text":"..."}.
   Starts a turn and returns the SendResult with 202.
 - POST /v1/bots/{botID}/threads/{threadID}/approvals/{messageID} with

@@ -35,8 +35,8 @@ two products are code-identical.
 - Triggers: schedules, a loopback inbound webhook receiver, optional HMAC signatures, delivery-id replay
   protection, a delivery journal and manual local replay exist. Composio app-event triggers and automatic
   retries do not.
-- Automation API: a token-gated loopback JSON API for state, bots, messages, approvals, answers and an
-  SSE event stream is ported. CORS, groups/routines endpoints and public orchestration are not.
+- Automation API: a token-gated loopback JSON API for state, bots, groups, routines, messages,
+  approvals, answers, routine runs and an SSE event stream is ported. CORS and public orchestration are not.
 - Usage: token/cost accounting is not shown.
 - Onboarding/import: no team pack, preset, or Grok Bot migration flow.
 

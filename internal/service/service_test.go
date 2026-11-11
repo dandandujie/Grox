@@ -1741,3 +1741,45 @@ func TestAutomationAPIEvents(t *testing.T) {
 		return ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
 	})
 }
+
+func TestAutomationAPIGroupsAndRoutines(t *testing.T) {
+	svc, _, events := newTestService(t)
+	info, err := svc.SetAPIEnabled(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = svc.SetAPIEnabled(false) }()
+	get := func(path string) *http.Response {
+		request, _ := http.NewRequest(http.MethodGet, info.URL+path, nil)
+		request.Header.Set("Authorization", "Bearer "+info.Token)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	for _, path := range []string{"/v1/groups", "/v1/routines"} {
+		response := get(path)
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("%s = %d", path, response.StatusCode)
+		}
+	}
+	group := svc.st.State.Groups[0]
+	thread := group.Threads[0]
+	payload, _ := json.Marshal(map[string]string{"text": "group event"})
+	request, _ := http.NewRequest(http.MethodPost, info.URL+"/v1/groups/"+group.ID+"/threads/"+thread.ID+"/messages", bytes.NewReader(payload))
+	request.Header.Set("Authorization", "Bearer "+info.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("group message = %d", response.StatusCode)
+	}
+	waitFor(t, events, 5*time.Second, "the group API turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.GroupID == group.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+}

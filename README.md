@@ -156,7 +156,7 @@ The table below is intentionally blunt.
 | New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
 | Departments | **Working locally**: every bot has a department; New bot/profile edit and the sidebar groups the roster. See [departments](docs/DEPARTMENTS.md) |
 | Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
-| Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots reads, SSE events, messages, approvals and answers. See [API](docs/API.md) |
+| Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.

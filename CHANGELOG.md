@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.0
+
+- Extended the loopback automation API with groups and routines inventories, group message/approval/answer
+  endpoints and routine run-now.
+- Added an end-to-end group API test and reused the existing approval/question service paths.
+- Still not ported: CORS, a full orchestration API, hosted APIs.
+
 ## 0.26.0
 
 - Added GET /v1/events: an authenticated SSE stream of the same service events the desktop and phone

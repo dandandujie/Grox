@@ -170,6 +170,78 @@ func (s *Service) handleAPI(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"bots": bots})
 		return
 	}
+	if r.Method == http.MethodGet && path == "groups" {
+		s.mu.Lock()
+		groups := append([]model.Group(nil), s.st.State.Groups...)
+		s.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"groups": groups})
+		return
+	}
+	if r.Method == http.MethodGet && path == "routines" {
+		s.mu.Lock()
+		routines := append([]model.Routine(nil), s.st.State.Routines...)
+		s.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"routines": routines})
+		return
+	}
+	if r.Method == http.MethodPost && len(parts) == 3 && parts[0] == "routines" && parts[2] == "run" {
+		result, err := s.RunRoutine(parts[1])
+		if err != nil {
+			writeAPIError(w, http.StatusConflict, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
+	if len(parts) >= 5 && parts[0] == "groups" && parts[2] == "threads" && r.Method == http.MethodPost {
+		groupID, threadID, action, messageID := parts[1], parts[3], parts[4], ""
+		if len(parts) >= 6 {
+			messageID = parts[5]
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+		switch action {
+		case "messages":
+			if len(parts) != 5 {
+				writeAPIError(w, http.StatusNotFound, "not found")
+				return
+			}
+			result, err := s.SendGroup(groupID, threadID, payload["text"])
+			if err != nil {
+				writeAPIError(w, http.StatusConflict, err.Error())
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(result)
+			return
+		case "approvals":
+			if messageID == "" {
+				writeAPIError(w, http.StatusBadRequest, "message id is required")
+				return
+			}
+			if err := s.DecideGroup(groupID, threadID, messageID, payload["decision"]); err != nil {
+				writeAPIError(w, http.StatusConflict, err.Error())
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			return
+		case "answers":
+			if messageID == "" {
+				writeAPIError(w, http.StatusBadRequest, "message id is required")
+				return
+			}
+			if err := s.AnswerGroup(groupID, threadID, messageID, payload["answer"]); err != nil {
+				writeAPIError(w, http.StatusConflict, err.Error())
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			return
+		}
+	}
 	if len(parts) >= 5 && parts[0] == "bots" && parts[2] == "threads" && r.Method == http.MethodPost {
 		botID, threadID, action, messageID := parts[1], parts[3], parts[4], ""
 		if len(parts) >= 6 {
