@@ -46,9 +46,9 @@ two products are code-identical.
 
 ## Not yet ported (local code in the reference repo)
 
-- Team packages: channel-level export/import of bots, skills, memory and routines, plus local ed25519
-  package signing and tamper verification, are ported. Organization libraries, presets, a trust registry,
-  signed release discovery and department shelves are not.
+- Team packages: channel-level export/import, local ed25519 signing and a BotMRR Markdown v1 importer for
+  agents, isolated skills, playbooks, rooms and paused routines are ported. Package metadata/requirements,
+  presets, starter notes, avatars, event schedules, package v2 and a trust registry are not.
 - Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
   playbook import/review and the full package metadata are not.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).

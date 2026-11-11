@@ -1,7 +1,7 @@
 import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
-  APIInfo, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
+  APIInfo, BotMRRImportResult, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
   SecretStatus, SendResult, Settings, Skill, Thread, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
@@ -58,6 +58,7 @@ export interface Backend {
   savePlaybook(botId: string, input: PlaybookInput): Promise<Playbook>;
   deletePlaybook(botId: string, id: string): Promise<void>;
   importGrokBot(raw: string): Promise<GrokImportResult>;
+  importBotMRR(raw: string): Promise<BotMRRImportResult>;
   beginMCPOAuth(id: string): Promise<MCPOAuthStart>;
   createDepartment(name: string): Promise<Department>;
   renameDepartment(id: string, name: string): Promise<Department>;
@@ -108,7 +109,7 @@ export interface Backend {
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
-  APIInfo, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
+  APIInfo, BotMRRImportResult, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
   RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult,
   Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";

@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  APIInfo, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  APIInfo, BotMRRImportResult, Department, GrokImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -662,6 +662,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   private playbooks = new Map<string, Playbook[]>();
+
+  async importBotMRR(_raw: string): Promise<BotMRRImportResult> {
+    throw new Error("BotMRR import is only available in the desktop app.");
+  }
 
   async importGrokBot(_raw: string): Promise<GrokImportResult> {
     throw new Error("Grok Bot import is only available in the desktop app.");

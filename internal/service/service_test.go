@@ -2340,3 +2340,43 @@ func TestGrokBotImport(t *testing.T) {
 		t.Fatal("credential-looking export should be refused")
 	}
 }
+
+func TestBotMRRMarkdownImport(t *testing.T) {
+	raw, err := os.ReadFile("testdata/botmrr.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, _, _ := newTestService(t)
+	result, err := svc.ImportBotMRR(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bots != 2 || result.Groups != 1 || result.Routines != 1 || result.Playbooks != 1 || result.Skills != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	var scout *model.Bot
+	svc.mu.Lock()
+	for index := range svc.st.State.Bots {
+		if svc.st.State.Bots[index].Name == "Imported Scout" {
+			scout = &svc.st.State.Bots[index]
+		}
+	}
+	routines := append([]model.Routine(nil), svc.st.State.Routines...)
+	svc.mu.Unlock()
+	if scout == nil || scout.WorkingDir == "" {
+		t.Fatalf("imported scout = %+v", scout)
+	}
+	foundRoutine := false
+	for _, routine := range routines {
+		if routine.BotID == scout.ID && !routine.Enabled && routine.Cadence == "weekdays" {
+			foundRoutine = true
+		}
+	}
+	if !foundRoutine {
+		t.Fatalf("routines = %+v", routines)
+	}
+	playbooks, err := svc.ListPlaybooks(scout.ID)
+	if err != nil || len(playbooks) != 1 {
+		t.Fatalf("playbooks = %+v err=%v", playbooks, err)
+	}
+}

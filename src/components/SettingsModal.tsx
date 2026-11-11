@@ -1000,6 +1000,8 @@ function DataSection() {
   const importRef = useRef<HTMLInputElement>(null);
   const [grokText, setGrokText] = useState("");
   const [grokBusy, setGrokBusy] = useState(false);
+  const [teamMarkdown, setTeamMarkdown] = useState("");
+  const [teamBusy, setTeamBusy] = useState(false);
 
   const importTeam = async (file: File | undefined) => {
     if (!file) return;
@@ -1053,6 +1055,21 @@ function DataSection() {
             onChange={(event) => void importTeam(event.target.files?.[0])}
           />
         </div>
+      </SectionCard>
+      <SectionCard title="BotMRR team Markdown" hint="Paste a BotMRR blueprint. Bots, rooms, paused routines, playbooks and isolated per-bot skills are created; nothing existing is overwritten.">
+        <label className="panel-field">
+          <span>Team Markdown</span>
+          <textarea rows={5} value={teamMarkdown} onChange={(event) => setTeamMarkdown(event.target.value)} placeholder="Paste the BotMRR Markdown with frontmatter" spellCheck={false} />
+        </label>
+        <button type="button" className="btn btn-secondary" disabled={teamBusy || !teamMarkdown.trim()} onClick={() => {
+          setTeamBusy(true);
+          void backend.importBotMRR(teamMarkdown).then((result) => {
+            setTeamMarkdown("");
+            toast({ kind: "success", title: "BotMRR team imported", body: result.bots + " bots, " + result.groups + " rooms, " + result.routines + " paused routines, " + result.playbooks + " playbooks, " + result.skills + " skills." });
+          }).catch((cause: unknown) => {
+            toast({ kind: "error", title: "BotMRR import failed", body: cause instanceof Error ? cause.message : "Try again." });
+          }).finally(() => setTeamBusy(false));
+        }}>{teamBusy ? "Importing…" : "Import BotMRR team"}</button>
       </SectionCard>
       <SectionCard title="Move from Grok Bot" hint="Paste a Grok Bot export JSON. Grox creates new bots and never overwrites existing ones. Skills are not imported because Grox skills are global.">
         <label className="panel-field">

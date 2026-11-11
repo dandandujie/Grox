@@ -136,6 +136,16 @@ export interface Bot {
   threads: Thread[];
 }
 
+/** BotMRRImportResult reports a BotMRR Markdown team import. */
+export interface BotMRRImportResult {
+  bots: number;
+  groups: number;
+  routines: number;
+  playbooks: number;
+  skills: number;
+  names: string[];
+}
+
 /** BotPatch edits only the fields it sets. */
 export interface BotPatch {
   name?: string;
@@ -973,6 +983,13 @@ export const Grox = {
   /** GetWebhookInfo reports the loopback receiver and the current trigger list. */
   getWebhookInfo(): Promise<WebhookInfo> {
     return call("Grox.GetWebhookInfo");
+  },
+  /**
+   * ImportBotMRR imports the structured BotMRR Markdown frontmatter. It creates
+   * new bots, rooms, paused routines, playbooks and per-bot skill folders.
+   */
+  importBotMRR(raw: string): Promise<BotMRRImportResult> {
+    return call("Grox.ImportBotMRR", raw);
   },
   /**
    * ImportGrokBot imports a pasted Grok Bot export. It creates new bots and never

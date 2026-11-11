@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.44.0
+
+- Added BotMRR Markdown import: agents, isolated per-bot skills, playbooks, rooms and paused daily/weekday
+  routines from YAML frontmatter. Credential-looking keys refuse the document.
+- Added the Data & privacy import card and a fixture-driven test.
+- Still not ported: package metadata/requirements/connections, presets, starter notes, avatars, event
+  schedules and package v2 fields.
+
 ## 0.43.0
 
 - Added a basic Grok Bot export import in Settings -> Data & privacy: pasted JSON creates new bots, starter

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.43.0"
+	AppVersion = "0.44.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -50,6 +50,16 @@ type AppState struct {
 	ActiveThreadID    string                `json:"activeThreadId"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	UpdatedAt         time.Time             `json:"updatedAt"`
+}
+
+// BotMRRImportResult reports a BotMRR Markdown team import.
+type BotMRRImportResult struct {
+	Bots      int      `json:"bots"`
+	Groups    int      `json:"groups"`
+	Routines  int      `json:"routines"`
+	Playbooks int      `json:"playbooks"`
+	Skills    int      `json:"skills"`
+	Names     []string `json:"names"`
 }
 
 // GrokImportResult reports a local Grok Bot export import.
