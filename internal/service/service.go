@@ -53,6 +53,7 @@ type Service struct {
 	approvalListener net.Listener
 	approvalTokens   map[string]claudeHookTarget
 	hookApprovals    map[string]*claudeHookApproval
+	questionWaiters  map[string]*questionWaiter
 
 	webhookMu       sync.Mutex
 	webhookServer   *http.Server
@@ -75,6 +76,7 @@ func New(dir string, emit func(model.Event)) (*Service, error) {
 		dir: dir, emit: emit, turns: map[string]*turnControl{}, stop: make(chan struct{}),
 		phoneSubs:      map[chan model.Event]struct{}{},
 		approvalTokens: map[string]claudeHookTarget{}, hookApprovals: map[string]*claudeHookApproval{},
+		questionWaiters: map[string]*questionWaiter{},
 	}, nil
 }
 

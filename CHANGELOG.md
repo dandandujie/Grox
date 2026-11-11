@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0
+
+- Added a real ask_user tool for agent-authored questions.
+- CLI turns get ask_user through the per-turn MCP gateway; API Auto/Full turns get it in the function loop.
+- Answering creates one option/custom card, blocks the tool call, and returns User answered: ... without
+  starting a second turn.
+- Added auto-allow for the ask_user tool in Claude/Grok/Codex/Gemini hooks; the question card is the
+  decision surface.
+- Question waiters are registered before the card event, closing the same race fixed for approvals.
+- Tests: TestAskUserMCPWaitsForAnswer covers a real MCP tools/call, card, answer and tool result.
+- Still not ported: multi-question forms, answer persistence into memory, and question cards on Ask API bots.
+
 ## 0.9.0
 
 - Added Grox team packages: export a channel with its bots, enabled SKILL.md files, MEMORY.md and routines.

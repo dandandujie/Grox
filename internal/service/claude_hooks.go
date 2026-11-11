@@ -102,6 +102,11 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(input.ToolName) == "" {
 		input.ToolName = "a tool"
 	}
+	if strings.Contains(strings.ToLower(input.ToolName), "ask_user") {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(toolHookResponse("claude", "allow"))
+		return
+	}
 	command := input.ToolName
 	if raw := strings.TrimSpace(string(input.ToolInput)); raw != "" {
 		if len(raw) > 1200 {

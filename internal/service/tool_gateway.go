@@ -72,6 +72,11 @@ func (s *Service) handleToolHook(w http.ResponseWriter, r *http.Request) {
 	if style == "" {
 		style = "grok"
 	}
+	if strings.Contains(strings.ToLower(toolName), "ask_user") {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(toolHookResponse(style, "allow"))
+		return
+	}
 	suggestions := input["permission_suggestions"]
 	if suggestions == nil {
 		suggestions = input["permissionSuggestions"]
@@ -189,7 +194,7 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	token := strings.TrimPrefix(r.URL.Path, "/mcp/")
 	s.approvalMu.Lock()
-	_, ok := s.approvalTokens[token]
+	target, ok := s.approvalTokens[token]
 	s.approvalMu.Unlock()
 	if !ok {
 		http.Error(w, "unknown MCP session", http.StatusNotFound)
@@ -226,7 +231,30 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 				tools = fresh
 			}
 		}
-		items := make([]map[string]any, 0, len(tools))
+		items := make([]map[string]any, 0, len(tools)+1)
+		items = append(items, map[string]any{
+			"name":        "ask_user",
+			"description": "Ask the person a question and wait for the answer before continuing. Use for a real fork in the work; do not use it for routine status updates.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question": map[string]any{"type": "string", "description": "The question to show in a card."},
+					"options": map[string]any{
+						"type":        "array",
+						"description": "Optional answers. The person can still type a custom answer.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"label":       map[string]any{"type": "string"},
+								"description": map[string]any{"type": "string"},
+							},
+							"required": []string{"label"},
+						},
+					},
+				},
+				"required": []string{"question"},
+			},
+		})
 		for _, tool := range tools {
 			schema := tool.InputSchema
 			if schema == nil {
@@ -243,6 +271,15 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 		args, _ := params["arguments"].(map[string]any)
 		if slug == "" {
 			writeMCP(w, id, nil, &mcpError{Code: -32602, Message: "tool name is required"})
+			return
+		}
+		if slug == "ask_user" {
+			value, err := s.askUserTool(target, args)
+			if err != nil {
+				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
+				return
+			}
+			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": "User answered: " + value}}}, nil)
 			return
 		}
 		value, err := s.ExecuteComposioTool(slug, args)

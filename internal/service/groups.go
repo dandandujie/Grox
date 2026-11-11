@@ -377,7 +377,7 @@ func (s *Service) startGroupTurn(groupID, threadID, botID, agentText, extraConte
 	thread.UpdatedAt = now
 	g.UpdatedAt = now
 	bot.LastActiveAt = now
-	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext)
+	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext, groupID)
 	req.GroupID = groupID
 	if sel.Kind == "cli" {
 		target := claudeHookTarget{BotID: botID, GroupID: groupID, ThreadID: threadID}
@@ -580,6 +580,10 @@ func (s *Service) AnswerGroup(groupID, threadID, messageID, answer string) error
 	if thread == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("conversation not found")
+	}
+	if target, ok := s.questionTarget(messageID); ok {
+		s.mu.Unlock()
+		return s.resolveQuestion(target, messageID, answer)
 	}
 	if thread.Busy {
 		s.mu.Unlock()

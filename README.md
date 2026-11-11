@@ -151,6 +151,7 @@ The table below is intentionally blunt.
 | Memory (MEMORY.md) | **Working per bot**: private note file, 200-line / 24 KB load budget, conflict-safe editor, topic index, on/off switch. See [memory](docs/MEMORY.md) |
 | Inbound webhooks | **Working locally**: loopback receiver, capability URL, JSON/text payload, task thread per delivery, pause/edit/delete. See [webhooks](docs/WEBHOOKS.md) |
 | Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines; additive import with safe defaults. See [team packages](docs/TEAMS.md) |
+| Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.

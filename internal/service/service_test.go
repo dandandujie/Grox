@@ -638,8 +638,15 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 1 || req.Tools[0].Name != "GITHUB_GET_REPO" || req.ExecuteTool == nil {
+	if len(req.Tools) != 2 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
+	}
+	names := map[string]bool{}
+	for _, tool := range req.Tools {
+		names[tool.Name] = true
+	}
+	if !names["ask_user"] || !names["GITHUB_GET_REPO"] {
+		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
 	req, _ = svc.engineRequestLocked(&bot, &thread, "hi", "")
@@ -1040,4 +1047,61 @@ func TestTeamPackageExportImport(t *testing.T) {
 		}
 	}
 	t.Fatal("imported routine not found")
+}
+
+func TestAskUserMCPWaitsForAnswer(t *testing.T) {
+	svc, _, events := newTestService(t)
+	target := claudeHookTarget{BotID: "bot-brody", ThreadID: "thread-brody-home"}
+	mcpURL, _, err := svc.newToolURLs(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := map[string]any{
+		"name": "ask_user",
+		"arguments": map[string]any{
+			"question": "Ship the launch page?",
+			"options": []any{
+				map[string]any{"label": "Ship it", "description": "Publish today."},
+				map[string]any{"label": "Hold", "description": "Wait for legal."},
+			},
+		},
+	}
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": params})
+	type result struct {
+		Body []byte
+		Err  error
+	}
+	responseCh := make(chan result, 1)
+	go func() {
+		response, err := http.Post(mcpURL, "application/json", bytes.NewReader(body))
+		if err != nil {
+			responseCh <- result{Err: err}
+			return
+		}
+		defer response.Body.Close()
+		data, _ := io.ReadAll(response.Body)
+		responseCh <- result{Body: data}
+	}()
+	var messageID string
+	waitFor(t, events, 5*time.Second, "the ask_user card", func(ev model.Event) bool {
+		if ev.Type == "message" && ev.Message != nil && ev.Message.Kind == model.KindOptions && ev.Message.Status == model.StatusPending {
+			messageID = ev.Message.ID
+			return true
+		}
+		return false
+	})
+	if err := svc.Answer("bot-brody", "thread-brody-home", messageID, "Ship it"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-responseCh:
+		if result.Err != nil {
+			t.Fatal(result.Err)
+		}
+		if !strings.Contains(string(result.Body), "User answered: Ship it") {
+			t.Fatalf("ask_user response = %s", result.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ask_user did not reply")
+	}
 }

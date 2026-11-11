@@ -146,7 +146,11 @@ func (s *Service) startTurn(botID, threadID, agentText, extraContext, runID stri
 
 // engineRequestLocked builds the provider request for a turn. It runs under
 // s.mu and does not touch thread busy state.
-func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agentText, extraContext string) (agent.Request, agent.Selection) {
+func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agentText, extraContext string, groupIDs ...string) (agent.Request, agent.Selection) {
+	groupID := ""
+	if len(groupIDs) > 0 {
+		groupID = groupIDs[0]
+	}
 	botCopy := cloneBot(*bot)
 	threadCopy := cloneThread(*thread)
 	settings := s.st.State.Settings
@@ -221,21 +225,40 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	}
 	sel := agent.Select(req)
 	if bot.Approval != model.ApprovalAsk {
-		if tools := s.cachedComposioTools(); len(tools) > 0 {
-			for _, tool := range tools {
-				req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
+		req.Tools = append(req.Tools, agent.Tool{
+			Name:        "ask_user",
+			Description: "Ask the person a question and wait for the answer before continuing. Use for a real fork in the work; do not use it for routine status updates.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question": map[string]any{"type": "string"},
+					"options": map[string]any{
+						"type": "array",
+						"items": map[string]any{"type": "object", "properties": map[string]any{
+							"label":       map[string]any{"type": "string"},
+							"description": map[string]any{"type": "string"},
+						}, "required": []string{"label"}},
+					},
+				},
+				"required": []string{"question"},
+			},
+		})
+		for _, tool := range s.cachedComposioTools() {
+			req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
+		}
+		req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
+			if name == "ask_user" {
+				return s.askUserTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
 			}
-			req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
-				value, err := s.ExecuteComposioTool(name, arguments)
-				if err != nil {
-					return "", err
-				}
-				data, err := json.Marshal(value)
-				if err != nil {
-					return "", err
-				}
-				return string(data), nil
+			value, err := s.ExecuteComposioTool(name, arguments)
+			if err != nil {
+				return "", err
 			}
+			data, err := json.Marshal(value)
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
 		}
 	}
 	return req, sel
@@ -445,6 +468,10 @@ func (s *Service) Answer(botID, threadID, messageID, answer string) error {
 	if thread == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("conversation not found")
+	}
+	if target, ok := s.questionTarget(messageID); ok {
+		s.mu.Unlock()
+		return s.resolveQuestion(target, messageID, answer)
 	}
 	if thread.Busy {
 		s.mu.Unlock()
