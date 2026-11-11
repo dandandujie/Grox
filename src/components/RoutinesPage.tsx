@@ -65,6 +65,7 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
   const [cadence, setCadence] = useState<"daily" | "weekdays" | "weekly" | "hourly">("weekdays");
   const [timeOfDay, setTimeOfDay] = useState("09:00");
   const [weekday, setWeekday] = useState(1);
+  const [continuity, setContinuity] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -77,6 +78,7 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
     setCadence((routine?.cadence as typeof cadence) ?? "weekdays");
     setTimeOfDay(routine?.timeOfDay ?? "09:00");
     setWeekday(routine?.weekday || 1);
+    setContinuity(Boolean(routine?.continuity));
     setEnabled(routine?.enabled ?? true);
     setError("");
     setBusy(false);
@@ -92,9 +94,9 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
     }
     setBusy(true);
     if (routine) {
-      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, enabled });
+      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, enabled });
     } else {
-      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, enabled });
+      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, enabled });
     }
     setBusy(false);
     onClose();
@@ -149,6 +151,13 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
             )}
           </div>
         )}
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Keep one thread</span>
+            <span className="row-sub">Continue the previous routine thread instead of creating a fresh task each run.</span>
+          </span>
+          <Switch checked={continuity} label="Keep one routine thread" onChange={setContinuity} />
+        </div>
         <div className="switch-row routine-enabled">
           <span className="row-copy">
             <span className="row-title">Enabled</span>

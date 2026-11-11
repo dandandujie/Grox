@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.48.0"
+	AppVersion = "0.49.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -610,19 +610,21 @@ type ComposioTool struct {
 
 // Routine is a recurring task: a prompt sent to a bot on a schedule.
 type Routine struct {
-	ID         string    `json:"id"`
-	BotID      string    `json:"botId"`
-	Name       string    `json:"name"`
-	Prompt     string    `json:"prompt"`
-	Cadence    string    `json:"cadence"`
-	TimeOfDay  string    `json:"timeOfDay"`
-	Weekday    int       `json:"weekday"`
-	Enabled    bool      `json:"enabled"`
-	NextRun    time.Time `json:"nextRun"`
-	LastRun    time.Time `json:"lastRun,omitempty"`
-	LastStatus string    `json:"lastStatus,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID           string    `json:"id"`
+	BotID        string    `json:"botId"`
+	Name         string    `json:"name"`
+	Prompt       string    `json:"prompt"`
+	Cadence      string    `json:"cadence"`
+	TimeOfDay    string    `json:"timeOfDay"`
+	Weekday      int       `json:"weekday"`
+	Enabled      bool      `json:"enabled"`
+	NextRun      time.Time `json:"nextRun"`
+	LastRun      time.Time `json:"lastRun,omitempty"`
+	LastStatus   string    `json:"lastStatus,omitempty"`
+	Continuity   bool      `json:"continuity,omitempty"`
+	LastThreadID string    `json:"lastThreadId,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // Run records one execution of a routine.
@@ -840,23 +842,25 @@ type BotPatch struct {
 
 // RoutineInput is the New routine form.
 type RoutineInput struct {
-	BotID     string `json:"botId"`
-	Name      string `json:"name"`
-	Prompt    string `json:"prompt"`
-	Cadence   string `json:"cadence"`
-	TimeOfDay string `json:"timeOfDay"`
-	Weekday   int    `json:"weekday"`
-	Enabled   bool   `json:"enabled"`
+	BotID      string `json:"botId"`
+	Name       string `json:"name"`
+	Prompt     string `json:"prompt"`
+	Cadence    string `json:"cadence"`
+	TimeOfDay  string `json:"timeOfDay"`
+	Weekday    int    `json:"weekday"`
+	Continuity bool   `json:"continuity,omitempty"`
+	Enabled    bool   `json:"enabled"`
 }
 
 // RoutinePatch edits only the fields it sets.
 type RoutinePatch struct {
-	Name      *string `json:"name,omitempty"`
-	Prompt    *string `json:"prompt,omitempty"`
-	Cadence   *string `json:"cadence,omitempty"`
-	TimeOfDay *string `json:"timeOfDay,omitempty"`
-	Weekday   *int    `json:"weekday,omitempty"`
-	Enabled   *bool   `json:"enabled,omitempty"`
+	Name       *string `json:"name,omitempty"`
+	Prompt     *string `json:"prompt,omitempty"`
+	Cadence    *string `json:"cadence,omitempty"`
+	TimeOfDay  *string `json:"timeOfDay,omitempty"`
+	Weekday    *int    `json:"weekday,omitempty"`
+	Continuity *bool   `json:"continuity,omitempty"`
+	Enabled    *bool   `json:"enabled,omitempty"`
 }
 
 // SendResult points at the user message and the bot reply it started.

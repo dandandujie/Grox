@@ -2503,3 +2503,31 @@ func TestOpenMausPackageV2ExportRoundTrip(t *testing.T) {
 		t.Fatalf("roundtrip = %+v", result)
 	}
 }
+
+func TestRoutineContinuityReusesThread(t *testing.T) {
+	svc, _, events := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Continuous Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routine, err := svc.CreateRoutine(model.RoutineInput{
+		BotID: bot.ID, Name: "Continuous routine", Prompt: "Keep a running log.", Cadence: "daily", TimeOfDay: "09:00", Continuity: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.RunRoutine(routine.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, events, 5*time.Second, "the first continuous run", func(ev model.Event) bool {
+		return ev.Type == "turn" && ev.BotID == bot.ID && ev.ThreadID == first.ThreadID && ev.Turn != nil && !ev.Turn.Busy
+	})
+	second, err := svc.RunRoutine(routine.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ThreadID != second.ThreadID {
+		t.Fatalf("continuity threads = %q and %q", first.ThreadID, second.ThreadID)
+	}
+}

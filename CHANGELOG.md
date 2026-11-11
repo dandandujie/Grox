@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.49.0
+
+- Added continuous routines: opt-in reuse of one routine thread, with a busy-thread refusal. Continuity
+  travels through package v2 import/export and has an editor switch.
+- Added a two-run continuity test.
+- Still not ported: overlap queueing, cloud execution, room goals, timeouts, routine checks and the
+  proactive brief.
+
 ## 0.48.0
 
 - Added openmaus.package v2 export from a channel: agents, enabled skills, playbooks, memory/topics, paused

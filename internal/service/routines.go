@@ -29,7 +29,7 @@ func (s *Service) CreateRoutine(input model.RoutineInput) (model.Routine, error)
 	r := model.Routine{
 		ID: newID("routine"), BotID: input.BotID, Name: name, Prompt: prompt,
 		Cadence: normalCadence(input.Cadence), TimeOfDay: schedule.Clock(input.TimeOfDay),
-		Weekday: input.Weekday, Enabled: input.Enabled,
+		Weekday: input.Weekday, Continuity: input.Continuity, Enabled: input.Enabled,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	r.NextRun = schedule.Next(r, now)
@@ -82,6 +82,9 @@ func (s *Service) UpdateRoutine(id string, patch model.RoutinePatch) (model.Rout
 	if patch.Weekday != nil {
 		r.Weekday = *patch.Weekday
 		changedSchedule = true
+	}
+	if patch.Continuity != nil {
+		r.Continuity = *patch.Continuity
 	}
 	if patch.Enabled != nil {
 		r.Enabled = *patch.Enabled
@@ -146,13 +149,31 @@ func (s *Service) runRoutine(id string, scheduled bool) (model.SendResult, error
 		return model.SendResult{}, fmt.Errorf("the routine's bot is gone")
 	}
 	now := time.Now()
-	title := r.Name + " · " + now.Format("Jan 2")
-	thread := model.Thread{
-		ID: newID("thread"), BotID: bot.ID, Title: title, Kind: "task",
-		CreatedAt: now, UpdatedAt: now,
+	thread := model.Thread{}
+	reused := false
+	if r.Continuity && r.LastThreadID != "" {
+		for index := range bot.Threads {
+			if bot.Threads[index].ID == r.LastThreadID {
+				if bot.Threads[index].Busy {
+					s.mu.Unlock()
+					return model.SendResult{}, fmt.Errorf("the continuous routine thread is still busy")
+				}
+				thread = bot.Threads[index]
+				thread.UpdatedAt = now
+				reused = true
+				break
+			}
+		}
 	}
-	bot.Threads = append([]model.Thread{thread}, bot.Threads...)
+	if !reused {
+		thread = model.Thread{
+			ID: newID("thread"), BotID: bot.ID, Title: r.Name + " · " + now.Format("Jan 2"), Kind: "task",
+			CreatedAt: now, UpdatedAt: now,
+		}
+		bot.Threads = append([]model.Thread{thread}, bot.Threads...)
+	}
 	bot.UpdatedAt = now
+	r.LastThreadID = thread.ID
 	run := model.Run{
 		ID: newID("run"), RoutineID: r.ID, BotID: bot.ID, ThreadID: thread.ID,
 		Title: r.Name, Status: "running", StartedAt: now,

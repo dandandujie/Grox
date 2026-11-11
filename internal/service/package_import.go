@@ -198,9 +198,10 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 		if prompt == "" {
 			continue
 		}
+		continuity, _ := routine["continuity"].(bool)
 		if _, err := s.CreateRoutine(model.RoutineInput{
 			BotID: bot.ID, Name: bot.Name + ": " + yamlString(routine, "name"), Prompt: prompt,
-			Cadence: cadence, TimeOfDay: clock, Enabled: false,
+			Cadence: cadence, TimeOfDay: clock, Continuity: continuity, Enabled: false,
 		}); err == nil {
 			result.Routines++
 		}

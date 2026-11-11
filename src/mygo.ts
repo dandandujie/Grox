@@ -619,6 +619,8 @@ export interface Routine {
   nextRun: string;
   lastRun?: string;
   lastStatus?: string;
+  continuity?: boolean;
+  lastThreadId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -631,6 +633,7 @@ export interface RoutineInput {
   cadence: string;
   timeOfDay: string;
   weekday: number;
+  continuity?: boolean;
   enabled: boolean;
 }
 
@@ -641,6 +644,7 @@ export interface RoutinePatch {
   cadence?: string;
   timeOfDay?: string;
   weekday?: number;
+  continuity?: boolean;
   enabled?: boolean;
 }
 

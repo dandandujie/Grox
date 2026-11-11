@@ -51,6 +51,8 @@ two products are code-identical.
   continuity/cloud jobs, package signatures and a trust registry are not.
 - Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
   playbook import/review and the full package metadata are not.
+- Routines: scheduled tasks and opt-in continuous task threads are ported. Overlap queueing, cloud jobs,
+  room goals, timeouts, checks and the proactive brief are not.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
 - Jev/decision routing: Auto rooms can use OpenRouter chat, Cloudflare Workers AI Clef-flash or native
