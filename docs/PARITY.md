@@ -55,8 +55,8 @@ two products are code-identical.
   checks, the proactive brief, overlap queueing, cloud jobs, room goals and timeouts are not.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
-- Jev/decision routing: Auto rooms can use OpenRouter chat, Cloudflare Workers AI Clef-flash or native
-  TypeSafe Jev to pick one member, with a 0.6 threshold, lead fallback and a metadata-only decision log.
+- Jev/decision routing: Auto rooms can use OpenRouter chat, Workers AI Clef-flash or native Jev to pick one
+  member, with a 0.6 threshold, lead fallback, a metadata-only decision log and a bot decide tool.
   OpenRouter's decisions API, the several-members option and extraction/triage are not ported.
 - MCP OAuth/dynamic registration, connector requirements and full vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.

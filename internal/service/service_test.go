@@ -644,14 +644,14 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 5 || req.ExecuteTool == nil {
+	if len(req.Tools) != 6 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
 	}
 	names := map[string]bool{}
 	for _, tool := range req.Tools {
 		names[tool.Name] = true
 	}
-	if !names["ask_user"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
+	if !names["ask_user"] || !names["decide"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
 		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
@@ -2577,4 +2577,34 @@ func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
 	waitFor(t, events, 5*time.Second, "the checked routine turn", func(ev model.Event) bool {
 		return ev.Type == "turn" && ev.BotID == bot.ID && ev.ThreadID == result.ThreadID && ev.Turn != nil && !ev.Turn.Busy
 	})
+}
+
+func TestDecideToolUsesProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"choice\":\"red\",\"pTop\":0.9}"}}]}`))
+	}))
+	defer server.Close()
+	svc, _, _ := newTestService(t)
+	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
+		t.Fatal(err)
+	}
+	settings := svc.st.State.Settings
+	settings.DeciderEnabled = true
+	settings.DeciderProvider = "openrouter"
+	settings.DeciderBaseURL = server.URL
+	settings.DeciderModel = "test"
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	value, err := svc.decideTool(map[string]any{
+		"instructions": "Pick a colour",
+		"options":      map[string]any{"red": "warm", "blue": "cool"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(value, `"choice":"red"`) || !strings.Contains(value, "0.9") {
+		t.Fatalf("decision = %s", value)
+	}
 }

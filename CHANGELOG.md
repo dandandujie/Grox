@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.51.0
+
+- Added the bot-authored decide MCP/API tool: it asks the configured OpenRouter/Workers AI/Jev provider to
+  choose one option and returns choice + pTop without executing the choice.
+- Added tool registration in both loops and a provider-backed decide test.
+- Still not ported: extraction/inbox triage, several-members answers and native OpenRouter decisions API.
+
 ## 0.50.0
 
 - Added a local runs check for routines: a scheduled tick with no newly finished runs starts no turn and

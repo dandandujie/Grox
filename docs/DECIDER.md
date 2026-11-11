@@ -35,6 +35,12 @@ Each room decision appends one JSON line to `<data>/decider-log/YYYY-MM.ndjson` 
 provider, ok, choice, pTop, latency, model and a short state hash. Message text and bot descriptions are never
 written. Month files are local and not part of a workspace export.
 
+## Bot decide tool
+
+Bots can call the `decide` MCP/API tool with `instructions` and an `options` object. It asks the configured
+provider and returns `{"choice":"<id>","pTop":0.9}`. The tool never performs the chosen action. CLI Ask tools
+still pass the normal approval hook.
+
 ## Not ported
 
 - OpenRouter's decisions API; this slice uses chat completions with strict JSON.
