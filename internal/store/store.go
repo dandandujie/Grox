@@ -176,6 +176,9 @@ func (s *Store) Normalize() {
 	if st.Bots == nil {
 		st.Bots = []model.Bot{}
 	}
+	if st.Webhooks == nil {
+		st.Webhooks = []model.Webhook{}
+	}
 	for appID, app := range appCatalogMap() {
 		c, ok := st.Connections[appID]
 		if !ok {

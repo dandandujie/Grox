@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  MemoryState, Settings, Skill, Thread,
+  MemoryState, Settings, Skill, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
 
@@ -33,7 +33,11 @@ function titleFrom(text: string): string {
  */
 export class MockBackend {
   private bootData = clone(fixture) as unknown as Bootstrap;
-  private state: AppState = clone(this.bootData.state);
+  private state: AppState = (() => {
+    const state = clone(this.bootData.state);
+    state.webhooks = state.webhooks ?? [];
+    return state;
+  })();
   private secrets: SecretStatus = clone(this.bootData.secrets);
   private listeners = new Set<(event: AppEvent) => void>();
   private timers = new Map<string, Timer>();
@@ -618,6 +622,26 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     bot.updatedAt = nowISO();
     this.emitState();
     return clone(bot);
+  }
+
+  async getWebhookInfo(): Promise<WebhookInfo> {
+    return {
+      baseUrl: "",
+      error: "The loopback webhook receiver starts in the desktop app. The browser preview does not open ports.",
+      items: clone(this.state.webhooks ?? []),
+    };
+  }
+
+  async createWebhook(_input: WebhookInput): Promise<Webhook> {
+    throw new Error("Webhooks are only available in the desktop app.");
+  }
+
+  async updateWebhook(_id: string, _patch: WebhookPatch): Promise<Webhook> {
+    throw new Error("Webhooks are only available in the desktop app.");
+  }
+
+  async deleteWebhook(_id: string): Promise<void> {
+    throw new Error("Webhooks are only available in the desktop app.");
   }
 
   async listSkills(botId: string): Promise<Skill[]> {

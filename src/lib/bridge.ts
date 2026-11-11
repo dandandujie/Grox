@@ -2,6 +2,7 @@ import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
   MemoryState, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult, Settings, Skill, Thread,
+  Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
 export interface Backend {
@@ -47,6 +48,10 @@ export interface Backend {
   getMemory(botId: string): Promise<MemoryState>;
   saveMemory(botId: string, content: string, revision: string): Promise<MemoryState>;
   setMemoryEnabled(botId: string, enabled: boolean): Promise<Bot>;
+  getWebhookInfo(): Promise<WebhookInfo>;
+  createWebhook(input: WebhookInput): Promise<Webhook>;
+  updateWebhook(id: string, patch: WebhookPatch): Promise<Webhook>;
+  deleteWebhook(id: string): Promise<void>;
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;
   connectComposioApp(appId: string): Promise<ComposioLink>;
   disconnectComposioApp(appId: string): Promise<void>;
@@ -75,6 +80,7 @@ export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
   MemoryState, PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn,
+  Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 export type { Event as AppEvent } from "@/mygo";
 

@@ -19,9 +19,9 @@
         "pinned": false,
         "hidden": false,
         "archived": false,
-        "createdAt": "2026-10-12T06:57:41.273302-04:00",
-        "updatedAt": "2026-11-11T04:27:41.273302-05:00",
-        "lastActiveAt": "2026-11-11T04:27:41.273302-05:00",
+        "createdAt": "2026-10-12T07:01:49.521225-04:00",
+        "updatedAt": "2026-11-11T04:31:49.521225-05:00",
+        "lastActiveAt": "2026-11-11T04:31:49.521225-05:00",
         "threads": [
           {
             "id": "thread-brody-home",
@@ -31,8 +31,8 @@
             "pinned": false,
             "unread": 0,
             "busy": false,
-            "createdAt": "2026-11-10T03:57:41.273302-05:00",
-            "updatedAt": "2026-11-11T04:27:41.273302-05:00",
+            "createdAt": "2026-11-10T04:01:49.521225-05:00",
+            "updatedAt": "2026-11-11T04:31:49.521225-05:00",
             "messages": [
               {
                 "id": "m-brody-1",
@@ -41,8 +41,8 @@
                 "text": "Rebuild my AI market map. Last time the sheet was stale, and I want sources and a confidence column this time.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-10T03:57:41.273302-05:00",
-                "updatedAt": "2026-11-10T03:57:41.273302-05:00"
+                "createdAt": "2026-11-10T04:01:49.521225-05:00",
+                "updatedAt": "2026-11-10T04:01:49.521225-05:00"
               },
               {
                 "id": "m-brody-2",
@@ -51,8 +51,8 @@
                 "text": "I rebuilt the list around the gap you flagged: the old sheet was six months stale and missed the entire agent wave.\n\n**What changed**\n- Added 24 companies, removed 9 that have been acquired or wound down.\n- Every row now carries source, last checked, and confidence.\n- The big gap is agents: Anthropic, OpenAI, Cursor, Cognition, and Sierra all moved.\n\n**Four things to know**\n- **Coordinates differ by source.** The original rows have exact HQ coordinates; new rows are city-level. There is a precision column so you can filter.\n- **Valuations are a cross-row trap.** They are as-of dates, not a snapshot. Do not sort by them.\n- **Private coverage is thin.** Wikipedia keeps public companies tidy and private ones messy. Confidence below 0.7 is flagged.\n- **Defunct companies are included on purpose.** They explain why a category looks less crowded than it really is.\n\nThe sheet is called **AI market map — Nov 2026**, with Companies, Summary, and Notes tabs. I would spend the next pass on the private agents list rather than refreshing public caps; that is where the decision is actually moving.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-11T04:27:41.273302-05:00",
-                "updatedAt": "2026-11-11T04:27:41.273302-05:00"
+                "createdAt": "2026-11-11T04:31:49.521225-05:00",
+                "updatedAt": "2026-11-11T04:31:49.521225-05:00"
               }
             ]
           }
@@ -74,9 +74,9 @@
         "pinned": false,
         "hidden": false,
         "archived": false,
-        "createdAt": "2026-10-13T02:57:41.273302-04:00",
-        "updatedAt": "2026-11-11T00:57:41.273302-05:00",
-        "lastActiveAt": "2026-11-11T00:57:41.273302-05:00",
+        "createdAt": "2026-10-13T03:01:49.521225-04:00",
+        "updatedAt": "2026-11-11T01:01:49.521225-05:00",
+        "lastActiveAt": "2026-11-11T01:01:49.521225-05:00",
         "threads": [
           {
             "id": "thread-gitscout-home",
@@ -86,8 +86,8 @@
             "pinned": false,
             "unread": 1,
             "busy": false,
-            "createdAt": "2026-11-10T22:57:41.273302-05:00",
-            "updatedAt": "2026-11-11T00:57:41.273302-05:00",
+            "createdAt": "2026-11-10T23:01:49.521225-05:00",
+            "updatedAt": "2026-11-11T01:01:49.521225-05:00",
             "messages": [
               {
                 "id": "m-git-1",
@@ -96,8 +96,8 @@
                 "text": "Review the auth refactor on the open branch. I care more about the session edge cases than style.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-10T22:57:41.273302-05:00",
-                "updatedAt": "2026-11-10T22:57:41.273302-05:00"
+                "createdAt": "2026-11-10T23:01:49.521225-05:00",
+                "updatedAt": "2026-11-10T23:01:49.521225-05:00"
               },
               {
                 "id": "m-git-2",
@@ -111,17 +111,17 @@
                     "label": "Reading diff",
                     "detail": "14 files · +312 −188",
                     "status": "ok",
-                    "startedAt": "2026-11-11T00:57:01.273302-05:00"
+                    "startedAt": "2026-11-11T01:01:09.521225-05:00"
                   },
                   {
                     "label": "Running tests",
                     "detail": "auth · 48 passed",
                     "status": "ok",
-                    "startedAt": "2026-11-11T00:57:21.273302-05:00"
+                    "startedAt": "2026-11-11T01:01:29.521225-05:00"
                   }
                 ],
-                "createdAt": "2026-11-11T00:57:41.273302-05:00",
-                "updatedAt": "2026-11-11T00:57:41.273302-05:00"
+                "createdAt": "2026-11-11T01:01:49.521225-05:00",
+                "updatedAt": "2026-11-11T01:01:49.521225-05:00"
               }
             ]
           }
@@ -143,9 +143,9 @@
         "pinned": false,
         "hidden": false,
         "archived": false,
-        "createdAt": "2026-10-15T04:57:41.273302-04:00",
-        "updatedAt": "2026-11-11T03:57:41.273302-05:00",
-        "lastActiveAt": "2026-11-11T03:57:41.273302-05:00",
+        "createdAt": "2026-10-15T05:01:49.521225-04:00",
+        "updatedAt": "2026-11-11T04:01:49.521225-05:00",
+        "lastActiveAt": "2026-11-11T04:01:49.521225-05:00",
         "threads": [
           {
             "id": "thread-emaily-home",
@@ -155,8 +155,8 @@
             "pinned": false,
             "unread": 2,
             "busy": false,
-            "createdAt": "2026-11-11T02:57:41.273302-05:00",
-            "updatedAt": "2026-11-11T03:57:41.273302-05:00",
+            "createdAt": "2026-11-11T03:01:49.521225-05:00",
+            "updatedAt": "2026-11-11T04:01:49.521225-05:00",
             "messages": [
               {
                 "id": "m-mail-1",
@@ -165,8 +165,8 @@
                 "text": "Sweep the inbox. Draft anything that needs a reply and tell me what can be archived.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-11T02:57:41.273302-05:00",
-                "updatedAt": "2026-11-11T02:57:41.273302-05:00"
+                "createdAt": "2026-11-11T03:01:49.521225-05:00",
+                "updatedAt": "2026-11-11T03:01:49.521225-05:00"
               },
               {
                 "id": "m-mail-2",
@@ -175,8 +175,8 @@
                 "text": "Three messages need you today, and the rest is noise.\n\n- **Alex · contract redlines** — replies with two questions. A draft is ready.\n- **Nina · Thursday offsite** — she needs a headcount by noon. A draft is ready.\n- **Stripe · failed payout** — this one looks like a real action item. I did not touch it.\n\nThere are 41 newsletters and 12 notifications I can archive.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-11T03:37:41.273302-05:00",
-                "updatedAt": "2026-11-11T03:37:41.273302-05:00"
+                "createdAt": "2026-11-11T03:41:49.521225-05:00",
+                "updatedAt": "2026-11-11T03:41:49.521225-05:00"
               },
               {
                 "id": "m-mail-3",
@@ -193,8 +193,8 @@
                   "risk": "Reversible for 30 days",
                   "decidedAt": "0001-01-01T00:00:00Z"
                 },
-                "createdAt": "2026-11-11T03:57:41.273302-05:00",
-                "updatedAt": "2026-11-11T03:57:41.273302-05:00"
+                "createdAt": "2026-11-11T04:01:49.521225-05:00",
+                "updatedAt": "2026-11-11T04:01:49.521225-05:00"
               }
             ]
           }
@@ -216,9 +216,9 @@
         "pinned": false,
         "hidden": false,
         "archived": false,
-        "createdAt": "2026-10-17T06:57:41.273302-04:00",
-        "updatedAt": "2026-11-10T02:57:41.273302-05:00",
-        "lastActiveAt": "2026-11-10T02:57:41.273302-05:00",
+        "createdAt": "2026-10-17T07:01:49.521225-04:00",
+        "updatedAt": "2026-11-10T03:01:49.521225-05:00",
+        "lastActiveAt": "2026-11-10T03:01:49.521225-05:00",
         "threads": [
           {
             "id": "thread-omiii-home",
@@ -228,8 +228,8 @@
             "pinned": false,
             "unread": 1,
             "busy": false,
-            "createdAt": "2026-11-09T05:57:41.273302-05:00",
-            "updatedAt": "2026-11-10T02:57:41.273302-05:00",
+            "createdAt": "2026-11-09T06:01:49.521225-05:00",
+            "updatedAt": "2026-11-10T03:01:49.521225-05:00",
             "messages": [
               {
                 "id": "m-ops-1",
@@ -238,8 +238,8 @@
                 "text": "Help me choose the one thing the team should finish this week.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-09T05:57:41.273302-05:00",
-                "updatedAt": "2026-11-09T05:57:41.273302-05:00"
+                "createdAt": "2026-11-09T06:01:49.521225-05:00",
+                "updatedAt": "2026-11-09T06:01:49.521225-05:00"
               },
               {
                 "id": "m-ops-2",
@@ -248,8 +248,8 @@
                 "text": "The week is carrying three \"musts\" and none of them has an owner. Before I recommend a winner, what is the actual constraint: shipping the beta, keeping the launch date, or protecting the team's focus?",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-10T02:57:41.273302-05:00",
-                "updatedAt": "2026-11-10T02:57:41.273302-05:00"
+                "createdAt": "2026-11-10T03:01:49.521225-05:00",
+                "updatedAt": "2026-11-10T03:01:49.521225-05:00"
               },
               {
                 "id": "m-ops-3",
@@ -281,8 +281,8 @@
                     "description": "Keep every thread moving, accept slower progress."
                   }
                 ],
-                "createdAt": "2026-11-10T02:57:41.273302-05:00",
-                "updatedAt": "2026-11-10T02:57:41.273302-05:00"
+                "createdAt": "2026-11-10T03:01:49.521225-05:00",
+                "updatedAt": "2026-11-10T03:01:49.521225-05:00"
               }
             ]
           }
@@ -304,9 +304,9 @@
         "pinned": false,
         "hidden": false,
         "archived": false,
-        "createdAt": "2026-11-10T09:57:41.273302-05:00",
-        "updatedAt": "2026-11-11T05:48:41.273302-05:00",
-        "lastActiveAt": "2026-11-11T05:48:41.273302-05:00",
+        "createdAt": "2026-11-10T10:01:49.521225-05:00",
+        "updatedAt": "2026-11-11T05:52:49.521225-05:00",
+        "lastActiveAt": "2026-11-11T05:52:49.521225-05:00",
         "threads": [
           {
             "id": "thread-onyx-home",
@@ -316,8 +316,8 @@
             "pinned": false,
             "unread": 0,
             "busy": false,
-            "createdAt": "2026-11-11T05:47:41.273302-05:00",
-            "updatedAt": "2026-11-11T05:48:41.273302-05:00",
+            "createdAt": "2026-11-11T05:51:49.521225-05:00",
+            "updatedAt": "2026-11-11T05:52:49.521225-05:00",
             "messages": [
               {
                 "id": "m-onyx-1",
@@ -326,8 +326,8 @@
                 "text": "Hey — I'm Onyx. Nice to meet you.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-11T05:47:41.273302-05:00",
-                "updatedAt": "2026-11-11T05:47:41.273302-05:00"
+                "createdAt": "2026-11-11T05:51:49.521225-05:00",
+                "updatedAt": "2026-11-11T05:51:49.521225-05:00"
               },
               {
                 "id": "m-onyx-2",
@@ -359,8 +359,8 @@
                     "description": "Start broad and let the shape emerge."
                   }
                 ],
-                "createdAt": "2026-11-11T05:48:41.273302-05:00",
-                "updatedAt": "2026-11-11T05:48:41.273302-05:00"
+                "createdAt": "2026-11-11T05:52:49.521225-05:00",
+                "updatedAt": "2026-11-11T05:52:49.521225-05:00"
               }
             ]
           }
@@ -381,8 +381,8 @@
         "leadId": "bot-brody",
         "pinned": false,
         "unread": 1,
-        "createdAt": "2026-11-06T05:57:41.273302-05:00",
-        "updatedAt": "2026-11-11T01:57:41.273302-05:00",
+        "createdAt": "2026-11-06T06:01:49.521225-05:00",
+        "updatedAt": "2026-11-11T02:01:49.521225-05:00",
         "threads": [
           {
             "id": "thread-launch-home",
@@ -392,8 +392,8 @@
             "pinned": false,
             "unread": 1,
             "busy": false,
-            "createdAt": "2026-11-11T00:57:41.273302-05:00",
-            "updatedAt": "2026-11-11T01:57:41.273302-05:00",
+            "createdAt": "2026-11-11T01:01:49.521225-05:00",
+            "updatedAt": "2026-11-11T02:01:49.521225-05:00",
             "messages": [
               {
                 "id": "m-launch-1",
@@ -402,8 +402,8 @@
                 "text": "Where are we on the Thursday launch? Give me the short version.",
                 "pending": false,
                 "error": false,
-                "createdAt": "2026-11-11T00:57:41.273302-05:00",
-                "updatedAt": "2026-11-11T00:57:41.273302-05:00"
+                "createdAt": "2026-11-11T01:01:49.521225-05:00",
+                "updatedAt": "2026-11-11T01:01:49.521225-05:00"
               },
               {
                 "id": "m-launch-2",
@@ -414,8 +414,8 @@
                 "error": false,
                 "senderId": "bot-omiii",
                 "senderName": "Omiii",
-                "createdAt": "2026-11-11T01:37:41.273302-05:00",
-                "updatedAt": "2026-11-11T01:37:41.273302-05:00"
+                "createdAt": "2026-11-11T01:41:49.521225-05:00",
+                "updatedAt": "2026-11-11T01:41:49.521225-05:00"
               },
               {
                 "id": "m-launch-3",
@@ -431,11 +431,11 @@
                     "label": "Reviewed the launch page",
                     "detail": "7 edits proposed",
                     "status": "ok",
-                    "startedAt": "2026-11-11T01:47:41.273302-05:00"
+                    "startedAt": "2026-11-11T01:51:49.521225-05:00"
                   }
                 ],
-                "createdAt": "2026-11-11T01:57:41.273302-05:00",
-                "updatedAt": "2026-11-11T01:57:41.273302-05:00"
+                "createdAt": "2026-11-11T02:01:49.521225-05:00",
+                "updatedAt": "2026-11-11T02:01:49.521225-05:00"
               }
             ]
           }
@@ -454,8 +454,8 @@
         "enabled": true,
         "nextRun": "2026-11-11T08:00:00-05:00",
         "lastRun": "0001-01-01T00:00:00Z",
-        "createdAt": "2026-10-29T18:57:41.273302-04:00",
-        "updatedAt": "2026-10-29T18:57:41.273302-04:00"
+        "createdAt": "2026-10-29T19:01:49.521225-04:00",
+        "updatedAt": "2026-10-29T19:01:49.521225-04:00"
       },
       {
         "id": "routine-emaily-sweep",
@@ -468,8 +468,8 @@
         "enabled": true,
         "nextRun": "2026-11-11T09:00:00-05:00",
         "lastRun": "0001-01-01T00:00:00Z",
-        "createdAt": "2026-10-30T14:57:41.273302-04:00",
-        "updatedAt": "2026-10-30T14:57:41.273302-04:00"
+        "createdAt": "2026-10-30T15:01:49.521225-04:00",
+        "updatedAt": "2026-10-30T15:01:49.521225-04:00"
       },
       {
         "id": "routine-gitscout-health",
@@ -482,8 +482,8 @@
         "enabled": false,
         "nextRun": "2026-11-16T10:00:00-05:00",
         "lastRun": "0001-01-01T00:00:00Z",
-        "createdAt": "2026-10-31T10:57:41.273302-04:00",
-        "updatedAt": "2026-10-31T10:57:41.273302-04:00"
+        "createdAt": "2026-10-31T11:01:49.521225-04:00",
+        "updatedAt": "2026-10-31T11:01:49.521225-04:00"
       },
       {
         "id": "routine-omiii-week",
@@ -496,10 +496,11 @@
         "enabled": true,
         "nextRun": "2026-11-16T09:30:00-05:00",
         "lastRun": "0001-01-01T00:00:00Z",
-        "createdAt": "2026-11-01T05:57:41.273302-05:00",
-        "updatedAt": "2026-11-01T05:57:41.273302-05:00"
+        "createdAt": "2026-11-01T06:01:49.521225-05:00",
+        "updatedAt": "2026-11-01T06:01:49.521225-05:00"
       }
     ],
+    "webhooks": null,
     "runs": [
       {
         "id": "run-seed-1",
@@ -508,8 +509,8 @@
         "threadId": "thread-brody-home",
         "title": "Morning research brief",
         "status": "completed",
-        "startedAt": "2026-11-10T03:57:41.273302-05:00",
-        "finishedAt": "2026-11-10T04:01:41.273302-05:00",
+        "startedAt": "2026-11-10T04:01:49.521225-05:00",
+        "finishedAt": "2026-11-10T04:05:49.521225-05:00",
         "summary": "Rebuilt the AI market map and wrote the notes tab."
       },
       {
@@ -519,8 +520,8 @@
         "threadId": "thread-emaily-home",
         "title": "Inbox sweep",
         "status": "completed",
-        "startedAt": "2026-11-11T02:57:41.273302-05:00",
-        "finishedAt": "2026-11-11T02:59:41.273302-05:00",
+        "startedAt": "2026-11-11T03:01:49.521225-05:00",
+        "finishedAt": "2026-11-11T03:03:49.521225-05:00",
         "summary": "Triaged 56 messages, drafted 2 replies."
       }
     ],
@@ -641,8 +642,8 @@
     "activeBotId": "bot-brody",
     "activeGroupId": "",
     "activeThreadId": "thread-brody-home",
-    "createdAt": "2026-11-11T05:57:41.273302-05:00",
-    "updatedAt": "2026-11-11T05:57:41.273302-05:00"
+    "createdAt": "2026-11-11T06:01:49.521225-05:00",
+    "updatedAt": "2026-11-11T06:01:49.521225-05:00"
   },
   "providers": [
     {
@@ -1060,7 +1061,7 @@
     "port": 0,
     "connected": 0
   },
-  "version": "0.7.0",
+  "version": "0.8.0",
   "platform": "darwin",
   "dataDir": "~/Library/Application Support/Grox",
   "demoMode": false

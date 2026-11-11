@@ -53,6 +53,11 @@ type Service struct {
 	approvalListener net.Listener
 	approvalTokens   map[string]claudeHookTarget
 	hookApprovals    map[string]*claudeHookApproval
+
+	webhookMu       sync.Mutex
+	webhookServer   *http.Server
+	webhookListener net.Listener
+	webhookErr      string
 }
 
 type turnControl struct {
@@ -84,6 +89,7 @@ func Open(s *Service) error {
 	s.st = st
 	s.mu.Unlock()
 	s.startApprovalServer()
+	s.startWebhookServer()
 	s.startPhoneIfEnabled()
 	return nil
 }
@@ -140,6 +146,7 @@ func Close(s *Service) { s.shutdown() }
 func (s *Service) shutdown() {
 	s.once.Do(func() { close(s.stop) })
 	s.stopApprovalServer()
+	s.stopWebhookServer()
 	s.stopPhone()
 	s.mu.Lock()
 	defer s.mu.Unlock()

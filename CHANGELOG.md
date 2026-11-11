@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+- Added a loopback inbound webhook receiver with per-trigger capability tokens and JSON/text payloads.
+- Triggers create a fresh task thread, append the inbound message, start the normal bot turn, and update
+  eventCount/lastEventAt without stealing the person's active conversation.
+- Added the Tasks & routines → Webhooks tab: endpoint copy, enable/disable, edit, delete and receiver errors.
+- The receiver binds 127.0.0.1 only, caps bodies at 64 KB, rejects disabled/deleted tokens, and returns
+  409 when the bot is busy.
+- Added webhook tests covering trigger creation, a real HTTP delivery, the bot reply, event counters and
+  token invalidation after deletion.
+- Still not ported: public relay, Composio app-event triggers, HMAC/replay protection, retries and a full
+  delivery journal.
+
 ## 0.7.0
 
 - Added per-bot MEMORY.md with a Memory tab, a 200-line / 24 KB load budget, a line and byte gauge, a

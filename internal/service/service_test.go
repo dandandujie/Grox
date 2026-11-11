@@ -902,3 +902,48 @@ func TestMemoryLoadBudgetConflictAndSwitch(t *testing.T) {
 	}
 	svc.mu.Unlock()
 }
+
+func TestWebhookReceiverStartsTask(t *testing.T) {
+	svc, _, events := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Hook Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := svc.CreateWebhook(model.WebhookInput{BotID: bot.ID, Name: "Build finished", Prompt: "Summarize the build result.", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := svc.GetWebhookInfo()
+	if info.BaseURL == "" || info.Error != "" {
+		t.Fatalf("webhook info = %+v", info)
+	}
+	payload, _ := json.Marshal(map[string]string{"text": "build 42 passed"})
+	response, err := http.Post(info.BaseURL+"/hooks/"+hook.Token, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("webhook response = %d %s", response.StatusCode, body)
+	}
+	waitFor(t, events, 5*time.Second, "the webhook bot reply", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil &&
+			ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+	info = svc.GetWebhookInfo()
+	if len(info.Items) != 1 || info.Items[0].EventCount != 1 || info.Items[0].LastEventAt.IsZero() {
+		t.Fatalf("webhook event info = %+v", info.Items)
+	}
+	if err := svc.DeleteWebhook(hook.ID); err != nil {
+		t.Fatal(err)
+	}
+	response, err = http.Post(info.BaseURL+"/hooks/"+hook.Token, "text/plain", strings.NewReader("too late"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted webhook status = %d", response.StatusCode)
+	}
+}

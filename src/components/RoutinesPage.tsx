@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Play, Plus, Trash2, Webhook, XCircle,
+  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Copy, Pencil, Play, Plus, Trash2, Webhook, XCircle,
 } from "lucide-react";
 import { useApp } from "@/state/store";
-import type { Routine } from "@/lib/bridge";
+import type { Routine, Webhook as WebhookTrigger } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { Modal, Segmented, Switch } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -180,6 +180,196 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
   );
 }
 
+function WebhookEditor({ hook, open, onClose, onSaved }: {
+  hook: WebhookTrigger | undefined;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { state, backend, toast } = useApp();
+  const [botId, setBotId] = useState(hook?.botId ?? state.bots[0]?.id ?? "");
+  const [name, setName] = useState(hook?.name ?? "");
+  const [prompt, setPrompt] = useState(hook?.prompt ?? "");
+  const [enabled, setEnabled] = useState(hook?.enabled ?? true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setBotId(hook?.botId ?? state.bots[0]?.id ?? "");
+    setName(hook?.name ?? "");
+    setPrompt(hook?.prompt ?? "");
+    setEnabled(hook?.enabled ?? true);
+    setError("");
+    setBusy(false);
+  }, [open, hook?.id]);
+
+  if (!open) return null;
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || !botId) {
+      setError("A webhook needs a bot and a name.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (hook) {
+        await backend.updateWebhook(hook.id, { name: name.trim(), prompt: prompt.trim(), enabled });
+      } else {
+        await backend.createWebhook({ botId, name: name.trim(), prompt: prompt.trim(), enabled });
+      }
+      onSaved();
+      onClose();
+      toast({ kind: "success", title: hook ? "Webhook updated" : "Webhook created" });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the webhook.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={hook ? "Edit webhook" : "New webhook"} width={620}>
+      <form className="routine-form" onSubmit={submit}>
+        <div className="form-two">
+          <label className="panel-field">
+            <span>Bot</span>
+            <select value={botId} onChange={(event) => setBotId(event.target.value)} disabled={Boolean(hook)}>
+              {state.bots.filter((bot) => !bot.archived).map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+            </select>
+          </label>
+          <label className="panel-field">
+            <span>Name</span>
+            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Deploy finished" />
+          </label>
+        </div>
+        <label className="panel-field">
+          <span>Instruction</span>
+          <textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What should the bot do with the incoming payload?" />
+        </label>
+        <div className="switch-row">
+          <span className="row-copy"><span className="row-title">Enabled</span><span className="row-sub">A disabled trigger keeps its URL but rejects requests.</span></span>
+          <Switch checked={enabled} label="Enable webhook" onChange={setEnabled} />
+        </div>
+        <p className="panel-note">The endpoint receives one JSON or text payload, creates a task conversation, and starts the bot. The token in the URL is the capability; treat the URL as a password.</p>
+        {error && <p className="panel-note is-error">{error}</p>}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : hook ? "Save webhook" : "Create webhook"}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function WebhooksPanel() {
+  const { backend, state, toast, requestConfirm } = useApp();
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof backend.getWebhookInfo>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<WebhookTrigger | undefined>();
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      setInfo(await backend.getWebhookInfo());
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read webhooks", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const botName = (id: string) => state.bots.find((bot) => bot.id === id)?.name ?? "Bot";
+  const endpointFor = (hook: WebhookTrigger) => info?.baseUrl ? info.baseUrl + "/hooks/" + hook.token : "";
+
+  const copy = (hook: WebhookTrigger) => {
+    const endpoint = endpointFor(hook);
+    if (!endpoint) return;
+    void navigator.clipboard?.writeText(endpoint);
+    toast({ kind: "success", title: "Webhook URL copied" });
+  };
+
+  const toggle = async (hook: WebhookTrigger, enabled: boolean) => {
+    try {
+      await backend.updateWebhook(hook.id, { enabled });
+      await load();
+    } catch (cause) {
+      toast({ kind: "error", title: "Webhook not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const remove = (hook: WebhookTrigger) => {
+    requestConfirm({
+      title: "Delete webhook?",
+      body: hook.name + " will stop accepting requests. Its URL token becomes invalid.",
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: () => {
+        void backend.deleteWebhook(hook.id).then(load).catch((cause: unknown) => {
+          toast({ kind: "error", title: "Webhook not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+        });
+      },
+    });
+  };
+
+  return (
+    <div className="webhook-panel">
+      <div className="webhook-panel-head">
+        <div>
+          <h3>Inbound webhooks</h3>
+          <p>Wake a bot from a local script or an outside service. Requests are accepted only on the loopback receiver.</p>
+        </div>
+        <button type="button" className="btn btn-primary" onClick={() => { setEditing(undefined); setEditorOpen(true); }} disabled={!info?.baseUrl}>
+          <Plus size={14} /> New webhook
+        </button>
+      </div>
+      {info?.baseUrl && <code className="webhook-base">{info.baseUrl}</code>}
+      {info?.error && <p className="panel-note is-warning">{info.error}</p>}
+      {loading ? (
+        <p className="panel-note">Reading webhook receiver…</p>
+      ) : info && info.items.length === 0 ? (
+        <div className="webhook-empty">
+          <Webhook size={22} />
+          <h3>No inbound webhooks</h3>
+          <p>Create one to get a local URL with a private capability token.</p>
+        </div>
+      ) : (
+        <div className="webhook-list">
+          {info?.items.map((hook) => (
+            <section key={hook.id} className={cn("webhook-card", hook.enabled && "is-enabled")}>
+              <div className="webhook-card-head">
+                <span className="webhook-icon"><Webhook size={16} /></span>
+                <div className="webhook-title">
+                  <strong>{hook.name}</strong>
+                  <span>{botName(hook.botId)} · {hook.eventCount} event{hook.eventCount === 1 ? "" : "s"}</span>
+                </div>
+                <Switch checked={hook.enabled} label={"Enable " + hook.name} onChange={(value) => void toggle(hook, value)} />
+              </div>
+              <div className="webhook-endpoint">
+                <code title={endpointFor(hook)}>{endpointFor(hook) || "Receiver unavailable"}</code>
+                <button type="button" className="icon-button" aria-label="Copy webhook URL" onClick={() => copy(hook)} disabled={!endpointFor(hook)}><Copy size={13} /></button>
+              </div>
+              <p className="webhook-prompt">{hook.prompt || "Uses the request body as the task."}</p>
+              <div className="webhook-meta">
+                <span>{hook.lastEventAt ? "Last event " + relative(hook.lastEventAt) : "No events yet"}</span>
+                <div className="webhook-actions">
+                  <button type="button" className="link-button" onClick={() => { setEditing(hook); setEditorOpen(true); }}><Pencil size={11} /> Edit</button>
+                  <button type="button" className="link-button is-danger" onClick={() => remove(hook)}><Trash2 size={11} /> Delete</button>
+                </div>
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      <WebhookEditor hook={editing} open={editorOpen} onClose={() => setEditorOpen(false)} onSaved={() => void load()} />
+    </div>
+  );
+}
+
 export function RoutinesPage() {
   const { state, ui, setUI, runRoutine, updateRoutine, openThread } = useApp();
   const [view, setView] = useState<"day" | "3day" | "week">("week");
@@ -232,9 +422,11 @@ export function RoutinesPage() {
           <p>Routines start fresh agent tasks on a schedule. Every run is its own conversation.</p>
         </div>
         <div className="page-head-actions no-drag">
-          <button type="button" className="btn btn-secondary" onClick={() => setUI({ newRoutineOpen: true, editingRoutineId: null })}>
-            <Plus size={15} /> New routine
-          </button>
+          {tab === "routines" && (
+            <button type="button" className="btn btn-secondary" onClick={() => setUI({ newRoutineOpen: true, editingRoutineId: null })}>
+              <Plus size={15} /> New routine
+            </button>
+          )}
         </div>
       </header>
 
@@ -244,7 +436,7 @@ export function RoutinesPage() {
             <button type="button" className={cn("tab", tab === "routines" && "is-active")} onClick={() => setTab("routines")}><CalendarDays size={14} /> Routines</button>
             <button type="button" className={cn("tab", tab === "webhooks" && "is-active")} onClick={() => setTab("webhooks")}><Webhook size={14} /> Webhooks</button>
           </div>
-          <div className="toolbar-right">
+          {tab === "routines" && <div className="toolbar-right">
             <label className="toolbar-select">
               <select value={botFilter} onChange={(event) => setBotFilter(event.target.value)} aria-label="Filter by bot">
                 <option value="all">All bots</option>
@@ -258,15 +450,11 @@ export function RoutinesPage() {
               options={[{ value: "day", label: "Day" }, { value: "3day", label: "3 days" }, { value: "week", label: "Week" }]}
               onChange={setView}
             />
-          </div>
+          </div>}
         </div>
 
         {tab === "webhooks" ? (
-          <div className="webhook-empty">
-            <Webhook size={22} />
-            <h3>Webhooks are not in this build</h3>
-            <p>A webhook would let an outside service wake a bot with a signed request. This surface is intentionally empty rather than simulated.</p>
-          </div>
+          <WebhooksPanel />
         ) : (
           <>
             <div className="calendar-bar">

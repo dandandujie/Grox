@@ -729,3 +729,24 @@
 .memory-topic > div { display: flex; flex-direction: column; gap: 2px; }
 .memory-topic strong { font-weight: 550; }
 .memory-topic span { color: var(--ink-3); font-size: 9.5px; }
+
+/* ── Webhooks ───────────────────────────────────────────────────────── */
+.webhook-panel { display: flex; flex-direction: column; gap: 12px; }
+.webhook-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 4px 2px 2px; }
+.webhook-panel-head h3 { margin: 0 0 4px; font-size: 14px; }
+.webhook-panel-head p { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.45; max-width: 620px; }
+.webhook-base { align-self: flex-start; padding: 5px 8px; border: 1px solid var(--edge); border-radius: 6px; background: var(--inset); color: var(--ink-3); font-family: var(--font-mono, ui-monospace, monospace); font-size: 10px; }
+.webhook-list { display: flex; flex-direction: column; gap: 9px; }
+.webhook-card { padding: 13px 14px; border: 1px solid var(--edge); border-radius: 12px; background: var(--card); }
+.webhook-card.is-enabled { border-color: color-mix(in srgb, var(--success) 28%, var(--edge)); }
+.webhook-card-head { display: flex; align-items: center; gap: 9px; }
+.webhook-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 7px; border: 1px solid var(--edge); background: var(--inset); color: var(--ink-2); }
+.webhook-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.webhook-title strong { font-size: 12.5px; font-weight: 600; }
+.webhook-title span { color: var(--ink-3); font-size: 9.5px; }
+.webhook-endpoint { display: flex; align-items: center; gap: 5px; margin: 10px 0 8px 37px; }
+.webhook-endpoint code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 7px; border: 1px solid var(--edge); border-radius: 6px; background: var(--inset); color: var(--ink-3); font-family: var(--font-mono, ui-monospace, monospace); font-size: 9.5px; }
+.webhook-prompt { margin: 0 0 8px 37px; color: var(--ink-2); font-size: 11px; line-height: 1.45; }
+.webhook-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-left: 37px; color: var(--ink-3); font-size: 9.5px; }
+.webhook-actions { display: flex; gap: 10px; }
+.link-button.is-danger { color: var(--danger); }

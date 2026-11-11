@@ -34,6 +34,7 @@ export interface AppState {
   bots: Bot[];
   groups: Group[];
   routines: Routine[];
+  webhooks: Webhook[];
   runs: Run[];
   connections: Record<string, Connection>;
   settings: Settings;
@@ -522,6 +523,45 @@ export interface Turn {
   engine?: string;
 }
 
+/**
+ * Webhook is one local inbound trigger. Its token is the capability secret in
+ * the URL; the receiver only binds loopback.
+ */
+export interface Webhook {
+  id: string;
+  botId: string;
+  name: string;
+  prompt: string;
+  token: string;
+  enabled: boolean;
+  eventCount: number;
+  lastEventAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** WebhookInfo reports the loopback receiver and any bind error. */
+export interface WebhookInfo {
+  baseUrl: string;
+  error?: string;
+  items: Webhook[];
+}
+
+/** WebhookInput is the New webhook form. */
+export interface WebhookInput {
+  botId: string;
+  name: string;
+  prompt: string;
+  enabled: boolean;
+}
+
+/** WebhookPatch edits only the fields it sets. */
+export interface WebhookPatch {
+  name?: string;
+  prompt?: string;
+  enabled?: boolean;
+}
+
 // ---- Services ----
 
 /** Service owns the workspace and is bound to the frontend as Grox. */
@@ -575,6 +615,10 @@ export const Grox = {
   createThread(botID: string, title: string): Promise<Thread> {
     return call("Grox.CreateThread", botID, title);
   },
+  /** CreateWebhook adds an inbound loopback trigger. */
+  createWebhook(input: WebhookInput): Promise<Webhook> {
+    return call("Grox.CreateWebhook", input);
+  },
   /** Decide settles an approval card and continues the turn. */
   decide(botID: string, threadID: string, messageID: string, decision: string): Promise<void> {
     return call("Grox.Decide", botID, threadID, messageID, decision);
@@ -606,6 +650,10 @@ export const Grox = {
   deleteThread(botID: string, threadID: string): Promise<void> {
     return call("Grox.DeleteThread", botID, threadID);
   },
+  /** DeleteWebhook removes a trigger and invalidates its URL token. */
+  deleteWebhook(id: string): Promise<void> {
+    return call("Grox.DeleteWebhook", id);
+  },
   /** DisconnectComposioApp revokes a connected account when it has an external id. */
   disconnectComposioApp(appID: string): Promise<void> {
     return call("Grox.DisconnectComposioApp", appID);
@@ -624,6 +672,10 @@ export const Grox = {
   /** GetMemory returns the editable MEMORY.md plus the read-only topic index. */
   getMemory(botID: string): Promise<MemoryState> {
     return call("Grox.GetMemory", botID);
+  },
+  /** GetWebhookInfo reports the loopback receiver and the current trigger list. */
+  getWebhookInfo(): Promise<WebhookInfo> {
+    return call("Grox.GetWebhookInfo");
   },
   /** ListComposioTools returns tools from a fresh tool-router session. */
   listComposioTools(): Promise<ComposioTool[]> {
@@ -805,6 +857,10 @@ export const Grox = {
   /** UpdateThread renames a conversation. */
   updateThread(botID: string, threadID: string, title: string): Promise<Thread> {
     return call("Grox.UpdateThread", botID, threadID, title);
+  },
+  /** UpdateWebhook edits a trigger without rotating its token. */
+  updateWebhook(id: string, patch: WebhookPatch): Promise<Webhook> {
+    return call("Grox.UpdateWebhook", id, patch);
   },
 } as const;
 

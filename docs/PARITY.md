@@ -29,7 +29,8 @@ two products are code-identical.
 - Questions: option cards exist; arbitrary agent-authored question cards are not a first-class tool.
 - MCP: the per-turn Composio gateway exists; user-managed remote MCP server CRUD and value vault do not.
 - Artifacts: attachments and file previews exist; a first-class artifact browser does not.
-- Triggers: schedules exist; inbound webhooks and app-event triggers do not.
+- Triggers: schedules and a loopback inbound webhook receiver exist; Composio app-event triggers,
+  signature/replay protection, retries and a delivery journal do not.
 - Usage: token/cost accounting is not shown.
 - Onboarding/import: no team pack, preset, or Grok Bot migration flow.
 
@@ -37,7 +38,7 @@ two products are code-identical.
 
 - Team/department packages, presets, shared instructions and import/export.
 - Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
-- Webhook receiver, app-event triggers, trigger broker and event log.
+- App-event triggers, trigger broker and the full webhook delivery journal.
 - Jeev/decision-model routing with multiple decision providers.
 - MCP server management, connector requirements and vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.7.0"
+	AppVersion = "0.8.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -37,6 +37,7 @@ type AppState struct {
 	Bots           []Bot                 `json:"bots"`
 	Groups         []Group               `json:"groups"`
 	Routines       []Routine             `json:"routines"`
+	Webhooks       []Webhook             `json:"webhooks"`
 	Runs           []Run                 `json:"runs"`
 	Connections    map[string]Connection `json:"connections"`
 	Settings       Settings              `json:"settings"`
@@ -127,6 +128,43 @@ type MemoryTopic struct {
 	Description string    `json:"description"`
 	Bytes       int       `json:"bytes"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// Webhook is one local inbound trigger. Its token is the capability secret in
+// the URL; the receiver only binds loopback.
+type Webhook struct {
+	ID          string    `json:"id"`
+	BotID       string    `json:"botId"`
+	Name        string    `json:"name"`
+	Prompt      string    `json:"prompt"`
+	Token       string    `json:"token"`
+	Enabled     bool      `json:"enabled"`
+	EventCount  int       `json:"eventCount"`
+	LastEventAt time.Time `json:"lastEventAt,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// WebhookInfo reports the loopback receiver and any bind error.
+type WebhookInfo struct {
+	BaseURL string    `json:"baseUrl"`
+	Error   string    `json:"error,omitempty"`
+	Items   []Webhook `json:"items"`
+}
+
+// WebhookInput is the New webhook form.
+type WebhookInput struct {
+	BotID   string `json:"botId"`
+	Name    string `json:"name"`
+	Prompt  string `json:"prompt"`
+	Enabled bool   `json:"enabled"`
+}
+
+// WebhookPatch edits only the fields it sets.
+type WebhookPatch struct {
+	Name    *string `json:"name,omitempty"`
+	Prompt  *string `json:"prompt,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
 }
 
 // Thread is one conversation with a bot: a chat, a task, or a routine run.
