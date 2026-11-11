@@ -641,14 +641,14 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 2 || req.ExecuteTool == nil {
+	if len(req.Tools) != 3 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
 	}
 	names := map[string]bool{}
 	for _, tool := range req.Tools {
 		names[tool.Name] = true
 	}
-	if !names["ask_user"] || !names["GITHUB_GET_REPO"] {
+	if !names["ask_user"] || !names["memory_update"] || !names["GITHUB_GET_REPO"] {
 		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
@@ -1273,5 +1273,44 @@ func TestWebhookHMACAndReplay(t *testing.T) {
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("bad signature status = %d", response.StatusCode)
+	}
+}
+
+func TestMemoryUpdateToolWritesTopic(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	target := claudeHookTarget{BotID: "bot-brody", ThreadID: "thread-brody-home"}
+	mcpURL, _, err := svc.newToolURLs(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "memory_update", "arguments": map[string]any{
+			"text": "The launch prefers Tuesday.", "topic": "Launch notes",
+		}},
+	})
+	response, err := http.Post(mcpURL, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != 200 || !strings.Contains(string(body), "Saved to memory/topics/launch-notes.md") {
+		t.Fatalf("memory tool response = %d %s", response.StatusCode, body)
+	}
+	state, err := svc.GetMemory("bot-brody")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Topics) != 1 || state.Topics[0].Title != "Launch notes" {
+		t.Fatalf("memory topics = %+v", state.Topics)
+	}
+	topicPath := filepath.Join(filepath.Dir(state.Path), "topics", "launch-notes.md")
+	data, err := os.ReadFile(topicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "prefers Tuesday") {
+		t.Fatalf("memory topic = %s", data)
 	}
 }

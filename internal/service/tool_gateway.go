@@ -255,6 +255,19 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 				"required": []string{"question"},
 			},
 		})
+		items = append(items, map[string]any{
+			"name":        "memory_update",
+			"description": "Save a durable memory note. Use for a preference or decision the person asked to remember, not for routine status.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"text":  map[string]any{"type": "string", "description": "The note to remember, at most 2,000 characters."},
+					"topic": map[string]any{"type": "string", "description": "Optional topic file, for example launch or travel."},
+				},
+				"required": []string{"text"},
+			},
+		})
+
 		for _, tool := range tools {
 			schema := tool.InputSchema
 			if schema == nil {
@@ -273,6 +286,16 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			writeMCP(w, id, nil, &mcpError{Code: -32602, Message: "tool name is required"})
 			return
 		}
+		if slug == "memory_update" {
+			value, err := s.memoryUpdateTool(target, args)
+			if err != nil {
+				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
+				return
+			}
+			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": value}}}, nil)
+			return
+		}
+
 		if slug == "ask_user" {
 			value, err := s.askUserTool(target, args)
 			if err != nil {

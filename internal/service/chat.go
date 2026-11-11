@@ -231,6 +231,19 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	sel := agent.Select(req)
 	if bot.Approval != model.ApprovalAsk {
 		req.Tools = append(req.Tools, agent.Tool{
+			Name:        "memory_update",
+			Description: "Save a durable memory note. Use for a preference or decision the person asked to remember, not for routine status.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"text":  map[string]any{"type": "string"},
+					"topic": map[string]any{"type": "string"},
+				},
+				"required": []string{"text"},
+			},
+		})
+
+		req.Tools = append(req.Tools, agent.Tool{
 			Name:        "ask_user",
 			Description: "Ask the person a question and wait for the answer before continuing. Use for a real fork in the work; do not use it for routine status updates.",
 			Parameters: map[string]any{
@@ -252,6 +265,9 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 			req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
 		}
 		req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
+			if name == "memory_update" {
+				return s.memoryUpdateTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
+			}
 			if name == "ask_user" {
 				return s.askUserTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
 			}

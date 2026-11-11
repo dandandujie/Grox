@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.16.0
+
+- Added a memory_update tool to the per-turn MCP gateway and the API Auto/Full tool loop.
+- Writes a dated bullet to MEMORY.md or to a named topic file, with a 2,000-character entry cap and the
+  existing 512 KB file cap.
+- CLI Ask hooks still gate the write through the normal approval card; Auto/Full CLIs and API bots write
+  directly.
+- Added a Memory tab Reload action so a tool-written note can be inspected without leaving the panel.
+- Tests: TestMemoryUpdateToolWritesTopic and the expanded tool-registration test.
+- Still not ported: memory_delete/tidy-up tools, automatic capture and model upkeep.
+
 ## 0.15.0
 
 - Added optional HMAC-SHA256 signing to inbound webhooks. The URL token is the signing key.

@@ -685,7 +685,7 @@ function MemoryTab({ bot }: { bot: Bot }) {
   return (
     <div className="panel-scroll">
       <section className="panel-card">
-        <div className="panel-card-title"><span>Memory</span><span className="avatar-seed">MEMORY.md</span></div>
+        <div className="panel-card-title"><span>Memory</span><button type="button" className="link-button" onClick={() => void load()} disabled={loading}><RefreshCw size={11} /> Reload</button></div>
         <div className="switch-row memory-switch">
           <span className="row-copy">
             <span className="row-title">Let this bot use memory</span>

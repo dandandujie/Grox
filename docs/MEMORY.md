@@ -56,6 +56,19 @@ disables recall.
 This is deliberately narrower than OpenMausBot's model-ranked recall; it is real and deterministic, not a
 simulation.
 
+## Agent memory tool
+
+The per-turn MCP gateway and the API Auto/Full tool loop expose memory_update:
+
+    { "text": "The launch prefers Tuesday.", "topic": "launch" }
+
+text is required and capped at 2,000 characters. A topic writes to memory/<botId>/topics/<slug>.md with a
+small frontmatter header; without a topic the entry goes to MEMORY.md. Entries are dated bullets and the
+write is atomic. CLI Ask turns still pass the normal tool approval card; Auto/Full CLIs and API bots write
+directly. The Memory tab has a Reload button for inspecting a tool-written note.
+
+There is no memory_delete or tidy-up tool yet.
+
 ## API
 
 - GetMemory(botID) returns content, revision, path, line/byte gauge and topics.
