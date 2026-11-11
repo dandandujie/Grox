@@ -9,6 +9,7 @@ export function NewBotDialog() {
   const { ui, setUI, createBot, providers, state } = useApp();
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
+  const [department, setDepartment] = useState("General");
   const [description, setDescription] = useState("");
   const [soul, setSoul] = useState("");
   const [modelId, setModelId] = useState("");
@@ -22,6 +23,7 @@ export function NewBotDialog() {
     if (!ui.newBotOpen) return;
     setName("");
     setTitle("");
+    setDepartment("General");
     setDescription("");
     setSoul("");
     setModelId(fallbackModel?.model.id ?? "grox-demo");
@@ -44,7 +46,7 @@ export function NewBotDialog() {
       return;
     }
     setBusy(true);
-    const bot = await createBot({ name: name.trim(), title: title.trim(), description: description.trim(), soul: soul.trim(), color: "green", modelId });
+    const bot = await createBot({ name: name.trim(), title: title.trim(), department: department.trim() || "General", description: description.trim(), soul: soul.trim(), color: "green", modelId });
     setBusy(false);
     if (bot) setUI({ newBotOpen: false });
   };
@@ -76,6 +78,12 @@ export function NewBotDialog() {
             <span>Role</span>
             <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Personal assistant" />
           </label>
+          <label className="panel-field">
+            <span>Department</span>
+            <input value={department} onChange={(event) => setDepartment(event.target.value)} placeholder="General" />
+          </label>
+        </div>
+        <div className="form-two">
           <label className="panel-field">
             <span>Model</span>
             <select value={modelId} onChange={(event) => setModelId(event.target.value)}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Bell, CalendarDays, Check, ChevronRight, Copy, EyeOff, MessageSquarePlus, MoreHorizontal,
@@ -86,6 +86,17 @@ export function Sidebar() {
       return 0;
     });
   }, [visible]);
+
+  const departmentGroups = useMemo(() => {
+    const groups = new Map<string, Bot[]>();
+    for (const bot of ordered) {
+      const name = (bot.department || "General").trim() || "General";
+      const list = groups.get(name) ?? [];
+      list.push(bot);
+      groups.set(name, list);
+    }
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [ordered]);
 
   const botMatches = useMemo(() => {
     if (!query) return [];
@@ -294,7 +305,10 @@ export function Sidebar() {
                 <div className="sidebar-section-label bots-label">Bots</div>
               </>
             )}
-            {ordered.map((bot) => {
+            {departmentGroups.map(([department, departmentBots]) => (
+              <Fragment key={department}>
+                {departmentGroups.length > 1 && <div className="sidebar-department-label">{department}</div>}
+                {departmentBots.map((bot) => {
               const thread = latestThreadOf(bot);
               const selected = activeBot?.id === bot.id && ui.view === "chat";
               const unread = botUnread(bot);
@@ -344,7 +358,9 @@ export function Sidebar() {
                   </span>
                 </button>
               );
-            })}
+                })}
+              </Fragment>
+            ))}
             {hiddenCount > 0 && (
               <button type="button" className="hidden-toggle" onClick={() => setShowHidden((value) => !value)}>
                 <EyeOff size={12} /> {showHidden ? "Hide hidden bots" : hiddenCount + " hidden bot" + (hiddenCount === 1 ? "" : "s")}

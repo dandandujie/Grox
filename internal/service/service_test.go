@@ -1452,3 +1452,30 @@ func TestForgetMemoryArchivesMatches(t *testing.T) {
 		t.Fatal("expected too-short forget query to fail")
 	}
 }
+
+func TestBotDepartmentCreateAndPatch(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Dept Bot", Department: "Research", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bot.Department != "Research" {
+		t.Fatalf("department = %q", bot.Department)
+	}
+	name := "Operations"
+	updated, err := svc.UpdateBot(bot.ID, model.BotPatch{Department: &name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Department != "Operations" {
+		t.Fatalf("patched department = %q", updated.Department)
+	}
+	empty := ""
+	updated, err = svc.UpdateBot(bot.ID, model.BotPatch{Department: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Department != "General" {
+		t.Fatalf("empty department = %q", updated.Department)
+	}
+}

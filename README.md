@@ -154,6 +154,7 @@ The table below is intentionally blunt.
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
 | MCP servers | **Working locally**: remote HTTP/HTTPS with write-only bearer token, or local stdio command/args; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
 | New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
+| Departments | **Working locally**: every bot has a department; New bot/profile edit and the sidebar groups the roster. See [departments](docs/DEPARTMENTS.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.

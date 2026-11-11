@@ -77,7 +77,7 @@ func (s *Service) ExportTeam(groupID string) (string, error) {
 		}
 		item := model.PackageBot{
 			Key: bot.ID, Name: bot.Name, Title: bot.Title, Description: bot.Description,
-			Soul: bot.Soul, Color: bot.Color, ModelID: bot.ModelID, MemoryOff: bot.MemoryOff,
+			Soul: bot.Soul, Color: bot.Color, Department: bot.Department, ModelID: bot.ModelID, MemoryOff: bot.MemoryOff,
 		}
 		if path, err := s.memoryPathLocked(bot.ID); err == nil {
 			if content, _, _, err := readMemoryFile(path); err == nil {
@@ -164,7 +164,7 @@ func (s *Service) ImportTeam(raw string) (model.TeamImportResult, error) {
 		}
 		bot := model.Bot{
 			ID: botID, Name: name, Title: item.Title, Description: item.Description, Soul: item.Soul,
-			Color: item.Color, MascotShape: "cursor", Expression: "idle", ModelID: modelID,
+			Color: item.Color, Department: item.Department, MascotShape: "cursor", Expression: "idle", ModelID: modelID,
 			Approval: model.ApprovalAsk, Notifications: true, MemoryOff: item.MemoryOff,
 			CreatedAt: now, UpdatedAt: now, LastActiveAt: now, Threads: []model.Thread{thread},
 		}

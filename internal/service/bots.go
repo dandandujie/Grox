@@ -52,8 +52,12 @@ func (s *Service) CreateBot(input model.CreateBotInput) (model.Bot, error) {
 		ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Text: greeting,
 		CreatedAt: now, UpdatedAt: now,
 	})
+	department := strings.TrimSpace(input.Department)
+	if department == "" {
+		department = "General"
+	}
 	bot := model.Bot{
-		ID: botID, Name: name, Title: strings.TrimSpace(input.Title),
+		ID: botID, Name: name, Title: strings.TrimSpace(input.Title), Department: department,
 		Description: strings.TrimSpace(input.Description), Soul: strings.TrimSpace(input.Soul),
 		Color: color, MascotShape: "cursor", Expression: "idle", ModelID: modelID,
 		Approval: model.ApprovalAsk, Notifications: true,
@@ -98,6 +102,13 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 	}
 	if patch.Color != nil && allowedColors[*patch.Color] {
 		bot.Color = *patch.Color
+	}
+	if patch.Department != nil {
+		department := strings.TrimSpace(*patch.Department)
+		if department == "" {
+			department = "General"
+		}
+		bot.Department = department
 	}
 	if patch.ModelID != nil && strings.TrimSpace(*patch.ModelID) != "" {
 		bot.ModelID = strings.TrimSpace(*patch.ModelID)

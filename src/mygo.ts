@@ -92,6 +92,7 @@ export interface Bot {
   description: string;
   soul: string;
   color: string;
+  department?: string;
   mascotShape: string;
   expression: string;
   avatarUrl?: string;
@@ -125,6 +126,7 @@ export interface BotPatch {
   description?: string;
   soul?: string;
   color?: string;
+  department?: string;
   modelId?: string;
   approval?: string;
   mascotShape?: string;
@@ -199,6 +201,7 @@ export interface CreateBotInput {
   description: string;
   soul: string;
   color: string;
+  department?: string;
   modelId: string;
 }
 

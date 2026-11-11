@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0
+
+- Added bot departments. New bot and the profile editor set a department; the sidebar groups the roster
+  with department headers when more than one is present.
+- Existing bots migrate to General; team packages carry the department value.
+- Added TestBotDepartmentCreateAndPatch and department migration defaults.
+- Still not ported: a standalone department shelf, rename/delete without bots, access control and hosted
+  organization libraries.
+
 ## 0.19.0
 
 - Added memory_forget and a Memory tab Forget field. Matching top-level MEMORY.md entries are removed and

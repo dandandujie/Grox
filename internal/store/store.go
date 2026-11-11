@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dandandujie/grox/internal/catalog"
@@ -37,6 +38,7 @@ func Open(dir string) (*Store, error) {
 			return nil, err
 		}
 		s.State = Seed(time.Now())
+		s.Normalize()
 		if err := s.SaveState(); err != nil {
 			return nil, err
 		}
@@ -175,6 +177,11 @@ func (s *Store) Normalize() {
 	}
 	if st.Bots == nil {
 		st.Bots = []model.Bot{}
+	}
+	for index := range st.Bots {
+		if strings.TrimSpace(st.Bots[index].Department) == "" {
+			st.Bots[index].Department = "General"
+		}
 	}
 	if st.Webhooks == nil {
 		st.Webhooks = []model.Webhook{}

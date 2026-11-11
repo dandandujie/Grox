@@ -18,6 +18,7 @@ import { formatBytes } from "@/components/Attachments";
 function useBotDrafts(bot: Bot) {
   const [name, setName] = useState(bot.name);
   const [title, setTitle] = useState(bot.title);
+  const [department, setDepartment] = useState(bot.department ?? "General");
   const [description, setDescription] = useState(bot.description);
   const [soul, setSoul] = useState(bot.soul);
   const [folder, setFolder] = useState(bot.workingDir ?? "");
@@ -25,12 +26,13 @@ function useBotDrafts(bot: Bot) {
   useEffect(() => {
     setName(bot.name);
     setTitle(bot.title);
+    setDepartment(bot.department ?? "General");
     setDescription(bot.description);
     setSoul(bot.soul);
     setFolder(bot.workingDir ?? "");
   }, [bot.id]);
   return {
-    name, setName, title, setTitle, description, setDescription, soul, setSoul, folder, setFolder, saved, setSaved,
+    name, setName, title, setTitle, department, setDepartment, description, setDescription, soul, setSoul, folder, setFolder, saved, setSaved,
   };
 }
 
@@ -78,6 +80,7 @@ function ProfileTab({ bot }: { bot: Bot }) {
     const patch: BotPatch = {};
     if (drafts.name !== bot.name) patch.name = drafts.name.trim() || bot.name;
     if (drafts.title !== bot.title) patch.title = drafts.title;
+    if (drafts.department !== (bot.department ?? "General")) patch.department = drafts.department.trim() || "General";
     if (drafts.description !== bot.description) patch.description = drafts.description;
     if (drafts.soul !== bot.soul) patch.soul = drafts.soul;
     if (drafts.folder !== (bot.workingDir ?? "")) patch.workingDir = drafts.folder;
@@ -127,6 +130,16 @@ function ProfileTab({ bot }: { bot: Bot }) {
             onBlur={commitText}
             onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
             placeholder="Research & data"
+          />
+        </label>
+        <label className="panel-field">
+          <span>Department</span>
+          <input
+            value={drafts.department}
+            onChange={(event) => drafts.setDepartment(event.target.value)}
+            onBlur={commitText}
+            onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
+            placeholder="General"
           />
         </label>
         <label className="panel-field">

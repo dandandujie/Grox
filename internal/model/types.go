@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.19.0"
+	AppVersion = "0.20.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -58,6 +58,7 @@ type Bot struct {
 	Description   string     `json:"description"`
 	Soul          string     `json:"soul"`
 	Color         string     `json:"color"`
+	Department    string     `json:"department,omitempty"`
 	MascotShape   string     `json:"mascotShape"`
 	Expression    string     `json:"expression"`
 	AvatarURL     string     `json:"avatarUrl,omitempty"`
@@ -246,6 +247,7 @@ type PackageBot struct {
 	Description string         `json:"description"`
 	Soul        string         `json:"soul"`
 	Color       string         `json:"color"`
+	Department  string         `json:"department,omitempty"`
 	ModelID     string         `json:"modelId"`
 	Skills      []PackageSkill `json:"skills,omitempty"`
 	Memory      string         `json:"memory,omitempty"`
@@ -644,6 +646,7 @@ type CreateBotInput struct {
 	Description string `json:"description"`
 	Soul        string `json:"soul"`
 	Color       string `json:"color"`
+	Department  string `json:"department,omitempty"`
 	ModelID     string `json:"modelId"`
 }
 
@@ -654,6 +657,7 @@ type BotPatch struct {
 	Description  *string `json:"description,omitempty"`
 	Soul         *string `json:"soul,omitempty"`
 	Color        *string `json:"color,omitempty"`
+	Department   *string `json:"department,omitempty"`
 	ModelID      *string `json:"modelId,omitempty"`
 	Approval     *string `json:"approval,omitempty"`
 	MascotShape  *string `json:"mascotShape,omitempty"`
