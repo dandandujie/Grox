@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.0
+
+- Added GET /v1/events: an authenticated SSE stream of the same service events the desktop and phone
+  surfaces receive, with a ready event and 15-second keepalive comments.
+- Added SSE subscriber cleanup, a buffered per-client queue and an end-to-end stream test.
+- Still not ported: CORS, group/routine API endpoints and public orchestration.
+
 ## 0.25.0
 
 - Added an optional loopback automation API (off by default) with a generated bearer token, rotation,

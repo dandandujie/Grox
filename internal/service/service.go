@@ -66,6 +66,8 @@ type Service struct {
 	apiServer   *http.Server
 	apiListener net.Listener
 	apiErr      string
+	apiSubMu    sync.Mutex
+	apiSubs     map[chan model.Event]struct{}
 }
 
 type turnControl struct {
@@ -82,6 +84,7 @@ func New(dir string, emit func(model.Event)) (*Service, error) {
 	return &Service{
 		dir: dir, emit: emit, turns: map[string]*turnControl{}, stop: make(chan struct{}),
 		phoneSubs:      map[chan model.Event]struct{}{},
+		apiSubs:        map[chan model.Event]struct{}{},
 		approvalTokens: map[string]claudeHookTarget{}, hookApprovals: map[string]*claudeHookApproval{},
 		questionWaiters: map[string]*questionWaiter{}, webhookReplays: map[string]time.Time{},
 	}, nil
@@ -132,6 +135,14 @@ func (s *Service) emitEvent(ev model.Event) {
 		}
 	}
 	s.phoneSubMu.Unlock()
+	s.apiSubMu.Lock()
+	for ch := range s.apiSubs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	s.apiSubMu.Unlock()
 }
 
 // start begins the routine scheduler.

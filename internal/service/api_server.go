@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -150,6 +151,10 @@ func (s *Service) handleAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/v1/")
 	parts := strings.Split(path, "/")
+	if r.Method == http.MethodGet && path == "events" {
+		s.handleAPIEvents(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodGet && path == "state" {
 		s.mu.Lock()
@@ -214,6 +219,47 @@ func (s *Service) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeAPIError(w, http.StatusNotFound, "not found")
+}
+
+func (s *Service) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeAPIError(w, http.StatusInternalServerError, "streaming unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	ch := make(chan model.Event, 64)
+	s.apiSubMu.Lock()
+	s.apiSubs[ch] = struct{}{}
+	s.apiSubMu.Unlock()
+	defer func() {
+		s.apiSubMu.Lock()
+		delete(s.apiSubs, ch)
+		s.apiSubMu.Unlock()
+	}()
+	_, _ = fmt.Fprint(w, "event: ready\ndata: {\"ok\":true}\n\n")
+	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		case event := <-ch:
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			flusher.Flush()
+		}
+	}
 }
 
 func writeAPIError(w http.ResponseWriter, status int, message string) {

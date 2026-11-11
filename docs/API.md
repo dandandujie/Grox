@@ -19,6 +19,8 @@ Every /v1 request needs:
 
 - GET /v1/state - the current AppState snapshot.
 - GET /v1/bots - the bot roster.
+- GET /v1/events - authenticated server-sent events. The first event is ready; later frames use the same
+  message/delta/turn/state event names as the desktop. A comment heartbeat is sent every 15 seconds.
 - POST /v1/bots/{botID}/threads/{threadID}/messages with {"text":"..."}.
   Starts a turn and returns the SendResult with 202.
 - POST /v1/bots/{botID}/threads/{threadID}/approvals/{messageID} with

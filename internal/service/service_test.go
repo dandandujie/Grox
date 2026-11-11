@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/hmac"
@@ -1683,4 +1684,60 @@ func TestAutomationAPIStateAndMessage(t *testing.T) {
 	if info := svc.GetAPIInfo(); info.Enabled || info.URL != "" {
 		t.Fatalf("API should be stopped = %+v", info)
 	}
+}
+
+func TestAutomationAPIEvents(t *testing.T) {
+	svc, _, events := newTestService(t)
+	info, err := svc.SetAPIEnabled(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = svc.SetAPIEnabled(false) }()
+	client := &http.Client{Timeout: 8 * time.Second}
+	request, _ := http.NewRequest(http.MethodGet, info.URL+"/v1/events", nil)
+	request.Header.Set("Authorization", "Bearer "+info.Token)
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	line, err := reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != "event: ready" {
+		t.Fatalf("SSE ready = %q %v", line, err)
+	}
+	bot := svc.st.State.Bots[0]
+	thread := bot.Threads[0]
+	payload, _ := json.Marshal(map[string]string{"text": "event me"})
+	post, _ := http.NewRequest(http.MethodPost, info.URL+"/v1/bots/"+bot.ID+"/threads/"+thread.ID+"/messages", bytes.NewReader(payload))
+	post.Header.Set("Authorization", "Bearer "+info.Token)
+	post.Header.Set("Content-Type", "application/json")
+	postResponse, err := client.Do(post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = postResponse.Body.Close()
+	if postResponse.StatusCode != http.StatusAccepted {
+		t.Fatalf("SSE post = %d", postResponse.StatusCode)
+	}
+	found := false
+	for index := 0; index < 80; index++ {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(line, "event: message") {
+			data, _ := reader.ReadString('\n')
+			if strings.Contains(data, "event me") || strings.Contains(data, "\"type\":\"message\"") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no message event reached the SSE stream")
+	}
+	waitFor(t, events, 5*time.Second, "the SSE test turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
 }
