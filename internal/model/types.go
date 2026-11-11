@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.23.0"
+	AppVersion = "0.24.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -53,38 +53,39 @@ type AppState struct {
 
 // Bot is one contact in the roster: a persona, a model, and its own threads.
 type Bot struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	Soul          string     `json:"soul"`
-	Color         string     `json:"color"`
-	Department    string     `json:"department,omitempty"`
-	ToolPolicy    ToolPolicy `json:"toolPolicy,omitempty"`
-	MascotShape   string     `json:"mascotShape"`
-	Expression    string     `json:"expression"`
-	AvatarURL     string     `json:"avatarUrl,omitempty"`
-	ModelID       string     `json:"modelId"`
-	Approval      string     `json:"approval"`
-	WorkingDir    string     `json:"workingDir,omitempty"`
-	ComputerMode  string     `json:"computerMode,omitempty"`
-	SSHHost       string     `json:"sshHost,omitempty"`
-	SSHUser       string     `json:"sshUser,omitempty"`
-	SSHRoot       string     `json:"sshRoot,omitempty"`
-	SSHKeyPath    string     `json:"sshKeyPath,omitempty"`
-	SSHPort       int        `json:"sshPort,omitempty"`
-	Notifications bool       `json:"notifications"`
-	SpeakReplies  bool       `json:"speakReplies"`
-	Voice         string     `json:"voice,omitempty"`
-	Skills        []BotSkill `json:"skills,omitempty"`
-	MemoryOff     bool       `json:"memoryOff,omitempty"`
-	Pinned        bool       `json:"pinned"`
-	Hidden        bool       `json:"hidden"`
-	Archived      bool       `json:"archived"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
-	LastActiveAt  time.Time  `json:"lastActiveAt"`
-	Threads       []Thread   `json:"threads"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Soul           string     `json:"soul"`
+	Color          string     `json:"color"`
+	Department     string     `json:"department,omitempty"`
+	ToolPolicy     ToolPolicy `json:"toolPolicy,omitempty"`
+	MascotShape    string     `json:"mascotShape"`
+	Expression     string     `json:"expression"`
+	AvatarURL      string     `json:"avatarUrl,omitempty"`
+	ModelID        string     `json:"modelId"`
+	Approval       string     `json:"approval"`
+	WorkingDir     string     `json:"workingDir,omitempty"`
+	ComputerMode   string     `json:"computerMode,omitempty"`
+	SSHHost        string     `json:"sshHost,omitempty"`
+	SSHUser        string     `json:"sshUser,omitempty"`
+	SSHRoot        string     `json:"sshRoot,omitempty"`
+	SSHKeyPath     string     `json:"sshKeyPath,omitempty"`
+	SSHPort        int        `json:"sshPort,omitempty"`
+	Notifications  bool       `json:"notifications"`
+	SpeakReplies   bool       `json:"speakReplies"`
+	Voice          string     `json:"voice,omitempty"`
+	Skills         []BotSkill `json:"skills,omitempty"`
+	MemoryOff      bool       `json:"memoryOff,omitempty"`
+	MemoryAutoTidy bool       `json:"memoryAutoTidy,omitempty"`
+	Pinned         bool       `json:"pinned"`
+	Hidden         bool       `json:"hidden"`
+	Archived       bool       `json:"archived"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	LastActiveAt   time.Time  `json:"lastActiveAt"`
+	Threads        []Thread   `json:"threads"`
 }
 
 // ToolPolicy limits tools exposed to a bot. Empty allow means all; deny
@@ -701,13 +702,14 @@ type BotPatch struct {
 	SSHKeyPath   *string     `json:"sshKeyPath,omitempty"`
 	SSHPort      *int        `json:"sshPort,omitempty"`
 
-	Notifications *bool   `json:"notifications,omitempty"`
-	SpeakReplies  *bool   `json:"speakReplies,omitempty"`
-	Voice         *string `json:"voice,omitempty"`
-	MemoryOff     *bool   `json:"memoryOff,omitempty"`
-	Pinned        *bool   `json:"pinned,omitempty"`
-	Hidden        *bool   `json:"hidden,omitempty"`
-	Archived      *bool   `json:"archived,omitempty"`
+	Notifications  *bool   `json:"notifications,omitempty"`
+	SpeakReplies   *bool   `json:"speakReplies,omitempty"`
+	Voice          *string `json:"voice,omitempty"`
+	MemoryOff      *bool   `json:"memoryOff,omitempty"`
+	MemoryAutoTidy *bool   `json:"memoryAutoTidy,omitempty"`
+	Pinned         *bool   `json:"pinned,omitempty"`
+	Hidden         *bool   `json:"hidden,omitempty"`
+	Archived       *bool   `json:"archived,omitempty"`
 }
 
 // RoutineInput is the New routine form.

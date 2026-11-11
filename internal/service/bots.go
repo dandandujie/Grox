@@ -173,6 +173,9 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 	if patch.MemoryOff != nil {
 		bot.MemoryOff = *patch.MemoryOff
 	}
+	if patch.MemoryAutoTidy != nil {
+		bot.MemoryAutoTidy = *patch.MemoryAutoTidy
+	}
 	if patch.Voice != nil {
 		bot.Voice = strings.TrimSpace(*patch.Voice)
 	}

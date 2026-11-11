@@ -678,7 +678,7 @@ function ActivityTab({ bot }: { bot: Bot }) {
 }
 
 function MemoryTab({ bot }: { bot: Bot }) {
-  const { backend, boot, toast, requestConfirm } = useApp();
+  const { backend, boot, toast, requestConfirm, updateBot } = useApp();
   const [memory, setMemory] = useState<MemoryState | null>(null);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -829,6 +829,13 @@ function MemoryTab({ bot }: { bot: Bot }) {
             <span className="row-sub">Load its private MEMORY.md at the start of every turn.</span>
           </span>
           <Switch checked={Boolean(memory?.enabled)} label="Use memory" onChange={(value) => void toggle(value)} />
+        </div>
+        <div className="switch-row">
+          <span className="row-copy">
+            <span className="row-title">Automatically archive</span>
+            <span className="row-sub">Once an hour, move the oldest dated entries to topics/archive.md when over budget.</span>
+          </span>
+          <Switch checked={Boolean(bot.memoryAutoTidy)} label="Automatically archive memory" onChange={(value) => void updateBot(bot.id, { memoryAutoTidy: value })} />
         </div>
         <p className="panel-note">
           Notes live only on this machine. {memory?.enabled ? "This file is loaded into the next turn." : "The file is kept, but nothing is loaded while memory is off."}

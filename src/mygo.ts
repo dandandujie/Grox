@@ -112,6 +112,7 @@ export interface Bot {
   voice?: string;
   skills?: BotSkill[];
   memoryOff?: boolean;
+  memoryAutoTidy?: boolean;
   pinned: boolean;
   hidden: boolean;
   archived: boolean;
@@ -146,6 +147,7 @@ export interface BotPatch {
   speakReplies?: boolean;
   voice?: string;
   memoryOff?: boolean;
+  memoryAutoTidy?: boolean;
   pinned?: boolean;
   hidden?: boolean;
   archived?: boolean;

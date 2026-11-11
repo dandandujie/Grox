@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.0
+
+- Added per-bot automatic memory archive. When enabled, the scheduler checks at most once an hour and moves
+  the oldest dated entries to topics/archive.md if MEMORY.md is over the 200-line / 24 KB budget.
+- Added the Memory tab switch and a scheduler test covering the opt-in path.
+- Still not ported: automatic fact capture, model-ranked recall, expiry and daily logs.
+
 ## 0.23.0
 
 - Added up to 16 custom HTTP headers per remote MCP server, stored write-only in secrets.json.

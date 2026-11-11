@@ -1585,3 +1585,50 @@ func TestWebhookDeliveryJournalAndReplay(t *testing.T) {
 		t.Fatalf("replay deliveries = %+v", info.Deliveries)
 	}
 }
+
+func TestMemoryAutoUpkeep(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Upkeep Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auto := true
+	if _, err := svc.UpdateBot(bot.ID, model.BotPatch{MemoryAutoTidy: &auto}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var memory strings.Builder
+	for index := 1; index <= 230; index++ {
+		memory.WriteString("- 2026-02-")
+		memory.WriteString(fmt.Sprintf("%02d", (index%28)+1))
+		memory.WriteString(" · auto entry ")
+		memory.WriteString(strconv.Itoa(index))
+		memory.WriteString("\n")
+	}
+	if _, err := svc.SaveMemory(bot.ID, memory.String(), state.Revision); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	svc.lastMemoryUpkeep = time.Time{}
+	svc.mu.Unlock()
+	svc.runMemoryUpkeep()
+	state, err = svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Lines > 200 {
+		t.Fatalf("auto upkeep left %d lines", state.Lines)
+	}
+	found := false
+	for _, topic := range state.Topics {
+		if topic.Name == "archive" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("auto upkeep did not archive")
+	}
+}

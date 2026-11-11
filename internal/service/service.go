@@ -55,11 +55,12 @@ type Service struct {
 	hookApprovals    map[string]*claudeHookApproval
 	questionWaiters  map[string]*questionWaiter
 
-	webhookMu       sync.Mutex
-	webhookServer   *http.Server
-	webhookListener net.Listener
-	webhookErr      string
-	webhookReplays  map[string]time.Time
+	webhookMu        sync.Mutex
+	webhookServer    *http.Server
+	webhookListener  net.Listener
+	webhookErr       string
+	webhookReplays   map[string]time.Time
+	lastMemoryUpkeep time.Time
 }
 
 type turnControl struct {
@@ -136,6 +137,7 @@ func (s *Service) start() {
 				return
 			case <-ticker.C:
 				s.runDueRoutines()
+				s.runMemoryUpkeep()
 			}
 		}
 	}()

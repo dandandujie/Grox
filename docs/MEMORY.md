@@ -73,7 +73,11 @@ memory/topics/archive.md until MEMORY.md is within the 200-line / 24 KB budget. 
 before the memory file, manual header lines are kept, and the archive is excluded from recall.
 
 memory_forget and the Memory tab Forget field remove matching top-level entries (three-character minimum)
-and copy them to the archive with a forgotten marker. Automatic scheduled upkeep is not ported yet.
+and copy them to the archive with a forgotten marker.
+
+Automatically archive is an opt-in per-bot switch. The scheduler checks at most once an hour and runs the
+same TidyMemory archive pass only when MEMORY.md is over budget. Automatic fact capture, model-ranked
+recall and daily logs are still not ported.
 
 ## API
 
