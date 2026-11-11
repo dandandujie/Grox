@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.34.0
+
+- Added standalone department records and Settings -> Departments CRUD: add an empty shelf, rename it with
+  bots following, or delete it with bots moved to General. General is protected.
+- The sidebar renders empty department shelves and bot counts; bot creation/editing keeps records in sync.
+- Added department CRUD and migration coverage.
+- Still not ported: department access control, sharing, organization libraries and hosted shelves.
+
 ## 0.33.0
 
 - Signed exported team packages with a local ed25519 key (signature, publicKey, signedAt) and verify the

@@ -116,6 +116,7 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 			department = "General"
 		}
 		bot.Department = department
+		s.ensureDepartmentLocked(department, time.Now())
 	}
 	if patch.ModelID != nil && strings.TrimSpace(*patch.ModelID) != "" {
 		bot.ModelID = strings.TrimSpace(*patch.ModelID)

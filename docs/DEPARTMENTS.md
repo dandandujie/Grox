@@ -12,8 +12,9 @@ hosted members.
 - Bot ordering inside a department keeps the existing pinned/hidden order.
 - Team packages carry the department value.
 
-No separate department record is stored; a department exists while at least one bot uses its name. This
-keeps renaming simple but does not provide a stable department id or an empty department shelf yet.
+Standalone department records now exist in AppState.Departments. Settings -> Departments can add an empty
+shelf, rename it (bots using the old name move with it), or delete it (bots move to General). General cannot
+be renamed or deleted. The sidebar shows an empty department with a "No bots yet" line.
 
 ## Not ported
 

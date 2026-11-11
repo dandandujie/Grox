@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.33.0"
+	AppVersion = "0.34.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -36,6 +36,7 @@ type AppState struct {
 	Revision          int64                 `json:"revision"`
 	Bots              []Bot                 `json:"bots"`
 	Groups            []Group               `json:"groups"`
+	Departments       []Department          `json:"departments,omitempty"`
 	Routines          []Routine             `json:"routines"`
 	Presets           []Preset              `json:"presets"`
 	Webhooks          []Webhook             `json:"webhooks"`
@@ -49,6 +50,16 @@ type AppState struct {
 	ActiveThreadID    string                `json:"activeThreadId"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	UpdatedAt         time.Time             `json:"updatedAt"`
+}
+
+// Department is a standalone roster shelf. Bots store its name for
+// compatibility with older workspaces.
+type Department struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	BotCount  int       `json:"botCount,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Bot is one contact in the roster: a persona, a model, and its own threads.

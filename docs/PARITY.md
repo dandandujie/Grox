@@ -20,8 +20,8 @@ two products are code-identical.
 
 ## Partial
 
-- Contexts/departments: channels and bot department labels exist. A standalone department shelf,
-  rename/delete without bots, access control and department sharing do not.
+- Contexts/departments: channels and standalone department shelves (add, rename, delete, empty shelf,
+  General protection) exist. Access control and department sharing do not.
 - Memory: per-bot MEMORY.md, budget, editor, switch, editable topic files, bounded lexical topic recall,
   memory_update/tidy/forget tools, expiry markers, opt-in scheduled archiving and opt-in daily logs are
   ported. Automatic fact capture and model-ranked recall are not.

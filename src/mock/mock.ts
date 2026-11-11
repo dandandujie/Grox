@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  APIInfo, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  APIInfo, Department, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -660,6 +660,25 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     this.emitState();
     return clone(bot);
   }
+
+  async listDepartments(): Promise<Department[]> {
+    const names = new Set(this.state.bots.map((bot) => bot.department || "General"));
+    names.add("General");
+    return [...names].map((name, index) => ({
+      id: "dept-preview-" + index, name, botCount: this.state.bots.filter((bot) => (bot.department || "General") === name).length,
+      createdAt: nowISO(), updatedAt: nowISO(),
+    }));
+  }
+
+  async createDepartment(name: string): Promise<Department> {
+    return { id: "dept-preview-" + Date.now(), name, botCount: 0, createdAt: nowISO(), updatedAt: nowISO() };
+  }
+
+  async renameDepartment(id: string, name: string): Promise<Department> {
+    return { id, name, botCount: 0, createdAt: nowISO(), updatedAt: nowISO() };
+  }
+
+  async deleteDepartment(_id: string): Promise<void> {}
 
   async getAPIInfo(): Promise<APIInfo> {
     return { enabled: false, tokenConfigured: false };

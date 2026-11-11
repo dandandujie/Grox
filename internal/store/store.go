@@ -183,6 +183,31 @@ func (s *Store) Normalize() {
 			st.Bots[index].Department = "General"
 		}
 	}
+	if st.Departments == nil {
+		st.Departments = []model.Department{}
+	}
+	seenDepartments := map[string]bool{}
+	for _, department := range st.Departments {
+		seenDepartments[strings.ToLower(strings.TrimSpace(department.Name))] = true
+	}
+	ensureDepartment := func(name string, now time.Time) {
+		name = strings.TrimSpace(name)
+		if name == "" || seenDepartments[strings.ToLower(name)] {
+			return
+		}
+		seenDepartments[strings.ToLower(name)] = true
+		id := "dept-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+		for _, department := range st.Departments {
+			if department.ID == id {
+				id += "-2"
+			}
+		}
+		st.Departments = append(st.Departments, model.Department{ID: id, Name: name, CreatedAt: now, UpdatedAt: now})
+	}
+	ensureDepartment("General", st.CreatedAt)
+	for _, bot := range st.Bots {
+		ensureDepartment(bot.Department, st.CreatedAt)
+	}
 	if st.Webhooks == nil {
 		st.Webhooks = []model.Webhook{}
 	}

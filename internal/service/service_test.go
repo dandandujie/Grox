@@ -1928,3 +1928,61 @@ func TestDailyConversationLog(t *testing.T) {
 		t.Fatalf("daily log = %q", log)
 	}
 }
+
+func TestDepartmentShelfCRUD(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	department, err := svc.CreateDepartment("Research Shelf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Shelf Bot", Department: "Research Shelf", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := svc.ListDepartments()
+	found := false
+	for _, item := range items {
+		if item.ID == department.ID && item.BotCount == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("departments = %+v", items)
+	}
+	enamed, err := svc.RenameDepartment(department.ID, "Applied Shelf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	updated := svc.findBotLocked(bot.ID)
+	updatedDepartment := ""
+	if updated != nil {
+		updatedDepartment = updated.Department
+	}
+	svc.mu.Unlock()
+	if updatedDepartment != "Applied Shelf" || enamed.Name != "Applied Shelf" {
+		t.Fatalf("renamed bot department = %q", updatedDepartment)
+	}
+	if err := svc.DeleteDepartment(department.ID); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	updated = svc.findBotLocked(bot.ID)
+	updatedDepartment = ""
+	if updated != nil {
+		updatedDepartment = updated.Department
+	}
+	svc.mu.Unlock()
+	if updatedDepartment != "General" {
+		t.Fatalf("deleted department bot = %q", updatedDepartment)
+	}
+	general := ""
+	for _, item := range svc.ListDepartments() {
+		if item.Name == "General" {
+			general = item.ID
+		}
+	}
+	if general == "" || svc.DeleteDepartment(general) == nil {
+		t.Fatal("General must be protected")
+	}
+}

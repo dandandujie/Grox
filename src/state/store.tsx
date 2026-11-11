@@ -11,7 +11,7 @@ import { speak } from "@/lib/speech";
 
 export type View = "chat" | "routines" | "apps";
 export type Panel = "profile" | "skills" | "memory" | "computer" | "activity";
-export type SettingsSection = "general" | "connections" | "engines" | "mcp" | "computer" | "phone" | "automation" | "voice" | "data" | "about";
+export type SettingsSection = "general" | "connections" | "engines" | "mcp" | "computer" | "phone" | "automation" | "departments" | "voice" | "data" | "about";
 
 export interface ToastItem {
   id: string;

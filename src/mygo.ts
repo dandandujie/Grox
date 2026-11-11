@@ -45,6 +45,7 @@ export interface AppState {
   revision: number;
   bots: Bot[];
   groups: Group[];
+  departments?: Department[];
   routines: Routine[];
   presets: Preset[];
   webhooks: Webhook[];
@@ -232,6 +233,18 @@ export interface CreateGroupInput {
   color: string;
   memberIds: string[];
   leadId: string;
+}
+
+/**
+ * Department is a standalone roster shelf. Bots store its name for
+ * compatibility with older workspaces.
+ */
+export interface Department {
+  id: string;
+  name: string;
+  botCount?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** EngineInfo reports one detected CLI. */
@@ -776,6 +789,9 @@ export const Grox = {
   createBot(input: CreateBotInput): Promise<Bot> {
     return call("Grox.CreateBot", input);
   },
+  createDepartment(name: string): Promise<Department> {
+    return call("Grox.CreateDepartment", name);
+  },
   /** CreateGroup adds a channel and opens it. */
   createGroup(input: CreateGroupInput): Promise<Group> {
     return call("Grox.CreateGroup", input);
@@ -817,6 +833,9 @@ export const Grox = {
   /** DeleteBot removes a contact and every conversation it owns. */
   deleteBot(id: string): Promise<void> {
     return call("Grox.DeleteBot", id);
+  },
+  deleteDepartment(id: string): Promise<void> {
+    return call("Grox.DeleteDepartment", id);
   },
   /** DeleteGroup removes a channel. */
   deleteGroup(groupID: string): Promise<void> {
@@ -909,6 +928,10 @@ export const Grox = {
   listComputerFiles(botID: string, path: string): Promise<FolderListing> {
     return call("Grox.ListComputerFiles", botID, path);
   },
+  /** ListDepartments returns shelves with their current bot counts. */
+  listDepartments(): Promise<Department[]> {
+    return call("Grox.ListDepartments");
+  },
   /** ListMCPServers returns user-managed MCP servers without token values. */
   listMCPServers(): Promise<MCPServer[]> {
     return call("Grox.ListMCPServers");
@@ -981,6 +1004,9 @@ export const Grox = {
    */
   refreshComposioConnections(): Promise<number> {
     return call("Grox.RefreshComposioConnections");
+  },
+  renameDepartment(id: string, name: string): Promise<Department> {
+    return call("Grox.RenameDepartment", id, name);
   },
   /**
    * ReplayWebhookDelivery starts a fresh task from a retained payload. It is a

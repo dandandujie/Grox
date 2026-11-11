@@ -95,8 +95,12 @@ export function Sidebar() {
       list.push(bot);
       groups.set(name, list);
     }
+    for (const department of state.departments ?? []) {
+      const name = department.name.trim() || "General";
+      if (!groups.has(name)) groups.set(name, []);
+    }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [ordered]);
+  }, [ordered, state.departments]);
 
   const botMatches = useMemo(() => {
     if (!query) return [];
@@ -308,6 +312,7 @@ export function Sidebar() {
             {departmentGroups.map(([department, departmentBots]) => (
               <Fragment key={department}>
                 {departmentGroups.length > 1 && <div className="sidebar-department-label">{department}</div>}
+                {departmentBots.length === 0 && <div className="sidebar-empty-dept">No bots yet</div>}
                 {departmentBots.map((bot) => {
               const thread = latestThreadOf(bot);
               const selected = activeBot?.id === bot.id && ui.view === "chat";

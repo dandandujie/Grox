@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight, Cloud, Database, Eye, EyeOff, FolderOpen, Globe, Info, KeyRound, Laptop,
-  Languages, MonitorSpeaker, Palette, Play, Plug, Plus, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Terminal, Trash2,
+  Languages, Layers, MonitorSpeaker, Palette, Play, Plug, Plus, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Terminal, Trash2,
   Upload, Volume2, X,
 } from "lucide-react";
 import { useApp, type SettingsSection } from "@/state/store";
@@ -10,7 +10,7 @@ import { speak } from "@/lib/speech";
 import { GroxLogo, ProviderMark } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
-import type { APIInfo, MCPServer, Settings } from "@/lib/bridge";
+import type { APIInfo, Department, MCPServer, Settings } from "@/lib/bridge";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Palette size={16} /> },
@@ -20,6 +20,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] 
   { id: "computer", label: "Computers", icon: <Laptop size={16} /> },
   { id: "phone", label: "Phone", icon: <Smartphone size={16} /> },
   { id: "automation", label: "Automation", icon: <Terminal size={16} /> },
+  { id: "departments", label: "Departments", icon: <Layers size={16} /> },
   { id: "voice", label: "Voice", icon: <Volume2 size={16} /> },
   { id: "data", label: "Data & privacy", icon: <Database size={16} /> },
   { id: "about", label: "About", icon: <Info size={16} /> },
@@ -393,6 +394,90 @@ function ComputerSection() {
         </ul>
       </SectionCard>
     </>
+  );
+}
+
+function DepartmentsSection() {
+  const { backend, toast, requestConfirm } = useApp();
+  const [items, setItems] = useState<Department[]>([]);
+  const [name, setName] = useState("");
+  const [editing, setEditing] = useState("");
+  const [editName, setEditName] = useState("");
+
+  const load = async () => {
+    try {
+      setItems(await backend.listDepartments());
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read departments", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const create = async () => {
+    if (!name.trim()) return;
+    try {
+      await backend.createDepartment(name.trim());
+      setName("");
+      await load();
+    } catch (cause) {
+      toast({ kind: "error", title: "Department not created", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const saveRename = async () => {
+    if (!editing || !editName.trim()) return;
+    try {
+      await backend.renameDepartment(editing, editName.trim());
+      setEditing("");
+      await load();
+    } catch (cause) {
+      toast({ kind: "error", title: "Department not renamed", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const remove = (department: Department) => {
+    requestConfirm({
+      title: "Delete department?",
+      body: department.name + " will be removed. Its bots move to General.",
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: () => {
+        void backend.deleteDepartment(department.id).then(load).catch((cause: unknown) => {
+          toast({ kind: "error", title: "Department not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+        });
+      },
+    });
+  };
+
+  return (
+    <SectionCard title="Departments" hint="Standalone shelves for the bot roster. Bots keep a department name; deleting a shelf moves its bots to General.">
+      <div className="inline-field">
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New department" onKeyDown={(event) => { if (event.key === "Enter") void create(); }} />
+        <button type="button" className="btn btn-primary" onClick={() => void create()} disabled={!name.trim()}><Plus size={14} /> Add</button>
+      </div>
+      <div className="department-list">
+        {items.map((department) => (
+          <div className="department-row" key={department.id}>
+            {editing === department.id ? (
+              <div className="inline-field">
+                <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} />
+                <button type="button" className="btn btn-secondary" onClick={() => void saveRename()}>Save</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setEditing("")}>Cancel</button>
+              </div>
+            ) : (
+              <>
+                <div><strong>{department.name}</strong><span>{department.botCount ?? 0} bots</span></div>
+                <div className="settings-actions">
+                  <button type="button" className="link-button" onClick={() => { setEditing(department.id); setEditName(department.name); }}>Rename</button>
+                  <button type="button" className="link-button is-danger" onClick={() => remove(department)}>Delete</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        {items.length === 0 && <p className="panel-note">No departments yet.</p>}
+      </div>
+    </SectionCard>
   );
 }
 
@@ -946,6 +1031,7 @@ export function SettingsModal() {
             {section === "computer" && <ComputerSection />}
             {section === "phone" && <PhoneSection />}
             {section === "automation" && <AutomationSection />}
+            {section === "departments" && <DepartmentsSection />}
             {section === "voice" && <VoiceSection />}
             {section === "data" && <DataSection />}
             {section === "about" && <AboutSection />}

@@ -4,7 +4,7 @@ export default defineConfig({
   name: "Grox",
   slug: "grox",
   identifier: "app.grox.desktop",
-  version: "0.33.0",
+  version: "0.34.0",
   copyright: "© 2026 Grox contributors",
   license: "Apache-2.0",
   devUrl: "http://localhost:5174",
