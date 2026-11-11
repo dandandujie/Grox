@@ -2304,7 +2304,7 @@ func TestGrokBotImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Bots != 1 || result.Routines != 1 || result.Memories != 2 || result.Apps != 1 || result.SkillsSkipped != 1 {
+	if result.Bots != 1 || result.Routines != 1 || result.Memories != 2 || result.Apps != 1 || result.Skills != 1 {
 		t.Fatalf("result = %+v", result)
 	}
 	var imported *model.Bot
@@ -2315,8 +2315,18 @@ func TestGrokBotImport(t *testing.T) {
 		}
 	}
 	svc.mu.Unlock()
-	if imported == nil {
-		t.Fatal("imported bot missing")
+	if imported == nil || imported.WorkingDir == "" {
+		t.Fatalf("imported bot missing working dir: %+v", imported)
+	}
+	skills, err := svc.ListSkills(imported.ID)
+	foundSkill := false
+	for _, skill := range skills {
+		if skill.Source == "Workspace" && skill.Enabled {
+			foundSkill = true
+		}
+	}
+	if err != nil || !foundSkill {
+		t.Fatalf("imported skills = %+v err=%v", skills, err)
 	}
 	state, err := svc.GetMemory(imported.ID)
 	if err != nil || !strings.Contains(state.Content, "prefers tea") {

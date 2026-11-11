@@ -10,10 +10,14 @@ nothing existing is overwritten.
 - Scheduled routines with a simple readable cron (`minute hour * * day`) arrive paused.
 - Remote https MCP apps arrive as disabled MCP servers.
 
+## Skills
+
+Each bot gets its own workspace at `workspaces/<name>-grok/`. Imported skills are written under
+`.grox/skills/<name>/SKILL.md` there and switched on. They do not leak to other bots. `skills` in the result
+counts what was created.
+
 ## What is skipped
 
-- Skills: Grox skills are global today, so an imported skill would leak to every bot. The result counts them
-  as SkillsSkipped.
 - Event-triggered or unreadable schedules.
 - Chat history, app logins, keys and model choice.
 - Local apps without a remote https URL.

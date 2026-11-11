@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -154,7 +156,42 @@ func (s *Service) ImportGrokBot(raw string) (model.GrokImportResult, error) {
 		}
 		result.Bots++
 		result.Names = append(result.Names, bot.Name)
-		result.SkillsSkipped += len(listItems(item, "skills"))
+
+		if skills := listItems(item, "skills"); len(skills) > 0 {
+			workspace := filepath.Join(s.dir, "workspaces", skillSlug(name)+"-grok")
+			if err := os.MkdirAll(workspace, 0o700); err == nil {
+				for _, rawSkill := range skills {
+					skill, ok := rawSkill.(map[string]any)
+					if !ok {
+						continue
+					}
+					skillName := stringField(skill, "name")
+					slug := skillSlug(skillName)
+					instructions := stringField(skill, "instructions")
+					if slug == "" || instructions == "" {
+						continue
+					}
+					dir := filepath.Join(workspace, ".grox", "skills", slug)
+					if err := os.MkdirAll(dir, 0o700); err != nil {
+						continue
+					}
+					body := "---\nname: " + skillName + "\ndescription: " + stringField(skill, "description") + "\n---\n\n" + instructions + "\n"
+					if err := writeMemoryAtomic(filepath.Join(dir, "SKILL.md"), []byte(body)); err == nil {
+						result.Skills++
+					}
+				}
+				path := workspace
+				if _, err := s.UpdateBot(bot.ID, model.BotPatch{WorkingDir: &path}); err == nil {
+					if skills, err := s.ListSkills(bot.ID); err == nil {
+						for _, skill := range skills {
+							if skill.Source == "Workspace" {
+								_, _ = s.SetSkillEnabled(bot.ID, skill.ID, true)
+							}
+						}
+					}
+				}
+			}
+		}
 		memories := stringList(item, "memories")
 		userFacts := stringList(item, "user_facts")
 		if len(memories) > 0 || len(userFacts) > 0 {

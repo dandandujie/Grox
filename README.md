@@ -160,7 +160,7 @@ The table below is intentionally blunt.
 | Fast room decisions | **Partial**: Auto rooms use OpenRouter, Workers AI or native Jev to pick one member, with a 0.6 threshold, lead fallback and a metadata-only decision log. See [decisions](docs/DECIDER.md) |
 | Playbooks | **Partial**: per-bot Markdown playbooks selected by trigger words and injected as bounded process guidance. See [playbooks](docs/PLAYBOOKS.md) |
 | Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |
-| Grok Bot import | **Partial**: paste a Grok Bot export to create new bots, memory, paused simple routines and disabled MCP servers. Skills are skipped. See [import](docs/GROK-IMPORT.md) |
+| Grok Bot import | **Partial**: paste a Grok Bot export to create new bots, isolated enabled skills, memory, paused simple routines and disabled MCP servers. See [import](docs/GROK-IMPORT.md) |
 | BotMRR teams | **Partial**: import BotMRR Markdown agents, isolated skills, playbooks, rooms and paused routines. See [BotMRR](docs/BOTMRR.md) |
 | Token usage | **Partial**: API-engine and Claude/Grok result usage shows input/output/total tokens; optional local pricing adds a cost label. Codex/Gemini usage and provider price tables are unlabelled. See [usage](docs/USAGE.md) |
 

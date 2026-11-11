@@ -1080,7 +1080,7 @@ function DataSection() {
           setGrokBusy(true);
           void backend.importGrokBot(grokText).then((result) => {
             setGrokText("");
-            toast({ kind: "success", title: "Grok Bot import complete", body: result.bots + " bots, " + result.routines + " routines, " + result.memories + " notes, " + result.apps + " MCP servers." });
+            toast({ kind: "success", title: "Grok Bot import complete", body: result.bots + " bots, " + result.skills + " skills, " + result.routines + " routines, " + result.memories + " notes, " + result.apps + " MCP servers." });
           }).catch((cause: unknown) => {
             toast({ kind: "error", title: "Grok Bot import failed", body: cause instanceof Error ? cause.message : "Try again." });
           }).finally(() => setGrokBusy(false));

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.45.0
+
+- Grok Bot import now writes skills into a per-bot workspace and enables them, instead of skipping them.
+- Extended the import test to assert an enabled workspace skill and updated the result toast/docs.
+- Still not ported: split exports, event routines, skill approval scanning and package v2 conversion.
+
 ## 0.44.0
 
 - Added BotMRR Markdown import: agents, isolated per-bot skills, playbooks, rooms and paused daily/weekday
