@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.29.0"
+	AppVersion = "0.30.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -128,6 +128,7 @@ type MemoryState struct {
 	Lines       int           `json:"lines"`
 	LoadedBytes int           `json:"loadedBytes"`
 	LoadedLines int           `json:"loadedLines"`
+	Expired     int           `json:"expired,omitempty"`
 	LimitBytes  int           `json:"limitBytes"`
 	LimitLines  int           `json:"limitLines"`
 	Topics      []MemoryTopic `json:"topics"`

@@ -852,6 +852,7 @@ function MemoryTab({ bot }: { bot: Bot }) {
               <span>{percent}%</span>
             </div>
             {cut && <p className="panel-note is-warning">Only the first {memory.limitLines} lines or {formatBytes(memory.limitBytes)} load each turn; the rest stays on disk.</p>}
+            {Boolean(memory.expired) && <p className="panel-note">Skipping {memory.expired} expired {memory.expired === 1 ? "entry" : "entries"} ending with an until date in the past.</p>}
             <code className="memory-path" title={memory.path}>{memory.path}</code>
           </>
         )}

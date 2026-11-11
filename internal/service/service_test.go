@@ -1826,3 +1826,52 @@ func TestAPITurnRecordsUsage(t *testing.T) {
 		t.Fatalf("usage = %+v", final.Usage)
 	}
 }
+
+func TestMemoryExpirySkipsPastEntries(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Expiry Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	today := time.Now()
+	past := today.AddDate(0, 0, -1).Format("2006-01-02")
+	future := today.AddDate(0, 0, 3).Format("2006-01-02")
+	content := "# Notes\n\n- " + past + " · old fact · until " + past + "\n- " + today.Format("2006-01-02") + " · active fact · until " + future + "\n- undated fact\n"
+	if _, err := svc.SaveMemory(bot.ID, content, state.Revision); err != nil {
+		t.Fatal(err)
+	}
+	state, err = svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Expired != 1 {
+		t.Fatalf("expired = %d", state.Expired)
+	}
+	if state.LoadedLines != 4 {
+		t.Fatalf("loaded lines = %d", state.LoadedLines)
+	}
+	svc.mu.Lock()
+	loaded := svc.memoryTextLocked(&bot)
+	svc.mu.Unlock()
+	if strings.Contains(loaded, "old fact") || !strings.Contains(loaded, "active fact") || !strings.Contains(loaded, "undated fact") {
+		t.Fatalf("loaded memory = %q", loaded)
+	}
+	result, err := svc.TidyMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Archived != 1 {
+		t.Fatalf("tidy expired = %+v", result)
+	}
+	state, err = svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(state.Content, "old fact") || state.Expired != 0 {
+		t.Fatalf("tidy left expired content: %q", state.Content)
+	}
+}

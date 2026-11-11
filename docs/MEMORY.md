@@ -76,8 +76,11 @@ memory_forget and the Memory tab Forget field remove matching top-level entries 
 and copy them to the archive with a forgotten marker.
 
 Automatically archive is an opt-in per-bot switch. The scheduler checks at most once an hour and runs the
-same TidyMemory archive pass only when MEMORY.md is over budget. Automatic fact capture, model-ranked
-recall and daily logs are still not ported.
+same TidyMemory archive pass only when MEMORY.md is over budget.
+
+A top-level entry may end with `· until YYYY-MM-DD`. Past entries are skipped when memory is loaded, are
+counted in the Memory tab, and are moved to topics/archive.md by Tidy. They stay on disk until Tidy runs.
+Automatic fact capture, model-ranked recall and daily logs are still not ported.
 
 ## API
 

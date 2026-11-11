@@ -67,7 +67,22 @@ func (s *Service) TidyMemory(botID string) (model.MemoryTidyResult, error) {
 	remove := map[int]bool{}
 	archive := make([]string, 0)
 	lineCount, byteCount := countMemory(strings.Join(lines, "\n"))
+	now := time.Now()
 	for _, item := range blocks {
+		if !memoryEntryExpired(item.text, now) {
+			continue
+		}
+		for index := item.start; index < item.end; index++ {
+			remove[index] = true
+		}
+		archive = append(archive, item.text)
+		lineCount -= item.end - item.start
+		byteCount -= len(item.text) + 1
+	}
+	for _, item := range blocks {
+		if remove[item.start] {
+			continue
+		}
 		if lineCount <= memoryLimitLines && byteCount <= memoryLimitBytes {
 			break
 		}
@@ -77,12 +92,12 @@ func (s *Service) TidyMemory(botID string) (model.MemoryTidyResult, error) {
 		archive = append(archive, item.text)
 		lineCount -= item.end - item.start
 		byteCount -= len(item.text) + 1
-		if lineCount < 0 {
-			lineCount = 0
-		}
-		if byteCount < 0 {
-			byteCount = 0
-		}
+	}
+	if lineCount < 0 {
+		lineCount = 0
+	}
+	if byteCount < 0 {
+		byteCount = 0
 	}
 	if len(archive) == 0 {
 		return model.MemoryTidyResult{Lines: lineCount, Bytes: byteCount, Within: true}, nil

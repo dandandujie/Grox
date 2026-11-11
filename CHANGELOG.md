@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.0
+
+- Added memory expiry markers: entries ending in until YYYY-MM-DD are skipped once past, counted in the
+  Memory tab, and archived by Tidy even when the file is otherwise under budget.
+- Added load-filter, count and Tidy-expiry tests.
+- Still not ported: automatic fact capture, model-ranked recall and daily logs.
+
 ## 0.29.0
 
 - Parsed Claude Code and Grok Build result-event usage (input_tokens/output_tokens) into the same message

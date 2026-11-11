@@ -378,6 +378,7 @@ export interface MemoryState {
   lines: number;
   loadedBytes: number;
   loadedLines: number;
+  expired?: number;
   limitBytes: number;
   limitLines: number;
   topics: MemoryTopic[];
