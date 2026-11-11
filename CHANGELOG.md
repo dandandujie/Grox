@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.40.0
+
+- Added the room-routing decision log: one metadata-only NDJSON row per call under decider-log/YYYY-MM.ndjson,
+  with choice, confidence, latency, model and a short state hash; message text is never written.
+- Extended the auto-routing test to assert the log line and confirm the message text is absent.
+- Still not ported: native Jev/Workers AI, several-members answers, extraction and inbox triage.
+
 ## 0.39.0
 
 - Added Auto room routing with an OpenRouter-compatible chat decision model. A 0.6 threshold, 1.5s timeout

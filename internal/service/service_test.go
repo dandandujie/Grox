@@ -2146,7 +2146,7 @@ func TestAutoRoomDecisionChoosesMember(t *testing.T) {
 		_, _ = w.Write(payload)
 	}))
 	defer server.Close()
-	svc, _, events := newTestService(t)
+	svc, dataDir, events := newTestService(t)
 	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
 		t.Fatal(err)
 	}
@@ -2169,4 +2169,11 @@ func TestAutoRoomDecisionChoosesMember(t *testing.T) {
 	waitFor(t, events, 5*time.Second, "the auto-routed group turn", func(ev model.Event) bool {
 		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-omiii" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
 	})
+	logData, err := os.ReadFile(filepath.Join(dataDir, "decider-log", time.Now().Format("2006-01")+".ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logData), `"choice":"bot-omiii"`) || strings.Contains(string(logData), "pricing question") {
+		t.Fatalf("decision log = %s", logData)
+	}
 }

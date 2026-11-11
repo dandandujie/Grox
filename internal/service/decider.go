@@ -66,6 +66,7 @@ func (s *Service) decideRoomResponderLocked(g *model.Group, text string) *model.
 		prompt += "\n\nRecent room messages:\n" + strings.Join(recent, "\n")
 	}
 	prompt += "\n\nNew message: " + text
+	started := time.Now()
 	body, _ := json.Marshal(map[string]any{
 		"model": modelID, "temperature": 0,
 		"messages":        []map[string]string{{"role": "system", "content": "You are a fast room-routing classifier. Never do the work."}, {"role": "user", "content": prompt}},
@@ -80,15 +81,18 @@ func (s *Service) decideRoomResponderLocked(g *model.Group, text string) *model.
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
 	response, err := client.Do(request)
 	if err != nil {
+		s.logDecision("", 0, time.Since(started), modelID, prompt, false, "unreachable")
 		return nil
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
+		s.logDecision("", 0, time.Since(started), modelID, prompt, false, "http_error")
 		return nil
 	}
 	var payload map[string]any
 	if json.NewDecoder(response.Body).Decode(&payload) != nil {
+		s.logDecision("", 0, time.Since(started), modelID, prompt, false, "malformed")
 		return nil
 	}
 	choices, _ := payload["choices"].([]any)
@@ -100,17 +104,21 @@ func (s *Service) decideRoomResponderLocked(g *model.Group, text string) *model.
 	contentText, _ := message["content"].(string)
 	var decision map[string]any
 	if json.Unmarshal([]byte(contentText), &decision) != nil {
+		s.logDecision("", 0, time.Since(started), modelID, prompt, false, "malformed")
 		return nil
 	}
 	choiceID, _ := decision["choice"].(string)
 	probability, _ := decision["pTop"].(float64)
 	if probability < 0.6 {
+		s.logDecision("", probability, time.Since(started), modelID, prompt, false, "low_confidence")
 		return nil
 	}
 	for _, id := range g.MemberIDs {
 		if id == choiceID {
+			s.logDecision(choiceID, probability, time.Since(started), modelID, prompt, true, "")
 			return s.findBotLocked(id)
 		}
 	}
+	s.logDecision("", probability, time.Since(started), modelID, prompt, false, "no_choice")
 	return nil
 }
