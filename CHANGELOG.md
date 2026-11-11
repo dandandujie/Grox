@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.32.0
+
+- Added optional local token pricing (USD per 1M input/output) and a per-message six-decimal cost label.
+- Cost uses only the configured prices and the provider-reported usage; no provider price table is invented.
+- Added pricing settings, bounds validation, a cost calculation test, and updated usage docs.
+- Still not ported: automatic provider pricing, budgets and billing.
+
 ## 0.31.0
 
 - Added an opt-in per-bot Daily conversation log. Finished turns append a bounded You/Bot entry to

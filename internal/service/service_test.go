@@ -1803,6 +1803,8 @@ func TestAPITurnRecordsUsage(t *testing.T) {
 	settings.EngineMode = "api"
 	settings.APIBaseURL = server.URL
 	settings.APIModel = "gpt-5.2"
+	settings.InputPricePerMillion = 1
+	settings.OutputPricePerMillion = 2
 	if _, err := svc.UpdateSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -1824,6 +1826,9 @@ func TestAPITurnRecordsUsage(t *testing.T) {
 	})
 	if final.Usage.TotalTokens != 10 || final.Usage.InputTokens != 7 || final.Usage.OutputTokens != 3 || final.Usage.Source != "OpenAI-compatible API" {
 		t.Fatalf("usage = %+v", final.Usage)
+	}
+	if final.Usage.CostUSD < 0.0000129 || final.Usage.CostUSD > 0.0000131 {
+		t.Fatalf("cost = %v", final.Usage.CostUSD)
 	}
 }
 

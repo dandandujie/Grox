@@ -247,11 +247,15 @@ function EnginesSection() {
   const [refreshing, setRefreshing] = useState(false);
   const [baseUrl, setBaseUrl] = useState(state.settings.apiBaseUrl);
   const [apiModel, setApiModel] = useState(state.settings.apiModel);
+  const [inputPrice, setInputPrice] = useState(String(state.settings.inputPricePerMillion ?? 0));
+  const [outputPrice, setOutputPrice] = useState(String(state.settings.outputPricePerMillion ?? 0));
 
   useEffect(() => {
     setBaseUrl(state.settings.apiBaseUrl);
     setApiModel(state.settings.apiModel);
-  }, [state.settings.apiBaseUrl, state.settings.apiModel]);
+    setInputPrice(String(state.settings.inputPricePerMillion ?? 0));
+    setOutputPrice(String(state.settings.outputPricePerMillion ?? 0));
+  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -320,6 +324,22 @@ function EnginesSection() {
           </label>
           <div className="settings-form-actions">
             <button type="button" className="btn btn-primary" onClick={saveAPI}><Save size={14} /> Save API settings</button>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Token pricing" hint="Optional USD prices per one million tokens. Grox only uses them to label message cost; it never invents a provider price.">
+        <div className="settings-form">
+          <label className="panel-field">
+            <span>Input USD / 1M</span>
+            <input type="number" min="0" max="10000" step="0.01" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} />
+          </label>
+          <label className="panel-field">
+            <span>Output USD / 1M</span>
+            <input type="number" min="0" max="10000" step="0.01" value={outputPrice} onChange={(event) => setOutputPrice(event.target.value)} />
+          </label>
+          <div className="settings-form-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ inputPricePerMillion: Math.max(0, Number(inputPrice) || 0), outputPricePerMillion: Math.max(0, Number(outputPrice) || 0) })}><Save size={14} /> Save pricing</button>
           </div>
         </div>
       </SectionCard>

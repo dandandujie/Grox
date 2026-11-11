@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.31.0"
+	AppVersion = "0.32.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -408,10 +408,11 @@ type Message struct {
 
 // Usage is token accounting when an engine reports it.
 type Usage struct {
-	InputTokens  int    `json:"inputTokens"`
-	OutputTokens int    `json:"outputTokens"`
-	TotalTokens  int    `json:"totalTokens"`
-	Source       string `json:"source,omitempty"`
+	InputTokens  int     `json:"inputTokens"`
+	OutputTokens int     `json:"outputTokens"`
+	TotalTokens  int     `json:"totalTokens"`
+	CostUSD      float64 `json:"costUsd,omitempty"`
+	Source       string  `json:"source,omitempty"`
 }
 
 // Attachment is a file copied into the Grox workspace and referenced by a message.
@@ -562,20 +563,22 @@ type Connection struct {
 
 // Settings are app-wide preferences.
 type Settings struct {
-	Theme         string `json:"theme"`
-	VoiceName     string `json:"voiceName,omitempty"`
-	PhoneEnabled  bool   `json:"phoneEnabled,omitempty"`
-	PhoneToken    string `json:"phoneToken,omitempty"`
-	Language      string `json:"language"`
-	SidebarWidth  int    `json:"sidebarWidth"`
-	Advanced      bool   `json:"advanced"`
-	ReduceMotion  bool   `json:"reduceMotion"`
-	Notifications bool   `json:"notifications"`
-	Sounds        bool   `json:"sounds"`
-	EngineMode    string `json:"engineMode"`
-	APIEnabled    bool   `json:"apiEnabled,omitempty"`
-	APIBaseURL    string `json:"apiBaseUrl"`
-	APIModel      string `json:"apiModel"`
+	Theme                 string  `json:"theme"`
+	VoiceName             string  `json:"voiceName,omitempty"`
+	PhoneEnabled          bool    `json:"phoneEnabled,omitempty"`
+	PhoneToken            string  `json:"phoneToken,omitempty"`
+	Language              string  `json:"language"`
+	SidebarWidth          int     `json:"sidebarWidth"`
+	Advanced              bool    `json:"advanced"`
+	ReduceMotion          bool    `json:"reduceMotion"`
+	Notifications         bool    `json:"notifications"`
+	Sounds                bool    `json:"sounds"`
+	EngineMode            string  `json:"engineMode"`
+	APIEnabled            bool    `json:"apiEnabled,omitempty"`
+	InputPricePerMillion  float64 `json:"inputPricePerMillion,omitempty"`
+	OutputPricePerMillion float64 `json:"outputPricePerMillion,omitempty"`
+	APIBaseURL            string  `json:"apiBaseUrl"`
+	APIModel              string  `json:"apiModel"`
 }
 
 // APIInfo reports the optional loopback automation API. Token is returned

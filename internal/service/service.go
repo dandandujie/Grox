@@ -402,6 +402,12 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 	case "auto", "demo", "grok", "claude", "codex", "gemini", "api":
 		cur.EngineMode = settings.EngineMode
 	}
+	if settings.InputPricePerMillion >= 0 && settings.InputPricePerMillion <= 10000 {
+		cur.InputPricePerMillion = settings.InputPricePerMillion
+	}
+	if settings.OutputPricePerMillion >= 0 && settings.OutputPricePerMillion <= 10000 {
+		cur.OutputPricePerMillion = settings.OutputPricePerMillion
+	}
 	cur.APIBaseURL = strings.TrimSpace(settings.APIBaseURL)
 	cur.APIModel = strings.TrimSpace(settings.APIModel)
 	out := *cur

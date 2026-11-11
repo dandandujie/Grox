@@ -9,8 +9,9 @@ Each finished bot message can carry:
 
     usage: { inputTokens, outputTokens, totalTokens, source }
 
-The footer shows a small `N tok` label with an input/output tooltip. Cost is not calculated because no
-pricing table ships with Grox.
+The footer shows a small `N tok` label with an input/output tooltip. If Settings -> Engines -> Token pricing
+has non-zero USD prices per one million tokens, the footer also shows a six-decimal cost. Grox ships no
+provider price table and never invents a cost when pricing is zero.
 
 ## Provider behavior
 

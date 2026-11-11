@@ -598,6 +598,8 @@ export interface Settings {
   sounds: boolean;
   engineMode: string;
   apiEnabled?: boolean;
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
   apiBaseUrl: string;
   apiModel: string;
 }
@@ -674,6 +676,7 @@ export interface Usage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  costUsd?: number;
   source?: string;
 }
 

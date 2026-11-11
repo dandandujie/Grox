@@ -272,6 +272,8 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 	s.appendDailyLogLocked(logBot, thread, final, now)
 	if sink.usage.TotalTokens > 0 {
 		usage := sink.usage
+		prices := s.st.State.Settings
+		usage.CostUSD = float64(usage.InputTokens)/1_000_000*prices.InputPricePerMillion + float64(usage.OutputTokens)/1_000_000*prices.OutputPricePerMillion
 		if final != nil {
 			final.Usage = &usage
 			if msg := s.findMessageLocked(thread, final.ID); msg != nil {
