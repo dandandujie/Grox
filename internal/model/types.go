@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.40.0"
+	AppVersion = "0.41.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -50,6 +50,22 @@ type AppState struct {
 	ActiveThreadID    string                `json:"activeThreadId"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	UpdatedAt         time.Time             `json:"updatedAt"`
+}
+
+// Playbook is a trigger-selected instruction attached to one bot.
+type Playbook struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Triggers     []string  `json:"triggers"`
+	Instructions string    `json:"instructions"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// PlaybookInput is the editor form.
+type PlaybookInput struct {
+	Name         string   `json:"name"`
+	Triggers     []string `json:"triggers"`
+	Instructions string   `json:"instructions"`
 }
 
 // Department is a standalone roster shelf. Bots store its name for

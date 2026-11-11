@@ -4,7 +4,7 @@ import {
   Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
-import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, MemoryState, MemoryTopic, Model, Skill } from "@/lib/bridge";
+import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, MemoryState, MemoryTopic, Model, Playbook, Skill } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
@@ -1068,12 +1068,111 @@ function SkillsTab({ bot }: { bot: Bot }) {
   );
 }
 
+function PlaybooksTab({ bot }: { bot: Bot }) {
+  const { backend, toast, requestConfirm } = useApp();
+  const [items, setItems] = useState<Playbook[]>([]);
+  const [editing, setEditing] = useState<Playbook | null>(null);
+  const [name, setName] = useState("");
+  const [triggers, setTriggers] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = async () => {
+    try {
+      setItems(await backend.listPlaybooks(bot.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read playbooks.");
+    }
+  };
+  useEffect(() => { void load(); }, [bot.id]);
+
+  const openNew = () => {
+    setEditing({ id: "", name: "", triggers: [], instructions: "", updatedAt: "" });
+    setName("");
+    setTriggers("");
+    setInstructions("");
+    setError("");
+  };
+  const openEdit = (playbook: Playbook) => {
+    setEditing(playbook);
+    setName(playbook.name);
+    setTriggers(playbook.triggers.join(", "));
+    setInstructions(playbook.instructions);
+    setError("");
+  };
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      await backend.savePlaybook(bot.id, { name, triggers: triggers.split(","), instructions });
+      setEditing(null);
+      await load();
+      toast({ kind: "success", title: "Playbook saved" });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the playbook.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const remove = (playbook: Playbook) => {
+    requestConfirm({
+      title: "Delete playbook?",
+      body: playbook.name + " will no longer be selected for this bot.",
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: () => {
+        void backend.deletePlaybook(bot.id, playbook.id).then(load).catch((cause: unknown) => {
+          toast({ kind: "error", title: "Playbook not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+        });
+      },
+    });
+  };
+
+  return (
+    <div className="panel-body">
+      <section className="panel-card">
+        <div className="panel-card-title"><span>Playbooks</span><button type="button" className="link-button" onClick={openNew}><Plus size={12} /> New</button></div>
+        <p className="panel-note">A playbook is process guidance selected by trigger words in the message. It grants no tools or permissions. Up to three are included per turn.</p>
+        {items.length === 0 ? <p className="panel-note">No playbooks yet.</p> : (
+          <div className="memory-topics">
+            {items.map((playbook) => (
+              <button type="button" key={playbook.id} className="memory-topic" onClick={() => openEdit(playbook)}>
+                <div><strong>{playbook.name}</strong><span>{playbook.triggers.join(", ")}</span></div>
+                <span>{formatBytes(playbook.instructions.length)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {error && <p className="panel-note is-error">{error}</p>}
+      </section>
+      <Modal open={Boolean(editing)} onClose={() => setEditing(null)} title={editing?.id ? "Edit playbook" : "New playbook"} width={720}>
+        {editing && (
+          <>
+            <label className="panel-field"><span>Name</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Launch checklist" /></label>
+            <label className="panel-field"><span>Triggers (comma separated)</span><input value={triggers} onChange={(event) => setTriggers(event.target.value)} placeholder="launch, release, ship" /></label>
+            <label className="panel-field"><span>Instructions</span><textarea rows={12} className="memory-editor" value={instructions} onChange={(event) => setInstructions(event.target.value)} spellCheck /></label>
+            {error && <p className="panel-note is-error">{error}</p>}
+            <div className="modal-actions split">
+              {editing.id ? <button type="button" className="btn btn-danger" onClick={() => remove(editing)}>Delete</button> : <span />}
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save playbook"}</button>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
 export function BotPanel() {
   const { activeBot, ui, setUI, state } = useApp();
   if (!activeBot) return null;
   const advanced = state.settings.advanced;
   const panel = ui.panel === "activity" && !advanced ? "profile" : ui.panel;
-  const title = panel === "profile" ? "Agent profile" : panel === "skills" ? "Skills" : panel === "memory" ? "Memory" : panel === "computer" ? "Computer" : "Activity";
+  const title = panel === "profile" ? "Agent profile" : panel === "skills" ? "Skills" : panel === "playbooks" ? "Playbooks" : panel === "memory" ? "Memory" : panel === "computer" ? "Computer" : "Activity";
   return (
     <aside className="side-panel">
       <header className="side-panel-head drag-region">
@@ -1091,12 +1190,14 @@ export function BotPanel() {
       </header>
       {panel === "profile" && <ProfileTab bot={activeBot} />}
       {panel === "skills" && <SkillsTab bot={activeBot} />}
+      {panel === "playbooks" && <PlaybooksTab bot={activeBot} />}
       {panel === "memory" && <MemoryTab bot={activeBot} />}
       {panel === "computer" && <ComputerTab bot={activeBot} />}
       {panel === "activity" && <ActivityTab bot={activeBot} />}
       <div className="side-panel-tabs">
         <button type="button" className={cn(panel === "profile" && "is-active")} onClick={() => setUI({ panel: "profile" })}>Profile</button>
         <button type="button" className={cn(panel === "skills" && "is-active")} onClick={() => setUI({ panel: "skills" })}>Skills</button>
+        <button type="button" className={cn(panel === "playbooks" && "is-active")} onClick={() => setUI({ panel: "playbooks" })}>Playbooks</button>
         <button type="button" className={cn(panel === "memory" && "is-active")} onClick={() => setUI({ panel: "memory" })}>Memory</button>
         <button type="button" className={cn(panel === "computer" && "is-active")} onClick={() => setUI({ panel: "computer" })}>Computer</button>
         {advanced && <button type="button" className={cn(panel === "activity" && "is-active")} onClick={() => setUI({ panel: "activity" })}>Activity</button>}

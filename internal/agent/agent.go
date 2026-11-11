@@ -90,6 +90,8 @@ type Request struct {
 	HookURL string
 	// SkillText is the enabled SKILL.md instructions for this bot.
 	SkillText string
+	// PlaybookText is the selected trigger-based process guidance for this turn.
+	PlaybookText string
 	// MemoryText is the bot's MEMORY.md notes, already loaded/capped.
 	MemoryText string
 	// RecallText is a bounded set of matching topic passages for this turn.
@@ -180,7 +182,7 @@ func Run(ctx context.Context, sel Selection, req Request, sink Sink) (Result, er
 
 // Compose makes the single prompt a CLI receives: the bot's persona, the
 // recent conversation, and the new message.
-func Compose(bot model.Bot, thread model.Thread, userText string) string {
+func Compose(bot model.Bot, thread model.Thread, userText, playbookText string) string {
 	var b strings.Builder
 	b.WriteString("You are ")
 	b.WriteString(bot.Name)
@@ -191,6 +193,10 @@ func Compose(bot model.Bot, thread model.Thread, userText string) string {
 	b.WriteString(".\n\n")
 	if bot.Soul != "" {
 		b.WriteString(strings.TrimSpace(bot.Soul))
+		b.WriteString("\n\n")
+	}
+	if playbookText = strings.TrimSpace(playbookText); playbookText != "" {
+		b.WriteString(playbookText)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("You are replying inside Grox, a chat app. Answer the latest user message. ")

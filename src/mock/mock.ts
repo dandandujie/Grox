@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  APIInfo, Department, MCPOAuthStart, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -659,6 +659,24 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     bot.updatedAt = nowISO();
     this.emitState();
     return clone(bot);
+  }
+
+  private playbooks = new Map<string, Playbook[]>();
+
+  async listPlaybooks(botId: string): Promise<Playbook[]> {
+    return this.playbooks.get(botId) ?? [];
+  }
+
+  async savePlaybook(botId: string, input: PlaybookInput): Promise<Playbook> {
+    const list = this.playbooks.get(botId) ?? [];
+    const id = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "playbook";
+    const playbook: Playbook = { id, name: input.name, triggers: input.triggers, instructions: input.instructions, updatedAt: nowISO() };
+    this.playbooks.set(botId, [...list.filter((item) => item.id !== id), playbook]);
+    return playbook;
+  }
+
+  async deletePlaybook(botId: string, id: string): Promise<void> {
+    this.playbooks.set(botId, (this.playbooks.get(botId) ?? []).filter((item) => item.id !== id));
   }
 
   async listDepartments(): Promise<Department[]> {

@@ -510,6 +510,22 @@ export interface PhoneInfo {
   connected: number;
 }
 
+/** Playbook is a trigger-selected instruction attached to one bot. */
+export interface Playbook {
+  id: string;
+  name: string;
+  triggers: string[];
+  instructions: string;
+  updatedAt: string;
+}
+
+/** PlaybookInput is the editor form. */
+export interface PlaybookInput {
+  name: string;
+  triggers: string[];
+  instructions: string;
+}
+
 /**
  * Preset is a reusable New bot starting point. It carries persona text, never
  * a model, approval level, folder or credential.
@@ -882,6 +898,9 @@ export const Grox = {
   deleteMemoryTopic(botID: string, name: string): Promise<void> {
     return call("Grox.DeleteMemoryTopic", botID, name);
   },
+  deletePlaybook(botID: string, id: string): Promise<void> {
+    return call("Grox.DeletePlaybook", botID, id);
+  },
   deletePreset(id: string): Promise<void> {
     return call("Grox.DeletePreset", id);
   },
@@ -966,6 +985,9 @@ export const Grox = {
   /** ListMCPServers returns user-managed MCP servers without token values. */
   listMCPServers(): Promise<MCPServer[]> {
     return call("Grox.ListMCPServers");
+  },
+  listPlaybooks(botID: string): Promise<Playbook[]> {
+    return call("Grox.ListPlaybooks", botID);
   },
   /** ListPresets returns the New bot starting points. */
   listPresets(): Promise<Preset[]> {
@@ -1092,6 +1114,9 @@ export const Grox = {
    */
   saveMemoryTopic(botID: string, name: string, content: string, revision: string): Promise<MemoryTopic> {
     return call("Grox.SaveMemoryTopic", botID, name, content, revision);
+  },
+  savePlaybook(botID: string, input: PlaybookInput): Promise<Playbook> {
+    return call("Grox.SavePlaybook", botID, input);
   },
   /** Select opens a conversation and marks it read. */
   select(botID: string, threadID: string): Promise<void> {

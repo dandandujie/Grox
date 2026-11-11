@@ -33,7 +33,7 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 
 	prompt := req.Prompt
 	if prompt == "" {
-		prompt = Compose(req.Bot, req.Thread, req.UserText)
+		prompt = Compose(req.Bot, req.Thread, req.UserText, req.PlaybookText)
 	}
 
 	var args []string

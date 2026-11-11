@@ -49,7 +49,9 @@ two products are code-identical.
 - Team packages: channel-level export/import of bots, skills, memory and routines, plus local ed25519
   package signing and tamper verification, are ported. Organization libraries, presets, a trust registry,
   signed release discovery and department shelves are not.
-- Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
+- Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
+  playbook import/review and the full package metadata are not.
+- The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
 - Jev/decision routing: Auto rooms can ask an OpenRouter-compatible chat model to pick one member, with a
   0.6 threshold, lead fallback and a metadata-only decision log. Native Jev, Workers AI, the several-members

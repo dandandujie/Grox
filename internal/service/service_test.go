@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/dandandujie/grox/internal/agent"
 	"github.com/dandandujie/grox/internal/model"
 )
 
@@ -2175,5 +2176,41 @@ func TestAutoRoomDecisionChoosesMember(t *testing.T) {
 	}
 	if !strings.Contains(string(logData), `"choice":"bot-omiii"`) || strings.Contains(string(logData), "pricing question") {
 		t.Fatalf("decision log = %s", logData)
+	}
+}
+
+func TestPlaybookSelectionAndPrompt(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Playbook Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	playbook, err := svc.SavePlaybook(bot.ID, model.PlaybookInput{
+		Name: "Launch checklist", Triggers: []string{"launch", "release"},
+		Instructions: "Check the launch checklist before replying.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if playbook.ID != "launch-checklist" {
+		t.Fatalf("playbook = %+v", playbook)
+	}
+	items, err := svc.ListPlaybooks(bot.ID)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("playbooks = %+v err=%v", items, err)
+	}
+	svc.mu.Lock()
+	selected := svc.selectedPlaybookTextLocked(bot.ID, "Please prepare the release notes")
+	unrelated := svc.selectedPlaybookTextLocked(bot.ID, "What is for lunch?")
+	svc.mu.Unlock()
+	if !strings.Contains(selected, "launch checklist") || unrelated != "" {
+		t.Fatalf("selected=%q unrelated=%q", selected, unrelated)
+	}
+	prompt := agent.Compose(bot, model.Thread{}, "prepare the release", selected)
+	if !strings.Contains(prompt, "launch checklist") {
+		t.Fatalf("prompt missing playbook: %q", prompt)
+	}
+	if err := svc.DeletePlaybook(bot.ID, playbook.ID); err != nil {
+		t.Fatal(err)
 	}
 }

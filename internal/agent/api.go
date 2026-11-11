@@ -52,6 +52,9 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 		system = "You are " + req.Bot.Name + ", a helpful assistant."
 	}
 	system += "\n\nYou are replying inside Grox, a chat app. Use GitHub-flavored Markdown when it helps."
+	if playbookText := strings.TrimSpace(req.PlaybookText); playbookText != "" {
+		system += "\n\n## Installed playbooks\n\n" + playbookText
+	}
 	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
 		system += "\n\n## Enabled skills\n\n" + skillText
 	}

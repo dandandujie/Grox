@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.41.0
+
+- Added per-bot playbooks: Markdown files with name/triggers/instructions, selected by message trigger words
+  and injected into CLI and API prompts as bounded process guidance.
+- Added Bot panel Playbooks create/edit/delete UI, a trigger-selection test and prompt composition coverage.
+- Still not ported: package-authored playbook import/review and the full package selection metadata.
+
 ## 0.40.0
 
 - Added the room-routing decision log: one metadata-only NDJSON row per call under decider-log/YYYY-MM.ndjson,

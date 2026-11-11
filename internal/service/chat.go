@@ -212,10 +212,10 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		Bot: botCopy, Thread: threadCopy, UserText: agentText, History: threadCopy.Messages,
 		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
-		ExtraContext: extraContext, SkillText: skillText, MemoryText: memoryText, RecallText: recallText,
+		ExtraContext: extraContext, SkillText: skillText, PlaybookText: s.selectedPlaybookTextLocked(bot.ID, agentText), MemoryText: memoryText, RecallText: recallText,
 		MCPServers: s.mcpConfigsLocked(),
 	}
-	req.Prompt = agent.Compose(botCopy, threadCopy, agentText)
+	req.Prompt = agent.Compose(botCopy, threadCopy, agentText, req.PlaybookText)
 	if skillText != "" {
 		req.Prompt += "\n\n## Enabled skills\n\n" + skillText
 	}
