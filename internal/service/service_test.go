@@ -641,14 +641,14 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 3 || req.ExecuteTool == nil {
+	if len(req.Tools) != 4 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
 	}
 	names := map[string]bool{}
 	for _, tool := range req.Tools {
 		names[tool.Name] = true
 	}
-	if !names["ask_user"] || !names["memory_update"] || !names["GITHUB_GET_REPO"] {
+	if !names["ask_user"] || !names["memory_update"] || !names["memory_tidy"] || !names["GITHUB_GET_REPO"] {
 		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
@@ -1216,7 +1216,7 @@ func TestPresetsCreateFromBotAndDelete(t *testing.T) {
 }
 
 func TestWebhookHMACAndReplay(t *testing.T) {
-	svc, _, _ := newTestService(t)
+	svc, _, events := newTestService(t)
 	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Signed Hook Bot", ModelID: "grox-demo"})
 	if err != nil {
 		t.Fatal(err)
@@ -1248,6 +1248,9 @@ func TestWebhookHMACAndReplay(t *testing.T) {
 	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("signed webhook status = %d", response.StatusCode)
 	}
+	waitFor(t, events, 5*time.Second, "the signed webhook turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
 	request, _ = http.NewRequest(http.MethodPost, info.BaseURL+"/hooks/"+hook.Token, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Grox-Timestamp", timestamp)
@@ -1312,5 +1315,62 @@ func TestMemoryUpdateToolWritesTopic(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "prefers Tuesday") {
 		t.Fatalf("memory topic = %s", data)
+	}
+}
+
+func TestMemoryTidyArchivesOldDatedEntries(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Tidy Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var memory strings.Builder
+	memory.WriteString("# Manual header\n\n")
+	for index := 1; index <= 260; index++ {
+		memory.WriteString("- 2026-01-")
+		memory.WriteString(fmt.Sprintf("%02d", (index%28)+1))
+		memory.WriteString(" · entry ")
+		memory.WriteString(strconv.Itoa(index))
+		memory.WriteString("\n")
+	}
+	if _, err := svc.SaveMemory(bot.ID, memory.String(), state.Revision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.TidyMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Archived == 0 || !result.Within || result.Lines > 200 {
+		t.Fatalf("tidy result = %+v", result)
+	}
+	state, err = svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(state.Content, "Manual header") {
+		t.Fatalf("manual header lost: %q", state.Content)
+	}
+	if state.Lines > 200 {
+		t.Fatalf("memory still over budget: %d lines", state.Lines)
+	}
+	archive, err := os.ReadFile(filepath.Join(filepath.Dir(state.Path), "topics", "archive.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(archive), "entry 1") || !strings.Contains(string(archive), "moved") {
+		t.Fatalf("archive = %s", archive)
+	}
+	found := false
+	for _, topic := range state.Topics {
+		if topic.Name == "archive" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("archive topic missing: %+v", state.Topics)
 	}
 }

@@ -231,6 +231,12 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	sel := agent.Select(req)
 	if bot.Approval != model.ApprovalAsk {
 		req.Tools = append(req.Tools, agent.Tool{
+			Name:        "memory_tidy",
+			Description: "Archive the oldest dated MEMORY.md entries when the memory file is over the 200-line / 24 KB load budget.",
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		})
+
+		req.Tools = append(req.Tools, agent.Tool{
 			Name:        "memory_update",
 			Description: "Save a durable memory note. Use for a preference or decision the person asked to remember, not for routine status.",
 			Parameters: map[string]any{
@@ -265,6 +271,9 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 			req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
 		}
 		req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
+			if name == "memory_tidy" {
+				return s.memoryTidyTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID})
+			}
 			if name == "memory_update" {
 				return s.memoryUpdateTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
 			}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity as ActivityIcon, BookOpen, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen,
+  Activity as ActivityIcon, Archive, BookOpen, ChevronLeft, ChevronRight, Clock3, FileText, Folder, FolderOpen,
   Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -630,6 +630,7 @@ function MemoryTab({ bot }: { bot: Bot }) {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [tidying, setTidying] = useState(false);
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -661,6 +662,19 @@ function MemoryTab({ bot }: { bot: Bot }) {
     }
   };
 
+  const tidy = async () => {
+    setTidying(true);
+    try {
+      const result = await backend.tidyMemory(bot.id);
+      await load();
+      toast({ kind: "success", title: result.archived ? "Memory archived" : "Memory already fits", body: result.archived ? result.archived + " entries moved to topics/archive.md." : "Nothing needed to move." });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not tidy memory", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setTidying(false);
+    }
+  };
+
   const save = async () => {
     if (!memory) return;
     setSaving(true);
@@ -685,7 +699,7 @@ function MemoryTab({ bot }: { bot: Bot }) {
   return (
     <div className="panel-scroll">
       <section className="panel-card">
-        <div className="panel-card-title"><span>Memory</span><button type="button" className="link-button" onClick={() => void load()} disabled={loading}><RefreshCw size={11} /> Reload</button></div>
+        <div className="panel-card-title"><span>Memory</span><div className="memory-head-actions"><button type="button" className="link-button" onClick={() => void tidy()} disabled={tidying || loading}><Archive size={11} /> Tidy</button><button type="button" className="link-button" onClick={() => void load()} disabled={loading}><RefreshCw size={11} /> Reload</button></div></div>
         <div className="switch-row memory-switch">
           <span className="row-copy">
             <span className="row-title">Let this bot use memory</span>

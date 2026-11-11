@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0
+
+- Added TidyMemory: the oldest dated MEMORY.md entries move to topics/archive.md until the 200-line /
+  24 KB budget is met. The archive is written before the memory file, and manual header lines stay.
+- Added a Memory tab Tidy action and memory_tidy tools for the MCP gateway and the API Auto/Full loop.
+- Added TidyMemory tests for archiving, the line budget, manual header preservation and the archive topic.
+- Still not ported: memory_delete, automatic capture, model-ranked recall and scheduled upkeep.
+
 ## 0.16.0
 
 - Added a memory_update tool to the per-turn MCP gateway and the API Auto/Full tool loop.

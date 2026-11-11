@@ -67,7 +67,10 @@ small frontmatter header; without a topic the entry goes to MEMORY.md. Entries a
 write is atomic. CLI Ask turns still pass the normal tool approval card; Auto/Full CLIs and API bots write
 directly. The Memory tab has a Reload button for inspecting a tool-written note.
 
-There is no memory_delete or tidy-up tool yet.
+There is a memory_tidy tool and a Memory tab Tidy action. Tidy moves the oldest dated entries into
+memory/topics/archive.md until MEMORY.md is within the 200-line / 24 KB budget. The archive is written
+before the memory file, manual header lines are kept, and the archive is excluded from recall. There is no
+memory_delete or automatic scheduled upkeep yet.
 
 ## API
 

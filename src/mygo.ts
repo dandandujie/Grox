@@ -353,6 +353,14 @@ export interface MemoryState {
   topics: MemoryTopic[];
 }
 
+/** MemoryTidyResult reports an archive pass over MEMORY.md. */
+export interface MemoryTidyResult {
+  archived: number;
+  lines: number;
+  bytes: number;
+  within: boolean;
+}
+
 /**
  * MemoryTopic is one file under memory/<botID>/topics; it is never loaded
  * automatically into a prompt.
@@ -961,6 +969,14 @@ export const Grox = {
   /** TestRemoteComputer opens a real SSH connection and returns uname output. */
   testRemoteComputer(botID: string): Promise<string> {
     return call("Grox.TestRemoteComputer", botID);
+  },
+  /**
+   * TidyMemory moves the oldest dated entries out of MEMORY.md into
+   * memory/topics/archive.md until the 200-line / 24 KB load budget is met. The
+   * archive is written first; a failure never removes a line without a copy.
+   */
+  tidyMemory(botID: string): Promise<MemoryTidyResult> {
+    return call("Grox.TidyMemory", botID);
   },
   /** UpdateBot edits the fields in the patch. */
   updateBot(botID: string, patch: BotPatch): Promise<Bot> {

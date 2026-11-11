@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.16.0"
+	AppVersion = "0.17.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -120,6 +120,14 @@ type MemoryState struct {
 	LimitBytes  int           `json:"limitBytes"`
 	LimitLines  int           `json:"limitLines"`
 	Topics      []MemoryTopic `json:"topics"`
+}
+
+// MemoryTidyResult reports an archive pass over MEMORY.md.
+type MemoryTidyResult struct {
+	Archived int  `json:"archived"`
+	Lines    int  `json:"lines"`
+	Bytes    int  `json:"bytes"`
+	Within   bool `json:"within"`
 }
 
 // MemoryTopic is one file under memory/<botID>/topics; it is never loaded

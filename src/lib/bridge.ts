@@ -1,7 +1,7 @@
 import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
-  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, MemoryTidyResult, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
   SecretStatus, SendResult, Settings, Skill, Thread, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
@@ -48,6 +48,7 @@ export interface Backend {
   getMemory(botId: string): Promise<MemoryState>;
   saveMemory(botId: string, content: string, revision: string): Promise<MemoryState>;
   setMemoryEnabled(botId: string, enabled: boolean): Promise<Bot>;
+  tidyMemory(botId: string): Promise<MemoryTidyResult>;
   getWebhookInfo(): Promise<WebhookInfo>;
   createWebhook(input: WebhookInput): Promise<Webhook>;
   updateWebhook(id: string, patch: WebhookPatch): Promise<Webhook>;
@@ -89,7 +90,7 @@ export interface Backend {
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
-  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, MemoryTidyResult, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
   RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult,
   Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";

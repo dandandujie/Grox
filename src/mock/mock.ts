@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, Preset, PresetInput, PresetPatch, Settings, Skill,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, MemoryTidyResult, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -585,6 +585,11 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   private memory = new Map<string, { content: string; revision: string }>();
+
+  async tidyMemory(botId: string): Promise<MemoryTidyResult> {
+    const state = await this.getMemory(botId);
+    return { archived: 0, lines: state.lines, bytes: state.bytes, within: true };
+  }
 
   async getMemory(botId: string): Promise<MemoryState> {
     const bot = this.bot(botId);
