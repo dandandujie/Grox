@@ -3,9 +3,12 @@ package service
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -1209,5 +1212,66 @@ func TestPresetsCreateFromBotAndDelete(t *testing.T) {
 	}
 	if len(svc.ListPresets()) != len(presets) {
 		t.Fatal("preset was not deleted")
+	}
+}
+
+func TestWebhookHMACAndReplay(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Signed Hook Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := svc.CreateWebhook(model.WebhookInput{BotID: bot.ID, Name: "Signed", Prompt: "Read the build.", Enabled: true, RequireSignature: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hook.RequireSignature {
+		t.Fatal("signature requirement not stored")
+	}
+	info := svc.GetWebhookInfo()
+	body := []byte(`{"text":"build 42 passed"}`)
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(hook.Token))
+	_, _ = mac.Write([]byte(timestamp + "."))
+	_, _ = mac.Write(body)
+	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	request, _ := http.NewRequest(http.MethodPost, info.BaseURL+"/hooks/"+hook.Token, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Grox-Timestamp", timestamp)
+	request.Header.Set("X-Grox-Delivery", "delivery-1")
+	request.Header.Set("X-Grox-Signature", signature)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("signed webhook status = %d", response.StatusCode)
+	}
+	request, _ = http.NewRequest(http.MethodPost, info.BaseURL+"/hooks/"+hook.Token, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Grox-Timestamp", timestamp)
+	request.Header.Set("X-Grox-Delivery", "delivery-1")
+	request.Header.Set("X-Grox-Signature", signature)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("replay status = %d", response.StatusCode)
+	}
+	request, _ = http.NewRequest(http.MethodPost, info.BaseURL+"/hooks/"+hook.Token, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Grox-Timestamp", timestamp)
+	request.Header.Set("X-Grox-Delivery", "delivery-2")
+	request.Header.Set("X-Grox-Signature", "sha256=bad")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad signature status = %d", response.StatusCode)
 	}
 }

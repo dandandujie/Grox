@@ -1,11 +1,15 @@
 package service
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,7 +94,8 @@ func (s *Service) CreateWebhook(input model.WebhookInput) (model.Webhook, error)
 	now := time.Now()
 	hook := model.Webhook{
 		ID: newID("hook"), BotID: bot.ID, Name: name, Prompt: strings.TrimSpace(input.Prompt),
-		Token: randomToken(), Enabled: input.Enabled, CreatedAt: now, UpdatedAt: now,
+		Token: randomToken(), Enabled: input.Enabled, RequireSignature: input.RequireSignature,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	s.st.State.Webhooks = append(s.st.State.Webhooks, hook)
 	s.touchLocked()
@@ -125,6 +130,9 @@ func (s *Service) UpdateWebhook(id string, patch model.WebhookPatch) (model.Webh
 	}
 	if patch.Enabled != nil {
 		hook.Enabled = *patch.Enabled
+	}
+	if patch.RequireSignature != nil {
+		hook.RequireSignature = *patch.RequireSignature
 	}
 	hook.UpdatedAt = time.Now()
 	s.touchLocked()
@@ -175,6 +183,44 @@ func webhookPayload(body []byte, contentType string) string {
 	return text
 }
 
+func (s *Service) verifyWebhookSignature(r *http.Request, token string, body []byte) (int, string) {
+	rawTimestamp := strings.TrimSpace(r.Header.Get("X-Grox-Timestamp"))
+	timestamp, err := strconv.ParseInt(rawTimestamp, 10, 64)
+	if err != nil {
+		return http.StatusUnauthorized, "missing or invalid X-Grox-Timestamp"
+	}
+	now := time.Now().Unix()
+	if timestamp < now-300 || timestamp > now+300 {
+		return http.StatusUnauthorized, "webhook timestamp is outside the five-minute window"
+	}
+	provided := strings.TrimSpace(r.Header.Get("X-Grox-Signature"))
+	provided = strings.TrimPrefix(provided, "sha256=")
+	mac := hmac.New(sha256.New, []byte(token))
+	_, _ = mac.Write([]byte(rawTimestamp + "."))
+	_, _ = mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(strings.ToLower(provided)), []byte(expected)) {
+		return http.StatusUnauthorized, "invalid webhook signature"
+	}
+	if delivery := strings.TrimSpace(r.Header.Get("X-Grox-Delivery")); delivery != "" {
+		s.webhookMu.Lock()
+		defer s.webhookMu.Unlock()
+		if seen, ok := s.webhookReplays[delivery]; ok && time.Since(seen) < 10*time.Minute {
+			return http.StatusConflict, "webhook delivery was already accepted"
+		}
+		s.webhookReplays[delivery] = time.Now()
+		if len(s.webhookReplays) > 1000 {
+			cutoff := time.Now().Add(-10 * time.Minute)
+			for key, at := range s.webhookReplays {
+				if at.Before(cutoff) {
+					delete(s.webhookReplays, key)
+				}
+			}
+		}
+	}
+	return 0, ""
+}
+
 func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
@@ -202,6 +248,29 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	payload := webhookPayload(body, r.Header.Get("Content-Type"))
 	s.mu.Lock()
 	var hook *model.Webhook
+	for index := range s.st.State.Webhooks {
+		if s.st.State.Webhooks[index].Token == token {
+			hook = &s.st.State.Webhooks[index]
+			break
+		}
+	}
+	if hook == nil || !hook.Enabled {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("{\"error\":\"webhook not found or disabled\"}\n"))
+		return
+	}
+	requireSignature := hook.RequireSignature
+	s.mu.Unlock()
+	if requireSignature {
+		if status, message := s.verifyWebhookSignature(r, token, body); status != 0 {
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+			return
+		}
+	}
+	s.mu.Lock()
+	hook = nil
 	for index := range s.st.State.Webhooks {
 		if s.st.State.Webhooks[index].Token == token {
 			hook = &s.st.State.Webhooks[index]

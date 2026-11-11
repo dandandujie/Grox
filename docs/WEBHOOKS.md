@@ -62,3 +62,33 @@ token; editing keeps the token stable.
 - HMAC signature verification, replay protection, retries and delivery IDs.
 - Event journal with individual delivery inspection.
 - Group/channel target triggers.
+
+## HMAC signatures
+
+A trigger can require a signature. The URL token is also the HMAC key; it is already a capability secret.
+
+Required headers:
+
+- X-Grox-Timestamp: Unix seconds
+- X-Grox-Signature: sha256=<lowercase hex>
+- X-Grox-Delivery: optional unique delivery id
+
+The signed string is:
+
+    <timestamp>.<raw request body>
+
+The timestamp must be within five minutes of the receiver clock. A signature comparison is constant-time.
+
+If X-Grox-Delivery is present, a delivery id accepted in the last ten minutes is rejected with 409.
+Without a delivery id the timestamp window is the only replay limit, so send one for production callers.
+
+Example shell:
+
+    ts=$(date +%s)
+    sig=$(printf '%s.%s' "$ts" "$body" | openssl dgst -sha256 -hmac "$TOKEN" | awk '{print $2}')
+    curl -X POST "$URL" -H "Content-Type: application/json" \
+      -H "X-Grox-Timestamp: $ts" -H "X-Grox-Delivery: $(uuidgen)" \
+      -H "X-Grox-Signature: sha256=$sig" --data-binary "$body"
+
+Invalid or missing signatures return 401; replayed delivery ids return 409.
+

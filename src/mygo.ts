@@ -618,6 +618,7 @@ export interface Webhook {
   prompt: string;
   token: string;
   enabled: boolean;
+  requireSignature?: boolean;
   eventCount: number;
   lastEventAt?: string;
   createdAt: string;
@@ -637,6 +638,7 @@ export interface WebhookInput {
   name: string;
   prompt: string;
   enabled: boolean;
+  requireSignature: boolean;
 }
 
 /** WebhookPatch edits only the fields it sets. */
@@ -644,6 +646,7 @@ export interface WebhookPatch {
   name?: string;
   prompt?: string;
   enabled?: boolean;
+  requireSignature?: boolean;
 }
 
 // ---- Services ----

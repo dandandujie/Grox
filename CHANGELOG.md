@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0
+
+- Added optional HMAC-SHA256 signing to inbound webhooks. The URL token is the signing key.
+- Requires X-Grox-Timestamp within five minutes and X-Grox-Signature over timestamp.body; invalid
+  signatures return 401.
+- Added X-Grox-Delivery replay protection within a ten-minute window; duplicate deliveries return 409.
+- Added a Require HMAC signature switch, signed/token-only card labels and signature tests.
+- Still not ported: retries, event journal, app-event triggers and public relay.
+
 ## 0.14.0
 
 - Added local stdio MCP servers alongside remote HTTP servers in Settings -> MCP servers.

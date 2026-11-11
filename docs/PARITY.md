@@ -31,8 +31,8 @@ two products are code-identical.
 - MCP: the per-turn Composio gateway, remote HTTP MCP CRUD with bearer tokens and local stdio MCP CRUD are
   ported. OAuth, per-tool policy and the value vault are not.
 - Artifacts: attachments and file previews exist; a first-class artifact browser does not.
-- Triggers: schedules and a loopback inbound webhook receiver exist; Composio app-event triggers,
-  signature/replay protection, retries and a delivery journal do not.
+- Triggers: schedules, a loopback inbound webhook receiver, optional HMAC signatures and delivery-id
+  replay protection exist. Composio app-event triggers, retries and a delivery journal do not.
 - Usage: token/cost accounting is not shown.
 - Onboarding/import: no team pack, preset, or Grok Bot migration flow.
 

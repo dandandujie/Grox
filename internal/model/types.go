@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.14.0"
+	AppVersion = "0.15.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -135,16 +135,17 @@ type MemoryTopic struct {
 // Webhook is one local inbound trigger. Its token is the capability secret in
 // the URL; the receiver only binds loopback.
 type Webhook struct {
-	ID          string    `json:"id"`
-	BotID       string    `json:"botId"`
-	Name        string    `json:"name"`
-	Prompt      string    `json:"prompt"`
-	Token       string    `json:"token"`
-	Enabled     bool      `json:"enabled"`
-	EventCount  int       `json:"eventCount"`
-	LastEventAt time.Time `json:"lastEventAt,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	BotID            string    `json:"botId"`
+	Name             string    `json:"name"`
+	Prompt           string    `json:"prompt"`
+	Token            string    `json:"token"`
+	Enabled          bool      `json:"enabled"`
+	RequireSignature bool      `json:"requireSignature,omitempty"`
+	EventCount       int       `json:"eventCount"`
+	LastEventAt      time.Time `json:"lastEventAt,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // WebhookInfo reports the loopback receiver and any bind error.
@@ -156,17 +157,19 @@ type WebhookInfo struct {
 
 // WebhookInput is the New webhook form.
 type WebhookInput struct {
-	BotID   string `json:"botId"`
-	Name    string `json:"name"`
-	Prompt  string `json:"prompt"`
-	Enabled bool   `json:"enabled"`
+	BotID            string `json:"botId"`
+	Name             string `json:"name"`
+	Prompt           string `json:"prompt"`
+	Enabled          bool   `json:"enabled"`
+	RequireSignature bool   `json:"requireSignature"`
 }
 
 // WebhookPatch edits only the fields it sets.
 type WebhookPatch struct {
-	Name    *string `json:"name,omitempty"`
-	Prompt  *string `json:"prompt,omitempty"`
-	Enabled *bool   `json:"enabled,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	Prompt           *string `json:"prompt,omitempty"`
+	Enabled          *bool   `json:"enabled,omitempty"`
+	RequireSignature *bool   `json:"requireSignature,omitempty"`
 }
 
 // Preset is a reusable New bot starting point. It carries persona text, never

@@ -191,6 +191,7 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
   const [name, setName] = useState(hook?.name ?? "");
   const [prompt, setPrompt] = useState(hook?.prompt ?? "");
   const [enabled, setEnabled] = useState(hook?.enabled ?? true);
+  const [requireSignature, setRequireSignature] = useState(hook?.requireSignature ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -200,6 +201,7 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
     setName(hook?.name ?? "");
     setPrompt(hook?.prompt ?? "");
     setEnabled(hook?.enabled ?? true);
+    setRequireSignature(hook?.requireSignature ?? false);
     setError("");
     setBusy(false);
   }, [open, hook?.id]);
@@ -215,9 +217,9 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
     setBusy(true);
     try {
       if (hook) {
-        await backend.updateWebhook(hook.id, { name: name.trim(), prompt: prompt.trim(), enabled });
+        await backend.updateWebhook(hook.id, { name: name.trim(), prompt: prompt.trim(), enabled, requireSignature });
       } else {
-        await backend.createWebhook({ botId, name: name.trim(), prompt: prompt.trim(), enabled });
+        await backend.createWebhook({ botId, name: name.trim(), prompt: prompt.trim(), enabled, requireSignature });
       }
       onSaved();
       onClose();
@@ -251,6 +253,10 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
         <div className="switch-row">
           <span className="row-copy"><span className="row-title">Enabled</span><span className="row-sub">A disabled trigger keeps its URL but rejects requests.</span></span>
           <Switch checked={enabled} label="Enable webhook" onChange={setEnabled} />
+        </div>
+        <div className="switch-row">
+          <span className="row-copy"><span className="row-title">Require HMAC signature</span><span className="row-sub">Use the URL token as the signing key and send X-Grox-Timestamp and X-Grox-Signature.</span></span>
+          <Switch checked={requireSignature} label="Require HMAC signature" onChange={setRequireSignature} />
         </div>
         <p className="panel-note">The endpoint receives one JSON or text payload, creates a task conversation, and starts the bot. The token in the URL is the capability; treat the URL as a password.</p>
         {error && <p className="panel-note is-error">{error}</p>}
@@ -355,7 +361,7 @@ function WebhooksPanel() {
               </div>
               <p className="webhook-prompt">{hook.prompt || "Uses the request body as the task."}</p>
               <div className="webhook-meta">
-                <span>{hook.lastEventAt ? "Last event " + relative(hook.lastEventAt) : "No events yet"}</span>
+                <span>{hook.lastEventAt ? "Last event " + relative(hook.lastEventAt) : "No events yet"} · {hook.requireSignature ? "signed" : "token only"}</span>
                 <div className="webhook-actions">
                   <button type="button" className="link-button" onClick={() => { setEditing(hook); setEditorOpen(true); }}><Pencil size={11} /> Edit</button>
                   <button type="button" className="link-button is-danger" onClick={() => remove(hook)}><Trash2 size={11} /> Delete</button>
