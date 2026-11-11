@@ -275,6 +275,7 @@ function WebhooksPanel() {
   const [loading, setLoading] = useState(true);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<WebhookTrigger | undefined>();
+  const [replaying, setReplaying] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -305,6 +306,19 @@ function WebhooksPanel() {
       await load();
     } catch (cause) {
       toast({ kind: "error", title: "Webhook not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const replay = async (deliveryId: string) => {
+    setReplaying(deliveryId);
+    try {
+      await backend.replayWebhookDelivery(deliveryId);
+      await load();
+      toast({ kind: "success", title: "Webhook replayed", body: "A fresh task was started from the retained payload." });
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not replay", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setReplaying("");
     }
   };
 
@@ -370,6 +384,22 @@ function WebhooksPanel() {
             </section>
           ))}
         </div>
+      )}
+      {info && (info.deliveries?.length ?? 0) > 0 && (
+        <section className="webhook-deliveries">
+          <div className="panel-card-title"><span>Recent deliveries</span><span className="avatar-seed">{info.deliveries?.length}</span></div>
+          {info.deliveries?.map((delivery) => (
+            <div key={delivery.id} className="webhook-delivery">
+              <div className="webhook-delivery-copy">
+                <strong>{delivery.webhookName}</strong>
+                <span>{relative(delivery.at)} · {delivery.status}{delivery.error ? " · " + delivery.error : ""}</span>
+              </div>
+              <button type="button" className="link-button" onClick={() => void replay(delivery.id)} disabled={replaying === delivery.id}>
+                {replaying === delivery.id ? "Replaying…" : "Replay"}
+              </button>
+            </div>
+          ))}
+        </section>
       )}
       <WebhookEditor hook={editing} open={editorOpen} onClose={() => setEditorOpen(false)} onSaved={() => void load()} />
     </div>

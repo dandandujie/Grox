@@ -36,6 +36,7 @@ export interface AppState {
   routines: Routine[];
   presets: Preset[];
   webhooks: Webhook[];
+  webhookDeliveries?: WebhookDelivery[];
   runs: Run[];
   connections: Record<string, Connection>;
   mcpServers?: MCPServer[];
@@ -656,11 +657,28 @@ export interface Webhook {
   updatedAt: string;
 }
 
+/**
+ * WebhookDelivery is one accepted inbound request, retained for inspection and
+ * manual local replay. Payload is capped when stored.
+ */
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  webhookName: string;
+  botId: string;
+  threadId?: string;
+  at: string;
+  status: string;
+  payload?: string;
+  error?: string;
+}
+
 /** WebhookInfo reports the loopback receiver and any bind error. */
 export interface WebhookInfo {
   baseUrl: string;
   error?: string;
   items: Webhook[];
+  deliveries?: WebhookDelivery[];
 }
 
 /** WebhookInput is the New webhook form. */
@@ -914,6 +932,13 @@ export const Grox = {
    */
   refreshComposioConnections(): Promise<number> {
     return call("Grox.RefreshComposioConnections");
+  },
+  /**
+   * ReplayWebhookDelivery starts a fresh task from a retained payload. It is a
+   * local, person-initiated action and does not require the original signature.
+   */
+  replayWebhookDelivery(deliveryID: string): Promise<string> {
+    return call("Grox.ReplayWebhookDelivery", deliveryID);
   },
   resetWorkspace(): Promise<void> {
     return call("Grox.ResetWorkspace");

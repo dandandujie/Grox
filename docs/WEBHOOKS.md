@@ -92,3 +92,16 @@ Example shell:
 
 Invalid or missing signatures return 401; replayed delivery ids return 409.
 
+
+## Delivery journal and replay
+
+Accepted requests are retained in the workspace as the last 50 delivery records. Each record keeps the
+webhook name, bot, thread, time, status and at most 8 KB of the original payload. The Webhooks tab shows
+the latest 20 with a Replay action.
+
+Replay is a person-initiated local action. It starts a fresh task using the current webhook instruction plus
+the retained payload, without requiring the original signature, and writes a new delivery record with
+status replayed.
+
+Automatic caller retries, a public relay and an outbound delivery broker are not ported.
+

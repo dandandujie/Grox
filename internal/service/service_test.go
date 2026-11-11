@@ -1539,3 +1539,46 @@ func TestToolPolicyFiltersMCPListAndCall(t *testing.T) {
 		t.Fatalf("policy tools/call = %s", body)
 	}
 }
+
+func TestWebhookDeliveryJournalAndReplay(t *testing.T) {
+	svc, _, events := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Replay Hook Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := svc.CreateWebhook(model.WebhookInput{BotID: bot.ID, Name: "Replay", Prompt: "Read the event.", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := svc.GetWebhookInfo()
+	payload, _ := json.Marshal(map[string]string{"text": "first delivery"})
+	response, err := http.Post(info.BaseURL+"/hooks/"+hook.Token, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("delivery status = %d", response.StatusCode)
+	}
+	waitFor(t, events, 5*time.Second, "the first delivery turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.BotID == bot.ID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+	info = svc.GetWebhookInfo()
+	if len(info.Deliveries) != 1 || !strings.Contains(info.Deliveries[0].Payload, "first delivery") {
+		t.Fatalf("deliveries = %+v", info.Deliveries)
+	}
+	threadID, err := svc.ReplayWebhookDelivery(info.Deliveries[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if threadID == "" {
+		t.Fatal("replay did not create a thread")
+	}
+	waitFor(t, events, 5*time.Second, "the replayed delivery turn", func(ev model.Event) bool {
+		return ev.Type == "message" && ev.BotID == bot.ID && ev.ThreadID == threadID && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
+	})
+	info = svc.GetWebhookInfo()
+	if len(info.Deliveries) != 2 {
+		t.Fatalf("replay deliveries = %+v", info.Deliveries)
+	}
+}

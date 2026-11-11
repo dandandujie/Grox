@@ -72,11 +72,15 @@ func (s *Service) GetWebhookInfo() model.WebhookInfo {
 	s.webhookMu.Unlock()
 	s.mu.Lock()
 	items := append([]model.Webhook(nil), s.st.State.Webhooks...)
+	deliveries := append([]model.WebhookDelivery(nil), s.st.State.WebhookDeliveries...)
 	s.mu.Unlock()
 	if items == nil {
 		items = []model.Webhook{}
 	}
-	return model.WebhookInfo{BaseURL: base, Error: errText, Items: items}
+	if len(deliveries) > 20 {
+		deliveries = deliveries[len(deliveries)-20:]
+	}
+	return model.WebhookInfo{BaseURL: base, Error: errText, Items: items, Deliveries: deliveries}
 }
 
 // CreateWebhook adds an inbound loopback trigger.
@@ -325,6 +329,17 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	hook.EventCount++
 	hook.LastEventAt = now
 	hook.UpdatedAt = now
+	delivery := model.WebhookDelivery{
+		ID: newID("delivery"), WebhookID: hook.ID, WebhookName: hook.Name, BotID: botID,
+		ThreadID: thread.ID, At: now, Status: "accepted", Payload: payload,
+	}
+	if len(delivery.Payload) > 8192 {
+		delivery.Payload = delivery.Payload[:8192] + "…"
+	}
+	s.st.State.WebhookDeliveries = append(s.st.State.WebhookDeliveries, delivery)
+	if len(s.st.State.WebhookDeliveries) > 50 {
+		s.st.State.WebhookDeliveries = s.st.State.WebhookDeliveries[len(s.st.State.WebhookDeliveries)-50:]
+	}
 	s.touchLocked()
 	s.saveLocked()
 	s.emitStateLocked()

@@ -186,6 +186,9 @@ func (s *Store) Normalize() {
 	if st.Webhooks == nil {
 		st.Webhooks = []model.Webhook{}
 	}
+	if st.WebhookDeliveries == nil {
+		st.WebhookDeliveries = []model.WebhookDelivery{}
+	}
 	if st.MCPServers == nil {
 		st.MCPServers = []model.MCPServer{}
 	}

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.21.0"
+	AppVersion = "0.22.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -32,22 +32,23 @@ const (
 // AppState is the single document the app owns. Everything the sidebar, a
 // conversation and the settings surfaces show comes from it.
 type AppState struct {
-	Version        int                   `json:"version"`
-	Revision       int64                 `json:"revision"`
-	Bots           []Bot                 `json:"bots"`
-	Groups         []Group               `json:"groups"`
-	Routines       []Routine             `json:"routines"`
-	Presets        []Preset              `json:"presets"`
-	Webhooks       []Webhook             `json:"webhooks"`
-	Runs           []Run                 `json:"runs"`
-	Connections    map[string]Connection `json:"connections"`
-	MCPServers     []MCPServer           `json:"mcpServers,omitempty"`
-	Settings       Settings              `json:"settings"`
-	ActiveBotID    string                `json:"activeBotId"`
-	ActiveGroupID  string                `json:"activeGroupId"`
-	ActiveThreadID string                `json:"activeThreadId"`
-	CreatedAt      time.Time             `json:"createdAt"`
-	UpdatedAt      time.Time             `json:"updatedAt"`
+	Version           int                   `json:"version"`
+	Revision          int64                 `json:"revision"`
+	Bots              []Bot                 `json:"bots"`
+	Groups            []Group               `json:"groups"`
+	Routines          []Routine             `json:"routines"`
+	Presets           []Preset              `json:"presets"`
+	Webhooks          []Webhook             `json:"webhooks"`
+	WebhookDeliveries []WebhookDelivery     `json:"webhookDeliveries,omitempty"`
+	Runs              []Run                 `json:"runs"`
+	Connections       map[string]Connection `json:"connections"`
+	MCPServers        []MCPServer           `json:"mcpServers,omitempty"`
+	Settings          Settings              `json:"settings"`
+	ActiveBotID       string                `json:"activeBotId"`
+	ActiveGroupID     string                `json:"activeGroupId"`
+	ActiveThreadID    string                `json:"activeThreadId"`
+	CreatedAt         time.Time             `json:"createdAt"`
+	UpdatedAt         time.Time             `json:"updatedAt"`
 }
 
 // Bot is one contact in the roster: a persona, a model, and its own threads.
@@ -175,9 +176,24 @@ type Webhook struct {
 
 // WebhookInfo reports the loopback receiver and any bind error.
 type WebhookInfo struct {
-	BaseURL string    `json:"baseUrl"`
-	Error   string    `json:"error,omitempty"`
-	Items   []Webhook `json:"items"`
+	BaseURL    string            `json:"baseUrl"`
+	Error      string            `json:"error,omitempty"`
+	Items      []Webhook         `json:"items"`
+	Deliveries []WebhookDelivery `json:"deliveries,omitempty"`
+}
+
+// WebhookDelivery is one accepted inbound request, retained for inspection and
+// manual local replay. Payload is capped when stored.
+type WebhookDelivery struct {
+	ID          string    `json:"id"`
+	WebhookID   string    `json:"webhookId"`
+	WebhookName string    `json:"webhookName"`
+	BotID       string    `json:"botId"`
+	ThreadID    string    `json:"threadId,omitempty"`
+	At          time.Time `json:"at"`
+	Status      string    `json:"status"`
+	Payload     string    `json:"payload,omitempty"`
+	Error       string    `json:"error,omitempty"`
 }
 
 // WebhookInput is the New webhook form.

@@ -657,6 +657,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     return clone(bot);
   }
 
+  async replayWebhookDelivery(_deliveryId: string): Promise<string> {
+    throw new Error("Webhooks are only available in the desktop app.");
+  }
+
   async exportTeam(_groupId: string): Promise<string> {
     throw new Error("Team packages are exported by the desktop app.");
   }

@@ -57,6 +57,7 @@ export interface Backend {
   createWebhook(input: WebhookInput): Promise<Webhook>;
   updateWebhook(id: string, patch: WebhookPatch): Promise<Webhook>;
   deleteWebhook(id: string): Promise<void>;
+  replayWebhookDelivery(deliveryId: string): Promise<string>;
   exportTeam(groupId: string): Promise<string>;
   importTeam(raw: string): Promise<TeamImportResult>;
   listMCPServers(): Promise<MCPServer[]>;

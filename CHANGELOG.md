@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.22.0
+
+- Added a webhook delivery journal: the last 50 accepted deliveries keep time, status, bot, thread and a
+  bounded payload; the Webhooks tab shows the latest 20.
+- Added local Replay: a person can start a fresh task from a retained payload without the original
+  signature. Event count and lastEventAt advance; a second delivery record is written.
+- Added a journal/replay test covering the retained payload, new thread and bot reply.
+- Still not ported: automatic retries, a public relay, app-event triggers and HMAC-signed replay.
+
 ## 0.21.0
 
 - Added a per-bot tool policy: allow/deny wildcard patterns with deny taking precedence.
