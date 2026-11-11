@@ -213,7 +213,7 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
 		ExtraContext: extraContext, SkillText: skillText, PlaybookText: s.selectedPlaybookTextLocked(bot.ID, agentText), MemoryText: memoryText, RecallText: recallText,
-		MCPServers: s.mcpConfigsLocked(),
+		MCPServers: s.mcpConfigsLocked(bot.ID),
 	}
 	req.Prompt = agent.Compose(botCopy, threadCopy, agentText, req.PlaybookText)
 	if skillText != "" {

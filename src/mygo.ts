@@ -377,6 +377,7 @@ export interface MCPServer {
   oauthTokenUrl?: string;
   oauthAuthorizationUrl?: string;
   oauthConfigured?: boolean;
+  botIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -396,6 +397,7 @@ export interface MCPServerInput {
   oauthClientSecret?: string;
   oauthScopes?: string;
   oauthRefreshToken?: string;
+  botIds?: string[];
   enabled: boolean;
 }
 
@@ -414,6 +416,7 @@ export interface MCPServerPatch {
   oauthClientSecret?: string;
   oauthScopes?: string;
   oauthRefreshToken?: string;
+  botIds?: string[];
   enabled?: boolean;
 }
 

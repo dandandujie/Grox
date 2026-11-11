@@ -53,6 +53,7 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 		}
 	}
 	botsByKey := map[string]*model.Bot{}
+	connectionBots := map[string][]string{}
 	for index, raw := range agents {
 		agent := yamlMap(raw)
 		name := yamlString(agent, "name")
@@ -73,6 +74,9 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 			return result, err
 		}
 		botsByKey[yamlString(agent, "key")] = &bot
+		for _, connectionKey := range yamlKeys(agent, "connections") {
+			connectionBots[connectionKey] = append(connectionBots[connectionKey], bot.ID)
+		}
 		result.Bots++
 		result.Names = append(result.Names, bot.Name)
 
@@ -213,6 +217,7 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 		}
 		if _, err := s.CreateMCPServer(model.MCPServerInput{
 			Name: yamlString(connection, "label"), URL: url, Enabled: false,
+			BotIDs: connectionBots[yamlString(connection, "key")],
 		}); err == nil {
 			result.Connections++
 		}

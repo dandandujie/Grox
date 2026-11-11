@@ -13,6 +13,20 @@ import (
 
 func mcpSecretName(id string) string { return "mcp:" + id }
 
+func normalizeMCPBotIDs(values []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
 func mcpHeadersSecretName(id string) string { return "mcp:" + id + ":headers" }
 
 func normalizeMCPHeaders(values map[string]string) (map[string]string, []string, error) {
@@ -140,7 +154,7 @@ func (s *Service) ListMCPServers() []model.MCPServer {
 func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, error) {
 	transport := normalizeMCPTransport(input.Transport)
 	server := model.MCPServer{
-		ID: newID("mcp"), Name: "", Transport: transport, Enabled: input.Enabled,
+		ID: newID("mcp"), Name: "", Transport: transport, Enabled: input.Enabled, BotIDs: normalizeMCPBotIDs(input.BotIDs),
 	}
 	if transport == "stdio" {
 		command := strings.TrimSpace(input.Command)
@@ -333,6 +347,9 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 			server.AuthConfigured = true
 		}
 	}
+	if patch.BotIDs != nil {
+		server.BotIDs = normalizeMCPBotIDs(*patch.BotIDs)
+	}
 	if patch.Enabled != nil {
 		server.Enabled = *patch.Enabled
 	}
@@ -363,11 +380,22 @@ func (s *Service) DeleteMCPServer(id string) error {
 	return fmt.Errorf("MCP server not found")
 }
 
-func (s *Service) mcpConfigsLocked() []model.MCPServerConfig {
+func (s *Service) mcpConfigsLocked(botID string) []model.MCPServerConfig {
 	out := make([]model.MCPServerConfig, 0, len(s.st.State.MCPServers))
 	for _, server := range s.st.State.MCPServers {
 		if !server.Enabled {
 			continue
+		}
+		if botID != "" && len(server.BotIDs) > 0 {
+			allowed := false
+			for _, id := range server.BotIDs {
+				if id == botID {
+					allowed = true
+				}
+			}
+			if !allowed {
+				continue
+			}
 		}
 		item := model.MCPServerConfig{
 			ID: server.ID, Name: server.Name, Transport: normalizeMCPTransport(server.Transport),

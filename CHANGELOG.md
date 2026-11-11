@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.47.0
+
+- Added per-bot MCP server scope. Empty scope means every bot; selected bots filter the per-turn CLI config.
+- Package v2 connections are scoped to the agents that referenced them.
+- Added a scope test and editor checkboxes.
+- Not an access-control boundary; the CLI still owns remote/served processes.
+
 ## 0.46.0
 
 - Added openmaus.package v2 JSON import: agents, seed memory, isolated enabled skills, playbooks, rooms with

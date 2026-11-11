@@ -50,6 +50,12 @@ the enabled state. The list shows the URL or command line and never a token valu
 - internal/agent/cli.go - Codex token environment and CLI wiring
 - src/components/SettingsModal.tsx - MCP servers settings
 
+## Per-bot scope
+
+An MCP server can be limited to selected bots. Empty selection means every bot. The scope filters the
+per-turn CLI config; it is not an access-control boundary because the CLI owns the server process. Package v2
+import maps each connection to the agents that referenced it.
+
 ## Custom headers
 
 HTTP servers can carry up to 16 additional headers, for example:

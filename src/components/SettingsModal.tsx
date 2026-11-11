@@ -726,8 +726,9 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { backend, toast } = useApp();
+  const { backend, toast, state } = useApp();
   const [name, setName] = useState(server?.name ?? "");
+  const [mcpBotIDs, setMcpBotIDs] = useState<string[]>(server?.botIds ?? []);
   const [transport, setTransport] = useState<"http" | "stdio">(server?.transport === "stdio" ? "stdio" : "http");
   const [url, setUrl] = useState(server?.url ?? "");
   const [command, setCommand] = useState(server?.command ?? "");
@@ -747,6 +748,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   useEffect(() => {
     if (!open) return;
     setName(server?.name ?? "");
+    setMcpBotIDs(server?.botIds ?? []);
     setTransport(server?.transport === "stdio" ? "stdio" : "http");
     setUrl(server?.url ?? "");
     setCommand(server?.command ?? "");
@@ -792,7 +794,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
       if (server) {
         await backend.updateMCPServer(server.id, {
           name: name.trim(), transport, enabled,
-          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim() }),
+          ...(transport === "stdio" ? { command: command.trim(), args: argList, botIds: mcpBotIDs } : { url: url.trim(), botIds: mcpBotIDs }),
           ...(transport === "http" && token.trim() ? { token: token.trim() } : {}),
           ...(transport === "http" && headers.trim() ? { headers: headerMap } : {}),
           ...(transport === "http" ? {
@@ -807,7 +809,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
       } else {
         await backend.createMCPServer({
           name: name.trim(), transport, enabled,
-          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap, oauthTokenUrl: oauthTokenURL.trim(), oauthAuthorizationUrl: oauthAuthorizationURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim(), oauthRefreshToken }),
+          ...(transport === "stdio" ? { command: command.trim(), args: argList, botIds: mcpBotIDs } : { url: url.trim(), token: token.trim(), headers: headerMap, botIds: mcpBotIDs, oauthTokenUrl: oauthTokenURL.trim(), oauthAuthorizationUrl: oauthAuthorizationURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim(), oauthRefreshToken }),
         });
       }
       onSaved();
@@ -909,6 +911,21 @@ function MCPEditor({ server, open, onClose, onSaved }: {
             </label>
           </>
         )}
+        <div className="panel-field">
+          <span>Applies to</span>
+          <div className="mcp-bot-scope">
+            {state.bots.map((bot) => {
+              const checked = mcpBotIDs.includes(bot.id);
+              return (
+                <label key={bot.id} className="mcp-bot-scope-row">
+                  <input type="checkbox" checked={checked} onChange={(event) => setMcpBotIDs((current) => event.target.checked ? [...current, bot.id] : current.filter((id) => id !== bot.id))} />
+                  <span>{bot.name}</span>
+                </label>
+              );
+            })}
+          </div>
+          <p className="panel-note">No selection means all bots. This only filters the per-turn CLI config; it is not an access control boundary.</p>
+        </div>
         <p className="panel-note">HTTP tokens are stored in the 0600 secrets file, never in AppState or the page. A local command is launched by the selected CLI, not by Grox; only enable a command you trust. Servers are enabled per turn only when this switch is on.</p>
         {error && <p className="panel-note is-error">{error}</p>}
         <div className="modal-actions">
@@ -980,7 +997,7 @@ function MCPSection() {
                 <div className="mcp-copy">
                   <strong>{server.name}</strong>
                   <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
-                  <small>{server.transport === "stdio" ? "Local command" : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
+                  <small>{server.transport === "stdio" ? "Local command" : (server.botIds?.length ?? 0) > 0 ? (server.botIds?.length + " bot(s)") : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>

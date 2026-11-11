@@ -1174,7 +1174,7 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 		t.Fatal("MCP secret leaked into AppState")
 	}
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked()
+	configs := svc.mcpConfigsLocked("")
 	svc.mu.Unlock()
 	if len(configs) != 2 {
 		t.Fatalf("runtime config = %+v", configs)
@@ -1196,7 +1196,7 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.mu.Lock()
-	configs = svc.mcpConfigsLocked()
+	configs = svc.mcpConfigsLocked("")
 	svc.mu.Unlock()
 	if len(configs) != 1 || configs[0].Name != "local-tools" || configs[0].Transport != "stdio" {
 		t.Fatalf("stdio runtime config = %+v", configs)
@@ -2032,7 +2032,7 @@ func TestMCPServerOAuthClientCredentials(t *testing.T) {
 		t.Fatalf("oauth server = %+v", server)
 	}
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked()
+	configs := svc.mcpConfigsLocked("")
 	svc.mu.Unlock()
 	found := false
 	for _, config := range configs {
@@ -2066,7 +2066,7 @@ func TestMCPServerOAuthRefreshToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked()
+	configs := svc.mcpConfigsLocked("")
 	svc.mu.Unlock()
 	found := false
 	for _, config := range configs {
@@ -2121,7 +2121,7 @@ func TestMCPServerOAuthAuthorizationCode(t *testing.T) {
 		t.Fatalf("callback = %d", response.StatusCode)
 	}
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked()
+	configs := svc.mcpConfigsLocked("")
 	svc.mu.Unlock()
 	found := false
 	for _, config := range configs {
@@ -2440,5 +2440,34 @@ func TestOpenMausPackageV2Import(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("skills = %+v", skills)
+	}
+}
+
+func TestMCPServerBotScope(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	first, err := svc.CreateBot(model.CreateBotInput{Name: "Scope One", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.CreateBot(model.CreateBotInput{Name: "Scope Two", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := svc.CreateMCPServer(model.MCPServerInput{
+		Name: "Scoped", URL: "https://mcp.example.test/mcp", Enabled: true, BotIDs: []string{first.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(server.BotIDs) != 1 || server.BotIDs[0] != first.ID {
+		t.Fatalf("server scope = %+v", server)
+	}
+	svc.mu.Lock()
+	one := svc.mcpConfigsLocked(first.ID)
+	two := svc.mcpConfigsLocked(second.ID)
+	all := svc.mcpConfigsLocked("")
+	svc.mu.Unlock()
+	if len(one) != 1 || len(two) != 0 || len(all) != 1 {
+		t.Fatalf("scoped configs one=%+v two=%+v all=%+v", one, two, all)
 	}
 }
