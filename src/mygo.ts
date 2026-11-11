@@ -606,6 +606,7 @@ export interface Settings {
   language: string;
   sidebarWidth: number;
   advanced: boolean;
+  onboarded?: boolean;
   reduceMotion: boolean;
   notifications: boolean;
   sounds: boolean;

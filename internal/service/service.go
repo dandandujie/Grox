@@ -395,6 +395,7 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 		cur.SidebarWidth = settings.SidebarWidth
 	}
 	cur.Advanced = settings.Advanced
+	cur.Onboarded = settings.Onboarded
 	cur.ReduceMotion = settings.ReduceMotion
 	cur.Notifications = settings.Notifications
 	cur.Sounds = settings.Sounds

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.34.0"
+	AppVersion = "0.35.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -584,6 +584,7 @@ type Settings struct {
 	Language              string  `json:"language"`
 	SidebarWidth          int     `json:"sidebarWidth"`
 	Advanced              bool    `json:"advanced"`
+	Onboarded             bool    `json:"onboarded,omitempty"`
 	ReduceMotion          bool    `json:"reduceMotion"`
 	Notifications         bool    `json:"notifications"`
 	Sounds                bool    `json:"sounds"`

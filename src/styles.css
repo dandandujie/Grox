@@ -1726,3 +1726,11 @@ mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: va
 .department-row > div:first-child { display: flex; flex-direction: column; gap: 1px; }
 .department-row strong { font-size: 11px; font-weight: 600; }
 .department-row span { color: var(--ink-3); font-size: 9.5px; }
+.onboarding { display: flex; flex-direction: column; gap: 18px; }
+.onboarding-hero { display: flex; align-items: center; gap: 18px; }
+.onboarding-hero h2 { margin: 4px 0 6px; font-size: 20px; letter-spacing: -0.02em; }
+.onboarding-hero p { margin: 0; max-width: 430px; color: var(--ink-2); font-size: 11.5px; line-height: 1.55; }
+.onboarding-points { display: flex; flex-direction: column; gap: 8px; }
+.onboarding-points > div { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); color: var(--ink-2); font-size: 10.5px; line-height: 1.45; }
+.onboarding-points svg { flex: none; margin-top: 1px; color: var(--ink-3); }
+.onboarding-points strong { display: block; margin-bottom: 1px; color: var(--ink); font-weight: 600; }

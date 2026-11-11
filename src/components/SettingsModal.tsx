@@ -953,7 +953,7 @@ function DataSection() {
 }
 
 function AboutSection() {
-  const { boot } = useApp();
+  const { boot, patchSettings, setUI } = useApp();
   return (
     <div className="about">
       <GroxLogo size={64} />
@@ -970,6 +970,7 @@ function AboutSection() {
         <div><span>Data</span><span>On this machine</span></div>
       </div>
       <p className="about-note">Grox is an independent project. Every portrait is generated locally from layered pixel matrices; no avatar image is uploaded or fetched.</p>
+      <button type="button" className="btn btn-secondary" onClick={() => { void patchSettings({ onboarded: false }); setUI({ settingsOpen: false }); }}>Show welcome again</button>
     </div>
   );
 }

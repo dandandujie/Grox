@@ -40,7 +40,8 @@ two products are code-identical.
 - Usage: OpenAI-compatible API turns and Claude/Grok result events record input/output/total tokens, and
   optional local per-million pricing labels cost. Codex/Gemini usage, provider price tables and budgets are
   not shown.
-- Onboarding/import: no team pack, preset, or Grok Bot migration flow.
+- Onboarding/import: a local first-run welcome exists; team package import lives in Settings -> Data &
+  privacy. A legacy Grok Bot migration flow is not ported.
 
 ## Not yet ported (local code in the reference repo)
 

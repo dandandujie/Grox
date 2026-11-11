@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.35.0
+
+- Added a local first-run welcome with Create a bot, Start with demo and Connect an engine actions; closing
+  it or choosing an action persists Settings.Onboarded.
+- Added Settings -> About -> Show welcome again and an onboarding persistence test.
+- Still not ported: legacy Grok Bot migration wizard, account signup and hosted onboarding.
+
 ## 0.34.0
 
 - Added standalone department records and Settings -> Departments CRUD: add an empty shelf, rename it with

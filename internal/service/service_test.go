@@ -1986,3 +1986,15 @@ func TestDepartmentShelfCRUD(t *testing.T) {
 		t.Fatal("General must be protected")
 	}
 }
+
+func TestOnboardingSettingPersists(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	settings := svc.st.State.Settings
+	settings.Onboarded = true
+	if _, err := svc.UpdateSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.st.State.Settings.Onboarded {
+		t.Fatal("onboarding flag was not saved")
+	}
+}

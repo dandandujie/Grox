@@ -15,6 +15,7 @@ import { RoutinesPage } from "@/components/RoutinesPage";
 import { AppsPage } from "@/components/AppsPage";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ConfirmDialog, ShortcutsModal, Toasts } from "@/components/Overlays";
+import { Onboarding } from "@/components/Onboarding";
 import { GroxLogo } from "@/components/Icons";
 import { Mascot } from "@/components/Mascot";
 import { cn } from "@/lib/cn";
@@ -116,6 +117,7 @@ function Shell() {
       <SettingsModal />
       <NewBotDialog />
       <NewChannelDialog />
+      <Onboarding />
       <CommandPalette />
       <ConfirmDialog />
       <ShortcutsModal />
