@@ -517,6 +517,17 @@ export interface Option {
   description?: string;
 }
 
+/** PackageImportResult reports an OpenMaus package v2 JSON import. */
+export interface PackageImportResult {
+  bots: number;
+  groups: number;
+  routines: number;
+  playbooks: number;
+  skills: number;
+  connections: number;
+  names: string[];
+}
+
 /**
  * PhoneInfo describes the local web companion. The token is part of the URL;
  * anyone on the same network with it can read and send this workspace's chats.
@@ -998,6 +1009,13 @@ export const Grox = {
    */
   importGrokBot(raw: string): Promise<GrokImportResult> {
     return call("Grox.ImportGrokBot", raw);
+  },
+  /**
+   * ImportOpenMausPackage imports an openmaus.package v2 JSON document. It is
+   * additive and creates disabled connections and paused routines.
+   */
+  importOpenMausPackage(raw: string): Promise<PackageImportResult> {
+    return call("Grox.ImportOpenMausPackage", raw);
   },
   /**
    * ImportTeam adds a package as new records. Bots start at Ask approval, skills

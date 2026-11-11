@@ -46,9 +46,9 @@ two products are code-identical.
 
 ## Not yet ported (local code in the reference repo)
 
-- Team packages: channel-level export/import, local ed25519 signing and a BotMRR Markdown v1 importer for
-  agents, isolated skills, playbooks, rooms and paused routines are ported. Package metadata/requirements,
-  presets, starter notes, avatars, event schedules, package v2 and a trust registry are not.
+- Team packages: channel-level export/import, local ed25519 signing, a BotMRR Markdown v1 importer and an
+  openmaus.package v2 JSON importer are ported. Requirements/grants, avatars, approval mapping, routine
+  continuity/cloud jobs, package signatures and a trust registry are not.
 - Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
   playbook import/review and the full package metadata are not.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).

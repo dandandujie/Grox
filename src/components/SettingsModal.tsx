@@ -1002,6 +1002,8 @@ function DataSection() {
   const [grokBusy, setGrokBusy] = useState(false);
   const [teamMarkdown, setTeamMarkdown] = useState("");
   const [teamBusy, setTeamBusy] = useState(false);
+  const [packageJSON, setPackageJSON] = useState("");
+  const [packageBusy, setPackageBusy] = useState(false);
 
   const importTeam = async (file: File | undefined) => {
     if (!file) return;
@@ -1055,6 +1057,21 @@ function DataSection() {
             onChange={(event) => void importTeam(event.target.files?.[0])}
           />
         </div>
+      </SectionCard>
+      <SectionCard title="OpenMaus package v2" hint="Paste an openmaus.package v2 JSON document. Creates new bots, rooms, paused routines, playbooks, isolated skills and disabled connections.">
+        <label className="panel-field">
+          <span>Package JSON</span>
+          <textarea rows={5} value={packageJSON} onChange={(event) => setPackageJSON(event.target.value)} placeholder="Paste the package JSON" spellCheck={false} />
+        </label>
+        <button type="button" className="btn btn-secondary" disabled={packageBusy || !packageJSON.trim()} onClick={() => {
+          setPackageBusy(true);
+          void backend.importOpenMausPackage(packageJSON).then((result) => {
+            setPackageJSON("");
+            toast({ kind: "success", title: "Package imported", body: result.bots + " bots, " + result.groups + " rooms, " + result.routines + " paused routines, " + result.playbooks + " playbooks, " + result.skills + " skills, " + result.connections + " connections." });
+          }).catch((cause: unknown) => {
+            toast({ kind: "error", title: "Package import failed", body: cause instanceof Error ? cause.message : "Try again." });
+          }).finally(() => setPackageBusy(false));
+        }}>{packageBusy ? "Importing…" : "Import package"}</button>
       </SectionCard>
       <SectionCard title="BotMRR team Markdown" hint="Paste a BotMRR blueprint. Bots, rooms, paused routines, playbooks and isolated per-bot skills are created; nothing existing is overwritten.">
         <label className="panel-field">

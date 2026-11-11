@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.45.0"
+	AppVersion = "0.46.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -50,6 +50,17 @@ type AppState struct {
 	ActiveThreadID    string                `json:"activeThreadId"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	UpdatedAt         time.Time             `json:"updatedAt"`
+}
+
+// PackageImportResult reports an OpenMaus package v2 JSON import.
+type PackageImportResult struct {
+	Bots        int      `json:"bots"`
+	Groups      int      `json:"groups"`
+	Routines    int      `json:"routines"`
+	Playbooks   int      `json:"playbooks"`
+	Skills      int      `json:"skills"`
+	Connections int      `json:"connections"`
+	Names       []string `json:"names"`
 }
 
 // BotMRRImportResult reports a BotMRR Markdown team import.

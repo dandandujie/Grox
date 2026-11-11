@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.46.0
+
+- Added openmaus.package v2 JSON import: agents, seed memory, isolated enabled skills, playbooks, rooms with
+  Auto responders, paused daily/weekday routines, disabled connections and basic presets.
+- Added the Data & privacy card and a package import test covering agents, memory, skills and counts.
+- Still not ported: requirements/grants, avatars, approval mapping, routine continuity/overlap, cloud jobs,
+  package signatures and organization trust.
+
 ## 0.45.0
 
 - Grok Bot import now writes skills into a per-bot workspace and enables them, instead of skipping them.

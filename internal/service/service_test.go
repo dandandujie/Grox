@@ -2390,3 +2390,55 @@ func TestBotMRRMarkdownImport(t *testing.T) {
 		t.Fatalf("playbooks = %+v err=%v", playbooks, err)
 	}
 }
+
+func TestOpenMausPackageV2Import(t *testing.T) {
+	document := map[string]any{
+		"format": "openmaus.package", "version": 2,
+		"package": map[string]any{
+			"name": "Imported Desk",
+			"agents": []any{
+				map[string]any{"key": "lead", "name": "Package Lead", "soul": "Coordinate.", "appearance": map[string]any{"color": "purple"}, "skills": []any{"research"}, "playbooks": []any{"qualify"}, "seed": map[string]any{"memory": map[string]any{"MEMORY.md": "- Remember the launch.\n"}}},
+				map[string]any{"key": "writer", "name": "Package Writer"},
+			},
+			"rooms":       []any{map[string]any{"key": "desk", "name": "Package Room", "members": []any{"lead", "writer"}, "defaultResponder": map[string]any{"kind": "agent", "agent": "lead"}}},
+			"routines":    []any{map[string]any{"name": "Daily digest", "agent": "lead", "prompt": "Summarize the day.", "runOn": "maus", "schedule": map[string]any{"type": "daily", "time": "09:00"}}},
+			"playbooks":   []any{map[string]any{"key": "qualify", "name": "Qualify", "triggers": []any{"lead"}, "instructions": "Ask about budget."}},
+			"skills":      map[string]any{"version": float64(1), "entries": []any{map[string]any{"name": "research", "description": "Research", "instructions": "Research carefully."}}},
+			"connections": []any{map[string]any{"key": "crm", "label": "CRM", "mcp": map[string]any{"url": "https://mcp.example.test/crm"}}},
+		},
+	}
+	raw, _ := json.Marshal(document)
+	svc, _, _ := newTestService(t)
+	result, err := svc.ImportOpenMausPackage(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bots != 2 || result.Groups != 1 || result.Routines != 1 || result.Playbooks != 1 || result.Skills != 1 || result.Connections != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	var lead *model.Bot
+	svc.mu.Lock()
+	for index := range svc.st.State.Bots {
+		if svc.st.State.Bots[index].Name == "Package Lead" {
+			lead = &svc.st.State.Bots[index]
+		}
+	}
+	svc.mu.Unlock()
+	if lead == nil || lead.WorkingDir == "" {
+		t.Fatalf("lead = %+v", lead)
+	}
+	state, err := svc.GetMemory(lead.ID)
+	if err != nil || !strings.Contains(state.Content, "Remember the launch") {
+		t.Fatalf("memory = %+v err=%v", state, err)
+	}
+	skills, _ := svc.ListSkills(lead.ID)
+	found := false
+	for _, skill := range skills {
+		if skill.Source == "Workspace" && skill.Enabled {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("skills = %+v", skills)
+	}
+}
