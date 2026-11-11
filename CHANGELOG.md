@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.55.0
+
+- Presets can carry playbooks, isolated skills and starter MEMORY.md notes. Applying a preset writes the
+  skills into the new bot's workspace and uses the normal playbook/memory writers.
+- New bot applies preset extras after creation; package v2 import/export carries preset playbooks, skills and
+  notes.
+- Added a preset apply test.
+- Still not ported: org presets, avatars and preset approval/model/folder fields.
+
 ## 0.54.0
 
 - Added routine busy policy (skip to next schedule or retry shortly) and failure backoff: 15 minutes,

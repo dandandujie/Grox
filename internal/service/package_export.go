@@ -155,6 +155,45 @@ func (s *Service) ExportOpenMausPackage(groupID string) (string, error) {
 		"key": skillSlug(group.Name), "name": group.Name, "members": members, "bulletin": group.Description,
 		"defaultResponder": map[string]any{"kind": "agent", "agent": lead},
 	}}
+	presetEntries := []map[string]any{}
+	for _, preset := range s.st.State.Presets {
+		presetKey := skillSlug(preset.Name)
+		if presetKey == "" {
+			presetKey = preset.ID
+		}
+		playbookKeys := []string{}
+		for _, playbook := range preset.Playbooks {
+			key := skillSlug(playbook.Name)
+			if key == "" {
+				continue
+			}
+			playbookKeys = append(playbookKeys, key)
+			playbooksByKey[key] = map[string]any{"key": key, "name": playbook.Name, "triggers": playbook.Triggers, "instructions": playbook.Instructions}
+		}
+		skillKeys := []string{}
+		for _, skill := range preset.Skills {
+			key := skillSlug(skill.Name)
+			if key == "" {
+				continue
+			}
+			skillKeys = append(skillKeys, key)
+			skillsByName[key] = map[string]any{"name": key, "description": skill.Description, "instructions": skill.Instructions}
+		}
+		entry := map[string]any{
+			"key": presetKey, "name": preset.Name, "description": preset.Description,
+			"bot": map[string]any{"name": preset.Name, "title": preset.Title, "description": preset.Description, "soul": preset.Soul, "appearance": map[string]any{"color": preset.Color}},
+		}
+		if len(playbookKeys) > 0 {
+			entry["playbooks"] = playbookKeys
+		}
+		if len(skillKeys) > 0 {
+			entry["skills"] = skillKeys
+		}
+		if strings.TrimSpace(preset.Memory) != "" {
+			entry["seed"] = map[string]any{"memory": map[string]any{"MEMORY.md": preset.Memory}}
+		}
+		presetEntries = append(presetEntries, entry)
+	}
 	document := map[string]any{
 		"format": "openmaus.package", "version": 2,
 		"package": map[string]any{
@@ -166,7 +205,7 @@ func (s *Service) ExportOpenMausPackage(groupID string) (string, error) {
 			"team":   map[string]any{"name": group.Name, "leader": lead},
 			"agents": bots, "rooms": rooms, "routines": routines,
 			"playbooks": playbooks, "skills": map[string]any{"version": 1, "entries": skills},
-			"connections": connections,
+			"connections": connections, "presets": presetEntries,
 		},
 	}
 	data, err := json.MarshalIndent(document, "", "  ")

@@ -563,10 +563,6 @@ export interface PlaybookInput {
   instructions: string;
 }
 
-/**
- * Preset is a reusable New bot starting point. It carries persona text, never
- * a model, approval level, folder or credential.
- */
 export interface Preset {
   id: string;
   name: string;
@@ -574,6 +570,9 @@ export interface Preset {
   description: string;
   soul: string;
   color: string;
+  playbooks?: PresetPlaybook[];
+  skills?: PresetSkill[];
+  memory?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -585,6 +584,9 @@ export interface PresetInput {
   description: string;
   soul: string;
   color: string;
+  playbooks?: PresetPlaybook[];
+  skills?: PresetSkill[];
+  memory?: string;
 }
 
 /** PresetPatch edits only the fields it sets. */
@@ -594,6 +596,22 @@ export interface PresetPatch {
   description?: string;
   soul?: string;
   color?: string;
+}
+
+/**
+ * Preset is a reusable New bot starting point. It carries persona text, never
+ * a model, approval level, folder or credential.
+ */
+export interface PresetPlaybook {
+  name: string;
+  triggers: string[];
+  instructions: string;
+}
+
+export interface PresetSkill {
+  name: string;
+  description: string;
+  instructions: string;
 }
 
 /** Provider groups models by the engine that serves them. */
@@ -860,6 +878,13 @@ export const Grox = {
   /** AnswerGroup settles an option card in a channel. */
   answerGroup(groupID: string, threadID: string, messageID: string, answer: string): Promise<void> {
     return call("Grox.AnswerGroup", groupID, threadID, messageID, answer);
+  },
+  /**
+   * ApplyPreset adds a preset's playbooks, isolated skills and starter memory to
+   * an already-created bot. Persona fields are applied by the New bot form.
+   */
+  applyPreset(botID: string, presetID: string): Promise<void> {
+    return call("Grox.ApplyPreset", botID, presetID);
   },
   /** BeginMCPOAuth starts a loopback callback and returns the authorization URL. */
   beginMCPOAuth(id: string): Promise<MCPOAuthStart> {

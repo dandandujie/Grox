@@ -1,8 +1,7 @@
 # New bot presets
 
-Presets are persona-only starting points for New bot. They are stored in the workspace, not hardcoded in the
-dialog. This ports the local part of OpenMausBot's New bot defaults; skills, notes and team package presets
-are not included.
+Presets are starting points for New bot. They are stored in the workspace, not hardcoded in the dialog.
+They can now carry playbooks, isolated skills and starter MEMORY.md notes in addition to the persona.
 
 ## What a preset carries
 
@@ -11,9 +10,12 @@ are not included.
 - description
 - standing instructions
 - accent colour
+- playbooks
+- skills (SKILL.md text)
+- starter MEMORY.md notes
 
-It does not carry a model, approval level, working folder, computer, connected apps, skills, memory or
-credentials.
+It does not carry a model, approval level, working folder, computer, connected apps or credentials. Applying
+a preset writes skills into a per-bot workspace and playbooks/memory through the normal writers.
 
 ## Defaults
 

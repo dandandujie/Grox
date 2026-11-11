@@ -2647,3 +2647,44 @@ func TestExtractToolReturnsJSON(t *testing.T) {
 		t.Fatalf("extraction = %s", value)
 	}
 }
+
+func TestPresetAppliesPlaybookSkillAndMemory(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	preset, err := svc.CreatePreset(model.PresetInput{
+		Name: "Portable preset", Title: "Starter", Soul: "Be useful.", Color: "green",
+		Playbooks: []model.PresetPlaybook{{Name: "Preset playbook", Triggers: []string{"start"}, Instructions: "Use the preset checklist."}},
+		Skills:    []model.PresetSkill{{Name: "preset-skill", Description: "A preset skill", Instructions: "Do the preset thing."}},
+		Memory:    "# Preset notes\n\n- Remember the preset.\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Preset Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ApplyPreset(bot.ID, preset.ID); err != nil {
+		t.Fatal(err)
+	}
+	playbooks, err := svc.ListPlaybooks(bot.ID)
+	if err != nil || len(playbooks) != 1 {
+		t.Fatalf("playbooks = %+v err=%v", playbooks, err)
+	}
+	skills, err := svc.ListSkills(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundSkill := false
+	for _, skill := range skills {
+		if skill.Source == "Workspace" && skill.Enabled {
+			foundSkill = true
+		}
+	}
+	if !foundSkill {
+		t.Fatalf("skills = %+v", skills)
+	}
+	memory, err := svc.GetMemory(bot.ID)
+	if err != nil || !strings.Contains(memory.Content, "Remember the preset") {
+		t.Fatalf("memory = %+v err=%v", memory, err)
+	}
+}

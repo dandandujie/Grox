@@ -82,6 +82,7 @@ export interface Backend {
   deleteMCPServer(id: string): Promise<void>;
   listPresets(): Promise<Preset[]>;
   createPreset(input: PresetInput): Promise<Preset>;
+  applyPreset(botId: string, presetId: string): Promise<void>;
   updatePreset(id: string, patch: PresetPatch): Promise<Preset>;
   deletePreset(id: string): Promise<void>;
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;

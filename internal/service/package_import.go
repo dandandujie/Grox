@@ -240,10 +240,37 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 		if bot == nil {
 			continue
 		}
+		presetPlaybooks := []model.PresetPlaybook{}
+		for _, key := range yamlKeys(preset, "playbooks") {
+			playbook := playbooksByKey[key]
+			if playbook == nil {
+				continue
+			}
+			present := model.PresetPlaybook{Name: yamlString(playbook, "name"), Triggers: yamlKeys(playbook, "triggers")}
+			present.Instructions, _ = playbook["instructions"].(string)
+			presetPlaybooks = append(presetPlaybooks, present)
+		}
+		presetSkills := []model.PresetSkill{}
+		for _, key := range yamlKeys(preset, "skills") {
+			skill := skillsByKey[key]
+			if skill == nil {
+				continue
+			}
+			present := model.PresetSkill{Name: yamlString(skill, "name"), Description: yamlString(skill, "description")}
+			present.Instructions, _ = skill["instructions"].(string)
+			presetSkills = append(presetSkills, present)
+		}
+		presetMemory := ""
+		if seed := yamlMap(preset["seed"]); seed != nil {
+			if memory := yamlMap(seed["memory"]); memory != nil {
+				presetMemory, _ = memory["MEMORY.md"].(string)
+			}
+		}
 		_, _ = s.CreatePreset(model.PresetInput{
 			Name: yamlString(preset, "name"), Title: yamlString(bot, "title"),
 			Description: yamlString(preset, "description"), Soul: yamlString(bot, "soul"),
-			Color: yamlString(yamlMap(bot["appearance"]), "color"),
+			Color:     yamlString(yamlMap(bot["appearance"]), "color"),
+			Playbooks: presetPlaybooks, Skills: presetSkills, Memory: presetMemory,
 		})
 	}
 	return result, nil

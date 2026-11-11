@@ -6,13 +6,14 @@ import { Modal } from "@/components/ui";
 import type { Preset } from "@/lib/bridge";
 
 export function NewBotDialog() {
-  const { ui, setUI, createBot, providers, state } = useApp();
+  const { ui, setUI, createBot, providers, state, backend } = useApp();
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [department, setDepartment] = useState("General");
   const [description, setDescription] = useState("");
   const [soul, setSoul] = useState("");
   const [modelId, setModelId] = useState("");
+  const [presetId, setPresetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -26,6 +27,7 @@ export function NewBotDialog() {
     setDepartment("General");
     setDescription("");
     setSoul("");
+    setPresetId("");
     setModelId(fallbackModel?.model.id ?? "grox-demo");
     setBusy(false);
     setError("");
@@ -36,6 +38,7 @@ export function NewBotDialog() {
     setTitle(preset.title);
     setDescription(preset.description);
     setSoul(preset.soul);
+    setPresetId(preset.id);
     if (!name) setName(preset.name);
   };
 
@@ -47,6 +50,9 @@ export function NewBotDialog() {
     }
     setBusy(true);
     const bot = await createBot({ name: name.trim(), title: title.trim(), department: department.trim() || "General", description: description.trim(), soul: soul.trim(), color: "green", modelId });
+    if (bot && presetId) {
+      try { await backend.applyPreset(bot.id, presetId); } catch { /* the bot exists even if extras fail */ }
+    }
     setBusy(false);
     if (bot) setUI({ newBotOpen: false });
   };

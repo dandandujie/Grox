@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.54.0"
+	AppVersion = "0.55.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -285,24 +285,42 @@ type WebhookPatch struct {
 
 // Preset is a reusable New bot starting point. It carries persona text, never
 // a model, approval level, folder or credential.
+type PresetPlaybook struct {
+	Name         string   `json:"name"`
+	Triggers     []string `json:"triggers"`
+	Instructions string   `json:"instructions"`
+}
+
+type PresetSkill struct {
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Instructions string `json:"instructions"`
+}
+
 type Preset struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Soul        string    `json:"soul"`
-	Color       string    `json:"color"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Title       string           `json:"title"`
+	Description string           `json:"description"`
+	Soul        string           `json:"soul"`
+	Color       string           `json:"color"`
+	Playbooks   []PresetPlaybook `json:"playbooks,omitempty"`
+	Skills      []PresetSkill    `json:"skills,omitempty"`
+	Memory      string           `json:"memory,omitempty"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	UpdatedAt   time.Time        `json:"updatedAt"`
 }
 
 // PresetInput is the Save as preset form.
 type PresetInput struct {
-	Name        string `json:"name"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Soul        string `json:"soul"`
-	Color       string `json:"color"`
+	Name        string           `json:"name"`
+	Title       string           `json:"title"`
+	Description string           `json:"description"`
+	Soul        string           `json:"soul"`
+	Color       string           `json:"color"`
+	Playbooks   []PresetPlaybook `json:"playbooks,omitempty"`
+	Skills      []PresetSkill    `json:"skills,omitempty"`
+	Memory      string           `json:"memory,omitempty"`
 }
 
 // PresetPatch edits only the fields it sets.

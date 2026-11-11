@@ -747,6 +747,8 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     return clone(this.state.presets ?? []);
   }
 
+  async applyPreset(_botId: string, _presetId: string): Promise<void> {}
+
   async createPreset(input: PresetInput): Promise<Preset> {
     const now = nowISO();
     const preset: Preset = {
