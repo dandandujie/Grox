@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.6.1"
+	AppVersion = "0.7.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -71,6 +71,7 @@ type Bot struct {
 	SpeakReplies  bool       `json:"speakReplies"`
 	Voice         string     `json:"voice,omitempty"`
 	Skills        []BotSkill `json:"skills,omitempty"`
+	MemoryOff     bool       `json:"memoryOff,omitempty"`
 	Pinned        bool       `json:"pinned"`
 	Hidden        bool       `json:"hidden"`
 	Archived      bool       `json:"archived"`
@@ -98,6 +99,33 @@ type Skill struct {
 	Bytes       int       `json:"bytes"`
 	Enabled     bool      `json:"enabled"`
 	Body        string    `json:"body,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// MemoryState is the bot's editable MEMORY.md and the read-only topic index.
+// The bytes live under <dataDir>/memory/<botID>; only MemoryOff is in state.
+type MemoryState struct {
+	BotID       string        `json:"botId"`
+	Enabled     bool          `json:"enabled"`
+	Content     string        `json:"content"`
+	Path        string        `json:"path"`
+	Revision    string        `json:"revision"`
+	Bytes       int           `json:"bytes"`
+	Lines       int           `json:"lines"`
+	LoadedBytes int           `json:"loadedBytes"`
+	LoadedLines int           `json:"loadedLines"`
+	LimitBytes  int           `json:"limitBytes"`
+	LimitLines  int           `json:"limitLines"`
+	Topics      []MemoryTopic `json:"topics"`
+}
+
+// MemoryTopic is one file under memory/<botID>/topics; it is never loaded
+// automatically into a prompt.
+type MemoryTopic struct {
+	Name        string    `json:"name"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Bytes       int       `json:"bytes"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
@@ -444,6 +472,7 @@ type BotPatch struct {
 	Notifications *bool   `json:"notifications,omitempty"`
 	SpeakReplies  *bool   `json:"speakReplies,omitempty"`
 	Voice         *string `json:"voice,omitempty"`
+	MemoryOff     *bool   `json:"memoryOff,omitempty"`
 	Pinned        *bool   `json:"pinned,omitempty"`
 	Hidden        *bool   `json:"hidden,omitempty"`
 	Archived      *bool   `json:"archived,omitempty"`

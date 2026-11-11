@@ -86,6 +86,9 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
 		system += "\n\n## Enabled skills\n\n" + skillText
 	}
+	if memoryText := strings.TrimSpace(req.MemoryText); memoryText != "" {
+		system += "\n\n## Memory\n\n" + memoryText
+	}
 	system += "\n\nYou can call connected-app tools. Use a tool only when it is necessary; explain the result to the person in plain language."
 	messages := []map[string]any{{"role": "system", "content": system}}
 	if extra := strings.TrimSpace(req.ExtraContext); extra != "" {

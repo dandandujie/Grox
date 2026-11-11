@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -392,7 +393,7 @@ func TestLocalComputer(t *testing.T) {
 }
 
 func TestPhoneCompanion(t *testing.T) {
-	svc, _, _ := newTestService(t)
+	svc, _, events := newTestService(t)
 	info, err := svc.SetPhoneEnabled(true)
 	if err != nil {
 		t.Fatal(err)
@@ -430,6 +431,9 @@ func TestPhoneCompanion(t *testing.T) {
 	if sendResponse.StatusCode != 200 {
 		t.Fatalf("phone send = %d %s", sendResponse.StatusCode, sendBody)
 	}
+	waitFor(t, events, 5*time.Second, "the phone turn to finish", func(ev model.Event) bool {
+		return ev.Type == "turn" && ev.Turn != nil && ev.Turn.ThreadID == "thread-brody-home" && !ev.Turn.Busy
+	})
 }
 
 func TestComposioOAuthAndTools(t *testing.T) {
@@ -834,4 +838,67 @@ func TestSkillsDiscoverAndInject(t *testing.T) {
 	if !strings.Contains(req.Prompt, "## Enabled skills") || !strings.Contains(req.Prompt, "Read the diff before commenting") {
 		t.Fatalf("request prompt missing skills = %q", req.Prompt)
 	}
+}
+
+func TestMemoryLoadBudgetConflictAndSwitch(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Memory Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Enabled || state.LimitLines != 200 || state.LimitBytes != 24*1024 {
+		t.Fatalf("initial memory state = %+v", state)
+	}
+	var notes strings.Builder
+	for index := 1; index <= 260; index++ {
+		notes.WriteString("- note ")
+		notes.WriteString(strconv.Itoa(index))
+		notes.WriteString("\n")
+	}
+	saved, err := svc.SaveMemory(bot.ID, notes.String(), state.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Lines != 260 || saved.LoadedLines != 200 {
+		t.Fatalf("saved memory budget = %+v", saved)
+	}
+	if _, err := svc.SaveMemory(bot.ID, "changed", state.Revision); err == nil {
+		t.Fatal("expected a stale revision to be refused")
+	}
+	gofmtPath := saved.Path
+	info, err := os.Stat(gofmtPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("memory mode = %o", info.Mode().Perm())
+	}
+	svc.mu.Lock()
+	stored := svc.findBotLocked(bot.ID)
+	text := svc.memoryTextLocked(stored)
+	svc.mu.Unlock()
+	if !strings.Contains(text, "note 1") || !strings.Contains(text, "cut at 200") {
+		t.Fatalf("memory prompt = %q", text)
+	}
+	svc.mu.Lock()
+	stored = svc.findBotLocked(bot.ID)
+	thread := &stored.Threads[0]
+	req, _ := svc.engineRequestLocked(stored, thread, "What do you remember?", "")
+	svc.mu.Unlock()
+	if !strings.Contains(req.MemoryText, "note 1") || !strings.Contains(req.Prompt, "## Memory") {
+		t.Fatalf("request memory missing: text=%q prompt=%q", req.MemoryText, req.Prompt)
+	}
+	if _, err := svc.SetMemoryEnabled(bot.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	stored = svc.findBotLocked(bot.ID)
+	if svc.memoryTextLocked(stored) != "" {
+		t.Fatal("disabled memory must not be injected")
+	}
+	svc.mu.Unlock()
 }

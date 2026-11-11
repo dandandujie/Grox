@@ -712,3 +712,20 @@
 .skill-body { max-height: min(66vh, 620px); overflow: auto; margin: 0; padding: 14px; border: 1px solid var(--edge); border-radius: 9px; background: var(--inset); color: var(--ink-2); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 
 .panel-card-title .link-button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+/* ── Memory ─────────────────────────────────────────────────────────── */
+.memory-switch { margin-top: 12px; }
+.panel-note.is-warning { color: var(--warning); }
+.memory-meter { height: 4px; margin-top: 12px; overflow: hidden; border-radius: 99px; background: var(--inset); border: 1px solid var(--edge); }
+.memory-meter-fill { height: 100%; background: var(--accent); transition: width 160ms ease; }
+.memory-stats { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; color: var(--ink-3); font-size: 9.5px; }
+.memory-path { display: block; margin-top: 9px; padding: 5px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--edge); border-radius: 6px; background: var(--inset); color: var(--ink-3); font-family: var(--font-mono, ui-monospace, monospace); font-size: 9.5px; }
+.memory-editor { width: 100%; min-height: 240px; resize: vertical; margin-top: 10px; padding: 11px 12px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); color: var(--ink); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; line-height: 1.55; }
+.memory-editor:focus { outline: none; border-color: var(--accent); }
+.memory-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; }
+.memory-actions-note { color: var(--ink-3); font-size: 9.5px; line-height: 1.35; }
+.memory-topics { display: flex; flex-direction: column; gap: 6px; margin-top: 9px; }
+.memory-topic { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 7px 8px; border: 1px solid var(--edge); border-radius: 7px; background: var(--inset); font-size: 10.5px; }
+.memory-topic > div { display: flex; flex-direction: column; gap: 2px; }
+.memory-topic strong { font-weight: 550; }
+.memory-topic span { color: var(--ink-3); font-size: 9.5px; }

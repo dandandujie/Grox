@@ -22,7 +22,8 @@ two products are code-identical.
 
 - Contexts/departments: channels exist, but a separate department/context shelf and department sharing do
   not.
-- Memory: per-bot instructions exist, but MEMORY.md/topic notes/daily logs do not.
+- Memory: per-bot MEMORY.md, budget, editor, switch and topic index are ported. Automatic capture,
+  recall, upkeep, archive/expiry and daily logs are not.
 - Skills: Grox now discovers and toggles SKILL.md instructions per bot. Skill scripts, dependency
   installation, bundled skill packs and the full approval lifecycle are still not ported.
 - Questions: option cards exist; arbitrary agent-authored question cards are not a first-class tool.
@@ -35,8 +36,7 @@ two products are code-identical.
 ## Not yet ported (local code in the reference repo)
 
 - Team/department packages, presets, shared instructions and import/export.
-- Playbooks, memory files and the full skill approval lifecycle (SKILL.md instructions themselves are
-  ported).
+- Playbooks and the full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - Webhook receiver, app-event triggers, trigger broker and event log.
 - Jeev/decision-model routing with multiple decision providers.
 - MCP server management, connector requirements and vault-secret handling.

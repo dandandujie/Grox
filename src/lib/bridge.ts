@@ -1,7 +1,7 @@
 import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
-  Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult, Settings, Skill, Thread,
+  MemoryState, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult, Settings, Skill, Thread,
 } from "@/mygo";
 
 export interface Backend {
@@ -44,6 +44,9 @@ export interface Backend {
   listSkills(botId: string): Promise<Skill[]>;
   readSkill(botId: string, skillId: string): Promise<Skill>;
   setSkillEnabled(botId: string, skillId: string, enabled: boolean): Promise<Bot>;
+  getMemory(botId: string): Promise<MemoryState>;
+  saveMemory(botId: string, content: string, revision: string): Promise<MemoryState>;
+  setMemoryEnabled(botId: string, enabled: boolean): Promise<Bot>;
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;
   connectComposioApp(appId: string): Promise<ComposioLink>;
   disconnectComposioApp(appId: string): Promise<void>;
@@ -71,7 +74,7 @@ export interface Backend {
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
-  PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn,
+  MemoryState, PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn,
 } from "@/mygo";
 export type { Event as AppEvent } from "@/mygo";
 

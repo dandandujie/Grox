@@ -68,6 +68,8 @@ type Request struct {
 	HookURL string
 	// SkillText is the enabled SKILL.md instructions for this bot.
 	SkillText string
+	// MemoryText is the bot's MEMORY.md notes, already loaded/capped.
+	MemoryText string
 }
 
 // Result is a finished turn.

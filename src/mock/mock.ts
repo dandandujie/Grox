@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  Settings, Skill, Thread,
+  MemoryState, Settings, Skill, Thread,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
 
@@ -577,6 +577,47 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
       enabled, url: enabled ? "http://192.168.1.20:4870/p/phone-demo" : "", token: enabled ? "phone-demo" : "",
       error: "", port: enabled ? 4870 : 0, connected: 0,
     };
+  }
+
+  private memory = new Map<string, { content: string; revision: string }>();
+
+  async getMemory(botId: string): Promise<MemoryState> {
+    const bot = this.bot(botId);
+    const stored = this.memory.get(botId) ?? {
+      content: "# Memory\n\n- The browser preview keeps this note locally.\n- Enable memory in the desktop app to load real MEMORY.md notes into a turn.\n",
+      revision: "preview-1",
+    };
+    this.memory.set(botId, stored);
+    const lines = stored.content.trim() ? stored.content.trim().split("\n").length : 0;
+    return {
+      botId,
+      enabled: !bot.memoryOff,
+      content: stored.content,
+      path: "memory/" + botId + "/MEMORY.md",
+      revision: stored.revision,
+      bytes: new TextEncoder().encode(stored.content).length,
+      lines,
+      loadedBytes: new TextEncoder().encode(stored.content).length,
+      loadedLines: lines,
+      limitBytes: 24 * 1024,
+      limitLines: 200,
+      topics: [],
+    };
+  }
+
+  async saveMemory(botId: string, content: string, revision: string): Promise<MemoryState> {
+    const stored = this.memory.get(botId) ?? { content: "", revision: "" };
+    if (stored.revision && stored.revision !== revision) throw new Error("memory changed on disk while you were editing; reload and try again");
+    this.memory.set(botId, { content, revision: "preview-" + Date.now() });
+    return this.getMemory(botId);
+  }
+
+  async setMemoryEnabled(botId: string, enabled: boolean): Promise<Bot> {
+    const bot = this.bot(botId);
+    bot.memoryOff = !enabled;
+    bot.updatedAt = nowISO();
+    this.emitState();
+    return clone(bot);
   }
 
   async listSkills(botId: string): Promise<Skill[]> {

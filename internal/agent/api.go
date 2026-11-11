@@ -55,6 +55,9 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
 		system += "\n\n## Enabled skills\n\n" + skillText
 	}
+	if memoryText := strings.TrimSpace(req.MemoryText); memoryText != "" {
+		system += "\n\n## Memory\n\n" + memoryText
+	}
 	messages = append(messages, map[string]string{"role": "system", "content": system})
 	for _, m := range recent(req.History, 16) {
 		text := strings.TrimSpace(m.Text)

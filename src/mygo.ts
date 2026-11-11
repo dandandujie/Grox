@@ -105,6 +105,7 @@ export interface Bot {
   speakReplies: boolean;
   voice?: string;
   skills?: BotSkill[];
+  memoryOff?: boolean;
   pinned: boolean;
   hidden: boolean;
   archived: boolean;
@@ -136,6 +137,7 @@ export interface BotPatch {
   notifications?: boolean;
   speakReplies?: boolean;
   voice?: string;
+  memoryOff?: boolean;
   pinned?: boolean;
   hidden?: boolean;
   archived?: boolean;
@@ -288,6 +290,37 @@ export interface GroupPatch {
   memberIds?: string[];
   leadId?: string;
   pinned?: boolean;
+}
+
+/**
+ * MemoryState is the bot's editable MEMORY.md and the read-only topic index.
+ * The bytes live under <dataDir>/memory/<botID>; only MemoryOff is in state.
+ */
+export interface MemoryState {
+  botId: string;
+  enabled: boolean;
+  content: string;
+  path: string;
+  revision: string;
+  bytes: number;
+  lines: number;
+  loadedBytes: number;
+  loadedLines: number;
+  limitBytes: number;
+  limitLines: number;
+  topics: MemoryTopic[];
+}
+
+/**
+ * MemoryTopic is one file under memory/<botID>/topics; it is never loaded
+ * automatically into a prompt.
+ */
+export interface MemoryTopic {
+  name: string;
+  title: string;
+  description: string;
+  bytes: number;
+  updatedAt: string;
 }
 
 /**
@@ -588,6 +621,10 @@ export const Grox = {
   exportWorkspace(): Promise<string> {
     return call("Grox.ExportWorkspace");
   },
+  /** GetMemory returns the editable MEMORY.md plus the read-only topic index. */
+  getMemory(botID: string): Promise<MemoryState> {
+    return call("Grox.GetMemory", botID);
+  },
   /** ListComposioTools returns tools from a fresh tool-router session. */
   listComposioTools(): Promise<ComposioTool[]> {
     return call("Grox.ListComposioTools");
@@ -682,6 +719,13 @@ export const Grox = {
   saveAttachment(name: string, mimeType: string, dataBase64: string): Promise<Attachment> {
     return call("Grox.SaveAttachment", name, mimeType, dataBase64);
   },
+  /**
+   * SaveMemory writes MEMORY.md only when revision matches the bytes on disk.
+   * An empty revision is allowed for a new/empty file.
+   */
+  saveMemory(botID: string, content: string, revision: string): Promise<MemoryState> {
+    return call("Grox.SaveMemory", botID, content, revision);
+  },
   /** Select opens a conversation and marks it read. */
   select(botID: string, threadID: string): Promise<void> {
     return call("Grox.Select", botID, threadID);
@@ -711,6 +755,10 @@ export const Grox = {
   },
   setConnection(appID: string, connected: boolean): Promise<AppEntry> {
     return call("Grox.SetConnection", appID, connected);
+  },
+  /** SetMemoryEnabled flips the per-bot memory switch without deleting files. */
+  setMemoryEnabled(botID: string, enabled: boolean): Promise<Bot> {
+    return call("Grox.SetMemoryEnabled", botID, enabled);
   },
   /** SetPhoneEnabled starts or stops the LAN companion server. */
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo> {

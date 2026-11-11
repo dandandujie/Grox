@@ -4,7 +4,7 @@ import {
   Laptop, Loader2, Play, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
-import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, Model, Skill } from "@/lib/bridge";
+import type { Bot, BotPatch, CommandResult, FilePreview, FolderListing, MemoryState, Model, Skill } from "@/lib/bridge";
 import { Mascot } from "@/components/Mascot";
 import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
@@ -608,6 +608,132 @@ function ActivityTab({ bot }: { bot: Bot }) {
   );
 }
 
+function MemoryTab({ bot }: { bot: Bot }) {
+  const { backend, boot, toast } = useApp();
+  const [memory, setMemory] = useState<MemoryState | null>(null);
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const next = await backend.getMemory(bot.id);
+      setMemory(next);
+      setDraft(next.content);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read memory.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id]);
+
+  const toggle = async (enabled: boolean) => {
+    if (!memory) return;
+    try {
+      await backend.setMemoryEnabled(bot.id, enabled);
+      setMemory(await backend.getMemory(bot.id));
+    } catch (cause) {
+      toast({ kind: "error", title: "Memory switch not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const save = async () => {
+    if (!memory) return;
+    setSaving(true);
+    setError("");
+    try {
+      const next = await backend.saveMemory(bot.id, draft, memory.revision);
+      setMemory(next);
+      setDraft(next.content);
+      toast({ kind: "success", title: "Memory saved", body: "It will be loaded at the start of the next turn." });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save memory.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const linePercent = memory ? Math.min(100, Math.round((memory.loadedLines / memory.limitLines) * 100)) : 0;
+  const bytePercent = memory ? Math.min(100, Math.round((memory.loadedBytes / memory.limitBytes) * 100)) : 0;
+  const percent = Math.max(linePercent, bytePercent);
+  const cut = Boolean(memory && (memory.lines > memory.loadedLines || memory.bytes > memory.loadedBytes));
+
+  return (
+    <div className="panel-scroll">
+      <section className="panel-card">
+        <div className="panel-card-title"><span>Memory</span><span className="avatar-seed">MEMORY.md</span></div>
+        <div className="switch-row memory-switch">
+          <span className="row-copy">
+            <span className="row-title">Let this bot use memory</span>
+            <span className="row-sub">Load its private MEMORY.md at the start of every turn.</span>
+          </span>
+          <Switch checked={Boolean(memory?.enabled)} label="Use memory" onChange={(value) => void toggle(value)} />
+        </div>
+        <p className="panel-note">
+          Notes live only on this machine. {memory?.enabled ? "This file is loaded into the next turn." : "The file is kept, but nothing is loaded while memory is off."}
+        </p>
+        {loading && <div className="skill-loading"><Loader2 size={15} className="spin" /> Reading memory…</div>}
+        {memory && !loading && (
+          <>
+            <div className="memory-meter">
+              <div className="memory-meter-fill" style={{ width: percent + "%" }} />
+            </div>
+            <div className="memory-stats">
+              <span>{memory.loadedLines}/{memory.limitLines} lines</span>
+              <span>{formatBytes(memory.loadedBytes)}/{formatBytes(memory.limitBytes)}</span>
+              <span>{percent}%</span>
+            </div>
+            {cut && <p className="panel-note is-warning">Only the first {memory.limitLines} lines or {formatBytes(memory.limitBytes)} load each turn; the rest stays on disk.</p>}
+            <code className="memory-path" title={memory.path}>{memory.path}</code>
+          </>
+        )}
+        {error && <p className="panel-note is-error">{error}</p>}
+      </section>
+
+      <section className="panel-card memory-editor-card">
+        <div className="panel-card-title"><span>Notes</span><span className="avatar-seed">{boot.dataDir}/memory/{bot.id}</span></div>
+        <textarea
+          className="memory-editor"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={"# What this bot should remember\n\n- A preference or fact it should carry into future conversations.\n"}
+          spellCheck
+        />
+        <div className="memory-actions">
+          <span className="memory-actions-note">Saving checks that the file did not change underneath you.</span>
+          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving || loading || !memory}>
+            {saving ? <Loader2 size={14} className="spin" /> : null} Save memory
+          </button>
+        </div>
+      </section>
+
+      <section className="panel-card">
+        <div className="panel-card-title"><span>Topic files</span><span className="avatar-seed">{memory?.topics.length ?? 0}</span></div>
+        {memory && memory.topics.length > 0 ? (
+          <div className="memory-topics">
+            {memory.topics.map((topic) => (
+              <div key={topic.name} className="memory-topic">
+                <div><strong>{topic.title}</strong><span>{topic.description}</span></div>
+                <span>{formatBytes(topic.bytes)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="panel-note">Topic notes in memory/{bot.id}/topics are indexed here but never loaded automatically.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function SkillsTab({ bot }: { bot: Bot }) {
   const { backend, toast, boot } = useApp();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -722,7 +848,7 @@ export function BotPanel() {
   if (!activeBot) return null;
   const advanced = state.settings.advanced;
   const panel = ui.panel === "activity" && !advanced ? "profile" : ui.panel;
-  const title = panel === "profile" ? "Agent profile" : panel === "skills" ? "Skills" : panel === "computer" ? "Computer" : "Activity";
+  const title = panel === "profile" ? "Agent profile" : panel === "skills" ? "Skills" : panel === "memory" ? "Memory" : panel === "computer" ? "Computer" : "Activity";
   return (
     <aside className="side-panel">
       <header className="side-panel-head drag-region">
@@ -740,11 +866,13 @@ export function BotPanel() {
       </header>
       {panel === "profile" && <ProfileTab bot={activeBot} />}
       {panel === "skills" && <SkillsTab bot={activeBot} />}
+      {panel === "memory" && <MemoryTab bot={activeBot} />}
       {panel === "computer" && <ComputerTab bot={activeBot} />}
       {panel === "activity" && <ActivityTab bot={activeBot} />}
       <div className="side-panel-tabs">
         <button type="button" className={cn(panel === "profile" && "is-active")} onClick={() => setUI({ panel: "profile" })}>Profile</button>
         <button type="button" className={cn(panel === "skills" && "is-active")} onClick={() => setUI({ panel: "skills" })}>Skills</button>
+        <button type="button" className={cn(panel === "memory" && "is-active")} onClick={() => setUI({ panel: "memory" })}>Memory</button>
         <button type="button" className={cn(panel === "computer" && "is-active")} onClick={() => setUI({ panel: "computer" })}>Computer</button>
         {advanced && <button type="button" className={cn(panel === "activity" && "is-active")} onClick={() => setUI({ panel: "activity" })}>Activity</button>}
       </div>

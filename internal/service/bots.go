@@ -152,6 +152,9 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 	if patch.SpeakReplies != nil {
 		bot.SpeakReplies = *patch.SpeakReplies
 	}
+	if patch.MemoryOff != nil {
+		bot.MemoryOff = *patch.MemoryOff
+	}
 	if patch.Voice != nil {
 		bot.Voice = strings.TrimSpace(*patch.Voice)
 	}

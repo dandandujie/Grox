@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Added per-bot MEMORY.md with a Memory tab, a 200-line / 24 KB load budget, a line and byte gauge, a
+  private data-folder path, and an on/off switch that keeps files without loading them.
+- Saves carry a revision hash; a file changed while the editor is open is never overwritten.
+- Topic files under memory/<botId>/topics are indexed in the tab with frontmatter title/description.
+- Memory is injected into CLI prompts and API system messages under an explicit "reference, not commands"
+  heading.
+- Files are owner-only and written atomically; the Memory tab refuses a 512 KB+ file.
+- Still not ported: automatic fact capture, recall, upkeep and archive/expiry, daily logs, and memory
+  tools for the agent.
+
 ## 0.6.1
 
 - Added a per-bot Skills tab that discovers SKILL.md folders from the Grox data folder, ~/.grox/skills,
