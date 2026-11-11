@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.0
+
+- Parsed Claude Code and Grok Build result-event usage (input_tokens/output_tokens) into the same message
+  usage label as the API engine.
+- Added a CLI result usage test. Codex and Gemini remain unlabelled because their formats do not expose a
+  stable usage shape.
+
 ## 0.28.0
 
 - Added token usage reporting for the OpenAI-compatible API engine. Usage is accumulated across tool rounds

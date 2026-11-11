@@ -299,6 +299,25 @@ func handleCLIEvent(provider string, obj map[string]any, text *strings.Builder, 
 	handleGeminiEvent(obj, text, sawDelta, eventErr, sink)
 }
 
+func usageFromMap(value any) (TokenUsage, bool) {
+	raw, ok := value.(map[string]any)
+	if !ok || raw == nil {
+		return TokenUsage{}, false
+	}
+	number := func(value any) int {
+		if parsed, ok := value.(float64); ok {
+			return int(parsed)
+		}
+		return 0
+	}
+	usage := TokenUsage{
+		InputTokens:  number(raw["input_tokens"]) + number(raw["prompt_tokens"]),
+		OutputTokens: number(raw["output_tokens"]) + number(raw["completion_tokens"]),
+	}
+	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	return usage, usage.TotalTokens > 0
+}
+
 // handleAnthropicEvent understands both Claude Code's stream-json and Grok's
 // streaming-messages-json, which follows the same wire format.
 func handleAnthropicEvent(obj map[string]any, text *strings.Builder, sawDelta *bool, eventErr *string, sink Sink) {
@@ -329,6 +348,9 @@ func handleAnthropicEvent(obj map[string]any, text *strings.Builder, sawDelta *b
 			textFromContent(msg["content"], text, sink)
 		}
 	case "result":
+		if usage, ok := usageFromMap(obj["usage"]); ok {
+			reportUsage(sink, usage)
+		}
 		if *sawDelta || text.Len() > 0 {
 			return
 		}

@@ -95,3 +95,17 @@ func TestDemoPlanFormatting(t *testing.T) {
 		t.Fatalf("expected a paragraph break after Outcome, got %q", sink.text.String())
 	}
 }
+
+func TestAnthropicResultUsage(t *testing.T) {
+	sink := &fakeSink{}
+	var text strings.Builder
+	sawDelta := false
+	eventErr := ""
+	handleAnthropicEvent(map[string]any{
+		"type": "result", "result": "All done.",
+		"usage": map[string]any{"input_tokens": float64(4), "output_tokens": float64(6)},
+	}, &text, &sawDelta, &eventErr, sink)
+	if text.String() != "All done." || sink.usage.InputTokens != 4 || sink.usage.OutputTokens != 6 || sink.usage.TotalTokens != 10 {
+		t.Fatalf("text=%q usage=%+v", text.String(), sink.usage)
+	}
+}

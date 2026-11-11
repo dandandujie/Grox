@@ -19,8 +19,9 @@ that reject the stream option, simply produce no usage label. Usage is accumulat
 
 ## CLI engines
 
-Claude Code, Grok Build, Codex CLI and Gemini CLI output formats do not share a stable token-usage shape in
-this port, so their messages stay unlabelled. This is explicit rather than showing a fabricated number.
+Claude Code and Grok Build result events can carry input_tokens/output_tokens; those are read when present.
+Codex CLI and Gemini CLI do not expose a stable usage shape in this port, so their messages stay unlabelled.
+This is explicit rather than showing a fabricated number.
 
 ## Files
 

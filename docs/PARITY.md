@@ -37,8 +37,8 @@ two products are code-identical.
   retries do not.
 - Automation API: a token-gated loopback JSON API for state, bots, groups, routines, messages,
   approvals, answers, routine runs and an SSE event stream is ported. CORS and public orchestration are not.
-- Usage: OpenAI-compatible API turns record input/output/total tokens from the provider usage chunk.
-  CLI-engine usage and cost accounting are not shown.
+- Usage: OpenAI-compatible API turns and Claude/Grok result events record input/output/total tokens.
+  Codex/Gemini usage and cost accounting are not shown.
 - Onboarding/import: no team pack, preset, or Grok Bot migration flow.
 
 ## Not yet ported (local code in the reference repo)
