@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -2069,6 +2070,61 @@ func TestMCPServerOAuthRefreshToken(t *testing.T) {
 	found := false
 	for _, config := range configs {
 		if config.ID == server.ID && config.Token == "refreshed-token" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("configs = %+v", configs)
+	}
+}
+
+func TestMCPServerOAuthAuthorizationCode(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("form: %v", err)
+		}
+		if r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("code") != "code-1" || r.Form.Get("code_verifier") == "" {
+			t.Errorf("code form = %v", r.Form)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"auth-token","refresh_token":"refresh-auth","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+	svc, _, _ := newTestService(t)
+	server, err := svc.CreateMCPServer(model.MCPServerInput{
+		Name: "Auth Code MCP", URL: "https://mcp.example.test/mcp", Enabled: true,
+		OAuthTokenURL: tokenServer.URL, OAuthAuthorizationURL: "https://auth.example.test/authorize",
+		OAuthClientID: "client-1", OAuthScopes: "mcp.read",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, err := svc.BeginMCPOAuth(server.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(start.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	if query.Get("code_challenge") == "" || query.Get("state") == "" || query.Get("redirect_uri") == "" {
+		t.Fatalf("authorization URL = %s", start.URL)
+	}
+	response, err := http.Get(query.Get("redirect_uri") + "?code=code-1&state=" + url.QueryEscape(query.Get("state")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("callback = %d", response.StatusCode)
+	}
+	svc.mu.Lock()
+	configs := svc.mcpConfigsLocked()
+	svc.mu.Unlock()
+	found := false
+	for _, config := range configs {
+		if config.ID == server.ID && config.Token == "auth-token" {
 			found = true
 		}
 	}

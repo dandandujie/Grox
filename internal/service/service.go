@@ -69,8 +69,9 @@ type Service struct {
 	apiSubMu    sync.Mutex
 	apiSubs     map[chan model.Event]struct{}
 
-	oauthMu     sync.Mutex
-	oauthTokens map[string]mcpOAuthToken
+	oauthMu      sync.Mutex
+	oauthTokens  map[string]mcpOAuthToken
+	oauthPending map[string]*mcpOAuthPending
 }
 
 type turnControl struct {
@@ -89,6 +90,7 @@ func New(dir string, emit func(model.Event)) (*Service, error) {
 		phoneSubs:      map[chan model.Event]struct{}{},
 		apiSubs:        map[chan model.Event]struct{}{},
 		oauthTokens:    map[string]mcpOAuthToken{},
+		oauthPending:   map[string]*mcpOAuthPending{},
 		approvalTokens: map[string]claudeHookTarget{}, hookApprovals: map[string]*claudeHookApproval{},
 		questionWaiters: map[string]*questionWaiter{}, webhookReplays: map[string]time.Time{},
 	}, nil
@@ -176,6 +178,12 @@ func (s *Service) shutdown() {
 	s.stopApprovalServer()
 	s.stopWebhookServer()
 	s.stopAPIServer()
+	s.oauthMu.Lock()
+	for _, pending := range s.oauthPending {
+		s.closeMCPOAuthPending(pending)
+	}
+	s.oauthPending = map[string]*mcpOAuthPending{}
+	s.oauthMu.Unlock()
 	s.stopPhone()
 	s.mu.Lock()
 	defer s.mu.Unlock()

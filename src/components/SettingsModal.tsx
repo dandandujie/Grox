@@ -683,6 +683,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   const [token, setToken] = useState("");
   const [headers, setHeaders] = useState("");
   const [oauthTokenURL, setOAuthTokenURL] = useState(server?.oauthTokenUrl ?? "");
+  const [oauthAuthorizationURL, setOAuthAuthorizationURL] = useState(server?.oauthAuthorizationUrl ?? "");
   const [oauthClientID, setOAuthClientID] = useState("");
   const [oauthClientSecret, setOAuthClientSecret] = useState("");
   const [oauthScopes, setOAuthScopes] = useState("");
@@ -701,6 +702,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
     setToken("");
     setHeaders("");
     setOAuthTokenURL(server?.oauthTokenUrl ?? "");
+    setOAuthAuthorizationURL(server?.oauthAuthorizationUrl ?? "");
     setOAuthClientID("");
     setOAuthClientSecret("");
     setOAuthScopes("");
@@ -743,6 +745,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
           ...(transport === "http" && headers.trim() ? { headers: headerMap } : {}),
           ...(transport === "http" ? {
             oauthTokenUrl: oauthTokenURL.trim(),
+            oauthAuthorizationUrl: oauthAuthorizationURL.trim(),
             oauthClientId: oauthClientID.trim(),
             oauthClientSecret,
             oauthScopes: oauthScopes.trim(),
@@ -752,7 +755,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
       } else {
         await backend.createMCPServer({
           name: name.trim(), transport, enabled,
-          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap, oauthTokenUrl: oauthTokenURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim(), oauthRefreshToken }),
+          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap, oauthTokenUrl: oauthTokenURL.trim(), oauthAuthorizationUrl: oauthAuthorizationURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim(), oauthRefreshToken }),
         });
       }
       onSaved();
@@ -808,6 +811,10 @@ function MCPEditor({ server, open, onClose, onSaved }: {
                 <span>OAuth token URL</span>
                 <input value={oauthTokenURL} onChange={(event) => setOAuthTokenURL(event.target.value)} placeholder="https://auth.example.com/oauth/token" spellCheck={false} />
               </label>
+              <label className="panel-field">
+                <span>OAuth authorization URL</span>
+                <input value={oauthAuthorizationURL} onChange={(event) => setOAuthAuthorizationURL(event.target.value)} placeholder="https://auth.example.com/oauth/authorize" spellCheck={false} />
+              </label>
               <div className="form-two">
                 <label className="panel-field">
                   <span>OAuth client ID</span>
@@ -818,6 +825,16 @@ function MCPEditor({ server, open, onClose, onSaved }: {
                   <input type="password" value={oauthClientSecret} onChange={(event) => setOAuthClientSecret(event.target.value)} placeholder={server?.oauthConfigured ? "Configured; leave blank to keep" : "Optional for public clients"} autoComplete="off" />
                 </label>
               </div>
+              {server?.oauthConfigured && (
+                <button type="button" className="btn btn-secondary" onClick={() => {
+                  void backend.beginMCPOAuth(server.id).then((start) => {
+                    window.open(start.url, "_blank", "noopener,noreferrer");
+                    toast({ kind: "info", title: "OAuth opened", body: "Finish authorization in the browser; this window will pick up the new token." });
+                  }).catch((cause: unknown) => {
+                    toast({ kind: "error", title: "OAuth could not start", body: cause instanceof Error ? cause.message : "Try again." });
+                  });
+                }}>Authorize in browser</button>
+              )}
               <label className="panel-field">
                 <span>OAuth scopes</span>
                 <input value={oauthScopes} onChange={(event) => setOAuthScopes(event.target.value)} placeholder="optional, space-separated" spellCheck={false} />

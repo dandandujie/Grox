@@ -171,6 +171,7 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 	oauthConfig := mcpOAuthConfig{
 		TokenURL: strings.TrimSpace(input.OAuthTokenURL), ClientID: strings.TrimSpace(input.OAuthClientID),
 		ClientSecret: input.OAuthClientSecret, Scopes: strings.TrimSpace(input.OAuthScopes), RefreshToken: input.OAuthRefreshToken,
+		AuthorizationURL: strings.TrimSpace(input.OAuthAuthorizationURL),
 	}
 	if oauthConfig.TokenURL != "" {
 		if err := validateMCPOAuth(oauthConfig.TokenURL, oauthConfig.ClientID); err != nil {
@@ -200,6 +201,7 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 				return model.MCPServer{}, err
 			}
 			server.OAuthTokenURL = oauthConfig.TokenURL
+			server.OAuthAuthorizationURL = oauthConfig.AuthorizationURL
 			server.OAuthConfigured = true
 			server.AuthConfigured = true
 		}
@@ -298,6 +300,9 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 		if patch.OAuthTokenURL != nil {
 			config.TokenURL = strings.TrimSpace(*patch.OAuthTokenURL)
 		}
+		if patch.OAuthAuthorizationURL != nil {
+			config.AuthorizationURL = strings.TrimSpace(*patch.OAuthAuthorizationURL)
+		}
 		if patch.OAuthClientID != nil && strings.TrimSpace(*patch.OAuthClientID) != "" {
 			config.ClientID = strings.TrimSpace(*patch.OAuthClientID)
 		}
@@ -324,6 +329,7 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 			}
 			server.OAuthConfigured = true
 			server.OAuthTokenURL = config.TokenURL
+			server.OAuthAuthorizationURL = config.AuthorizationURL
 			server.AuthConfigured = true
 		}
 	}

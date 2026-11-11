@@ -5,16 +5,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type mcpOAuthConfig struct {
-	TokenURL     string
-	ClientID     string
-	ClientSecret string
-	Scopes       string
-	RefreshToken string
+	TokenURL         string
+	ClientID         string
+	ClientSecret     string
+	Scopes           string
+	RefreshToken     string
+	AuthorizationURL string
+	AccessToken      string
+	ExpiresAt        int64
 }
 
 type mcpOAuthToken struct {
@@ -28,6 +32,8 @@ func (s *Service) saveMCPOAuthLocked(id string, config mcpOAuthConfig) error {
 	data, err := json.Marshal(map[string]string{
 		"tokenUrl": config.TokenURL, "clientId": config.ClientID,
 		"clientSecret": config.ClientSecret, "scopes": config.Scopes, "refreshToken": config.RefreshToken,
+		"authorizationUrl": config.AuthorizationURL, "accessToken": config.AccessToken,
+		"expiresAt": strconv.FormatInt(config.ExpiresAt, 10),
 	})
 	if err != nil {
 		return err
@@ -48,7 +54,9 @@ func (s *Service) mcpOAuthConfigLocked(id string) (mcpOAuthConfig, bool) {
 	config := mcpOAuthConfig{
 		TokenURL: values["tokenUrl"], ClientID: values["clientId"],
 		ClientSecret: values["clientSecret"], Scopes: values["scopes"], RefreshToken: values["refreshToken"],
+		AuthorizationURL: values["authorizationUrl"], AccessToken: values["accessToken"],
 	}
+	config.ExpiresAt, _ = strconv.ParseInt(values["expiresAt"], 10, 64)
 	if config.TokenURL == "" || config.ClientID == "" {
 		return mcpOAuthConfig{}, false
 	}
@@ -61,6 +69,9 @@ func (s *Service) mcpOAuthAccessTokenLocked(id string) string {
 	config, ok := s.mcpOAuthConfigLocked(id)
 	if !ok {
 		return ""
+	}
+	if config.AccessToken != "" && time.Now().Unix() < config.ExpiresAt-30 {
+		return config.AccessToken
 	}
 	s.oauthMu.Lock()
 	cached := s.oauthTokens[id]
@@ -118,6 +129,9 @@ func (s *Service) mcpOAuthAccessTokenLocked(id string) string {
 	s.oauthMu.Lock()
 	s.oauthTokens[id] = mcpOAuthToken{AccessToken: token, ExpiresAt: expiry}
 	s.oauthMu.Unlock()
+	config.AccessToken = token
+	config.ExpiresAt = expiry.Unix()
+	_ = s.saveMCPOAuthLocked(id, config)
 	return token
 }
 

@@ -152,7 +152,7 @@ The table below is intentionally blunt.
 | Inbound webhooks | **Working locally**: loopback receiver, capability URL, JSON/text payload, optional HMAC timestamp/signature and replay id, delivery journal and local replay, task thread per delivery, pause/edit/delete. See [webhooks](docs/WEBHOOKS.md) |
 | Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines, plus local ed25519 signatures and tamper verification; additive import. See [team packages](docs/TEAMS.md) |
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
-| MCP servers | **Working locally**: remote HTTP/HTTPS with bearer token, OAuth client credentials/refresh tokens and custom headers, or local stdio command/args; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
+| MCP servers | **Working locally**: remote HTTP/HTTPS with bearer token, OAuth authorization-code/PKCE or client credentials/refresh tokens, and custom headers, or local stdio; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
 | New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
 | Departments | **Working locally**: standalone shelves with add/rename/delete, empty shelves in the sidebar, bot counts, and General protection. See [departments](docs/DEPARTMENTS.md) |
 | Onboarding | **Working locally**: first-run welcome with create-bot, demo and engine actions; resettable from About. See [onboarding](docs/ONBOARDING.md) |

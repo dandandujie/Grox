@@ -331,6 +331,11 @@ export interface GroupPatch {
   pinned?: boolean;
 }
 
+/** MCPOAuthStart is an authorization-code URL the person opens in a browser. */
+export interface MCPOAuthStart {
+  url: string;
+}
+
 /**
  * MCPServer is a user-managed remote streamable-HTTP MCP server. The bearer
  * token is stored in secrets.json, never in AppState or API responses.
@@ -346,6 +351,7 @@ export interface MCPServer {
   authConfigured: boolean;
   headerNames?: string[];
   oauthTokenUrl?: string;
+  oauthAuthorizationUrl?: string;
   oauthConfigured?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -361,6 +367,7 @@ export interface MCPServerInput {
   token?: string;
   headers?: Record<string, string>;
   oauthTokenUrl?: string;
+  oauthAuthorizationUrl?: string;
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
@@ -378,6 +385,7 @@ export interface MCPServerPatch {
   token?: string;
   headers?: Record<string, string>;
   oauthTokenUrl?: string;
+  oauthAuthorizationUrl?: string;
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
@@ -779,6 +787,10 @@ export const Grox = {
   /** AnswerGroup settles an option card in a channel. */
   answerGroup(groupID: string, threadID: string, messageID: string, answer: string): Promise<void> {
     return call("Grox.AnswerGroup", groupID, threadID, messageID, answer);
+  },
+  /** BeginMCPOAuth starts a loopback callback and returns the authorization URL. */
+  beginMCPOAuth(id: string): Promise<MCPOAuthStart> {
+    return call("Grox.BeginMCPOAuth", id);
   },
   /** Bootstrap loads everything the page needs for its first paint. */
   bootstrap(): Promise<Bootstrap> {

@@ -1,7 +1,7 @@
 import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
-  APIInfo, Department, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
+  APIInfo, Department, MCPOAuthStart, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
   SecretStatus, SendResult, Settings, Skill, Thread, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
@@ -54,6 +54,7 @@ export interface Backend {
   deleteMemoryTopic(botId: string, name: string): Promise<void>;
   readMemoryLog(botId: string, date: string): Promise<string>;
   listDepartments(): Promise<Department[]>;
+  beginMCPOAuth(id: string): Promise<MCPOAuthStart>;
   createDepartment(name: string): Promise<Department>;
   renameDepartment(id: string, name: string): Promise<Department>;
   deleteDepartment(id: string): Promise<void>;
@@ -103,7 +104,7 @@ export interface Backend {
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
-  APIInfo, Department, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
+  APIInfo, Department, MCPOAuthStart, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
   RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult,
   Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";

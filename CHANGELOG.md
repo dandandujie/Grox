@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.38.0
+
+- Added OAuth authorization-code + PKCE for MCP servers: one-shot loopback callback, state and S256
+  challenge, code exchange, and access/refresh token storage.
+- Added the authorization URL editor field, Authorize in browser action and an end-to-end callback test.
+- Still not ported: dynamic client registration and token revocation.
+
 ## 0.37.0
 
 - Added OAuth refresh-token support for MCP servers. A stored refresh token uses grant_type=refresh_token;

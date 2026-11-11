@@ -64,7 +64,7 @@ the bearer-token environment path and cannot carry arbitrary custom headers thro
 Editing with the header box empty keeps existing headers. Enter one or more lines to replace all of them.
 
 
-## OAuth client credentials
+## OAuth authorization code + PKCE
 
 An HTTP MCP server can use OAuth 2.0 client credentials instead of a static bearer token. Grox stores the
 token URL, client ID, optional client secret and scopes in secrets.json under mcp:<id>:oauth, requests an
@@ -76,4 +76,15 @@ saved for the next exchange. Access tokens are cached until shortly before expir
 Claude, Grok and Gemini receive the resulting bearer token in their temporary configs. Codex receives the
 same bearer-token environment path. Authorization-code/PKCE, dynamic client registration and token revocation
 are not implemented yet; those require an interactive OAuth flow.
+
+
+### Authorization code + PKCE
+
+If an OAuth client has an authorization URL, the server editor shows Authorize in browser. Grox starts a
+one-shot loopback callback on 127.0.0.1, generates a PKCE S256 verifier/challenge and state, opens the
+authorization URL, exchanges the returned code, and stores access/refresh tokens in the secrets file. The
+callback closes after use or five minutes.
+
+Dynamic client registration and token revocation are not implemented. The OAuth client must already allow a
+loopback redirect URI.
 

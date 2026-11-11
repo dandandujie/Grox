@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  APIInfo, Department, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  APIInfo, Department, MCPOAuthStart, MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -679,6 +679,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   async deleteDepartment(_id: string): Promise<void> {}
+
+  async beginMCPOAuth(_id: string): Promise<MCPOAuthStart> {
+    throw new Error("MCP OAuth is only available in the desktop app.");
+  }
 
   async getAPIInfo(): Promise<APIInfo> {
     return { enabled: false, tokenConfigured: false };
