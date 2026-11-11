@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.58.0
+
+- openmaus.package v2 export is now signed with the local ed25519 team key; import verifies present
+  signatures and fails closed on tampering or incomplete signatures. Unsigned older packages still import.
+- Extended the round-trip test with signature presence and tamper rejection.
+- Local tamper detection only; no organization trust registry or revocation.
+
 ## 0.57.0
 
 - Busy routines with Retry shortly now keep one queued occurrence and run it once when the bot frees up,

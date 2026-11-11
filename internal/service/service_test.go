@@ -2502,8 +2502,18 @@ func TestOpenMausPackageV2ExportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(raw, `"format": "openmaus.package"`) || strings.Contains(raw, "secret-token") {
+	if !strings.Contains(raw, `"format": "openmaus.package"`) || !strings.Contains(raw, `"signature"`) || strings.Contains(raw, "secret-token") {
 		t.Fatalf("unexpected export: %s", raw[:min(len(raw), 200)])
+	}
+	var signed map[string]any
+	if err := json.Unmarshal([]byte(raw), &signed); err != nil {
+		t.Fatal(err)
+	}
+	signed["tampered"] = true
+	tampered, _ := json.Marshal(signed)
+	tamperTarget, _, _ := newTestService(t)
+	if _, err := tamperTarget.ImportOpenMausPackage(string(tampered)); err == nil {
+		t.Fatal("tampered package imported")
 	}
 	target, _, _ := newTestService(t)
 	result, err := target.ImportOpenMausPackage(raw)

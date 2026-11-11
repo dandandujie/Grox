@@ -208,6 +208,9 @@ func (s *Service) ExportOpenMausPackage(groupID string) (string, error) {
 			"connections": connections, "presets": presetEntries,
 		},
 	}
+	if err := s.signPackageDocument(document); err != nil {
+		return "", err
+	}
 	data, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return "", err

@@ -23,6 +23,13 @@ Everything is additive and credential-looking keys refuse the document.
 - Routine continuity, overlap, timeout, room goals and cloud execution.
 - Examples, notes, publisher identity, package signatures and organization trust.
 
+## Signatures
+
+Export signs the top-level document with the local ed25519 team key: `signature`, `publicKey` and `signedAt`
+are added, and the signature covers the canonical JSON with those fields removed. Import verifies a present
+signature and fails closed on an incomplete or mismatched signature. Older unsigned packages remain
+importable. This is local tamper detection, not an organization trust registry.
+
 ## Export
 
 The channel panel offers Export OpenMaus package. It writes an `openmaus.package` v2 JSON with the channel's

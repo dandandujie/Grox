@@ -20,6 +20,9 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &document); err != nil {
 		return model.PackageImportResult{}, fmt.Errorf("invalid package JSON")
 	}
+	if err := verifyPackageDocument(document); err != nil {
+		return model.PackageImportResult{}, err
+	}
 	version, _ := document["version"].(float64)
 	if yamlString(document, "format") != "openmaus.package" || version != 2 {
 		return model.PackageImportResult{}, fmt.Errorf("unsupported package format")
