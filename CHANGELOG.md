@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.37.0
+
+- Added OAuth refresh-token support for MCP servers. A stored refresh token uses grant_type=refresh_token;
+  a rotated refresh_token from the endpoint is persisted for the next exchange.
+- Added editor support and a refresh-grant endpoint test.
+- Still not ported: authorization-code/PKCE, dynamic registration and revocation.
+
 ## 0.36.0
 
 - Added OAuth 2.0 client-credentials support for HTTP MCP servers. Token URL, client ID/secret and scopes

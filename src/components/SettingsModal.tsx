@@ -686,6 +686,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
   const [oauthClientID, setOAuthClientID] = useState("");
   const [oauthClientSecret, setOAuthClientSecret] = useState("");
   const [oauthScopes, setOAuthScopes] = useState("");
+  const [oauthRefreshToken, setOAuthRefreshToken] = useState("");
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -703,6 +704,7 @@ function MCPEditor({ server, open, onClose, onSaved }: {
     setOAuthClientID("");
     setOAuthClientSecret("");
     setOAuthScopes("");
+    setOAuthRefreshToken("");
     setEnabled(server?.enabled ?? true);
     setError("");
     setBusy(false);
@@ -744,12 +746,13 @@ function MCPEditor({ server, open, onClose, onSaved }: {
             oauthClientId: oauthClientID.trim(),
             oauthClientSecret,
             oauthScopes: oauthScopes.trim(),
+            oauthRefreshToken,
           } : {}),
         });
       } else {
         await backend.createMCPServer({
           name: name.trim(), transport, enabled,
-          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap, oauthTokenUrl: oauthTokenURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim() }),
+          ...(transport === "stdio" ? { command: command.trim(), args: argList } : { url: url.trim(), token: token.trim(), headers: headerMap, oauthTokenUrl: oauthTokenURL.trim(), oauthClientId: oauthClientID.trim(), oauthClientSecret, oauthScopes: oauthScopes.trim(), oauthRefreshToken }),
         });
       }
       onSaved();
@@ -818,6 +821,10 @@ function MCPEditor({ server, open, onClose, onSaved }: {
               <label className="panel-field">
                 <span>OAuth scopes</span>
                 <input value={oauthScopes} onChange={(event) => setOAuthScopes(event.target.value)} placeholder="optional, space-separated" spellCheck={false} />
+              </label>
+              <label className="panel-field">
+                <span>OAuth refresh token</span>
+                <input type="password" value={oauthRefreshToken} onChange={(event) => setOAuthRefreshToken(event.target.value)} placeholder={server?.oauthConfigured ? "Configured; leave blank to keep" : "Optional refresh token"} autoComplete="off" />
               </label>
             </div>
           </>

@@ -14,6 +14,7 @@ type mcpOAuthConfig struct {
 	ClientID     string
 	ClientSecret string
 	Scopes       string
+	RefreshToken string
 }
 
 type mcpOAuthToken struct {
@@ -26,7 +27,7 @@ func mcpOAuthSecretName(id string) string { return "mcp:" + id + ":oauth" }
 func (s *Service) saveMCPOAuthLocked(id string, config mcpOAuthConfig) error {
 	data, err := json.Marshal(map[string]string{
 		"tokenUrl": config.TokenURL, "clientId": config.ClientID,
-		"clientSecret": config.ClientSecret, "scopes": config.Scopes,
+		"clientSecret": config.ClientSecret, "scopes": config.Scopes, "refreshToken": config.RefreshToken,
 	})
 	if err != nil {
 		return err
@@ -46,7 +47,7 @@ func (s *Service) mcpOAuthConfigLocked(id string) (mcpOAuthConfig, bool) {
 	}
 	config := mcpOAuthConfig{
 		TokenURL: values["tokenUrl"], ClientID: values["clientId"],
-		ClientSecret: values["clientSecret"], Scopes: values["scopes"],
+		ClientSecret: values["clientSecret"], Scopes: values["scopes"], RefreshToken: values["refreshToken"],
 	}
 	if config.TokenURL == "" || config.ClientID == "" {
 		return mcpOAuthConfig{}, false
@@ -69,7 +70,12 @@ func (s *Service) mcpOAuthAccessTokenLocked(id string) string {
 	}
 	s.oauthMu.Unlock()
 	form := url.Values{}
-	form.Set("grant_type", "client_credentials")
+	if config.RefreshToken != "" {
+		form.Set("grant_type", "refresh_token")
+		form.Set("refresh_token", config.RefreshToken)
+	} else {
+		form.Set("grant_type", "client_credentials")
+	}
 	form.Set("client_id", config.ClientID)
 	if config.Scopes != "" {
 		form.Set("scope", config.Scopes)
@@ -99,6 +105,10 @@ func (s *Service) mcpOAuthAccessTokenLocked(id string) string {
 	token, _ := payload["access_token"].(string)
 	if token == "" {
 		return ""
+	}
+	if refreshed, _ := payload["refresh_token"].(string); refreshed != "" && refreshed != config.RefreshToken {
+		config.RefreshToken = refreshed
+		_ = s.saveMCPOAuthLocked(id, config)
 	}
 	expires, _ := payload["expires_in"].(float64)
 	expiry := time.Now().Add(5 * time.Minute)

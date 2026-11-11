@@ -30,8 +30,8 @@ two products are code-identical.
 - Questions: agent-authored ask_user cards are ported for CLI MCP tools and API Auto/Full; multi-question
   forms are not.
 - MCP: the per-turn Composio gateway, remote HTTP/stdio MCP CRUD, custom headers, OAuth client-credentials
-  tokens, and a per-bot allow/deny gateway and API tool policy are ported. Authorization-code/PKCE OAuth
-  and the value vault are not.
+  and refresh-token grants, and a per-bot allow/deny gateway and API tool policy are ported.
+  Authorization-code/PKCE OAuth and the value vault are not.
 - Artifacts: attachments and file previews exist; a first-class artifact browser does not.
 - Triggers: schedules, a loopback inbound webhook receiver, optional HMAC signatures, delivery-id replay
   protection, a delivery journal and manual local replay exist. Composio app-event triggers and automatic

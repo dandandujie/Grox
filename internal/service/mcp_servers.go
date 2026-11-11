@@ -170,7 +170,7 @@ func (s *Service) CreateMCPServer(input model.MCPServerInput) (model.MCPServer, 
 	}
 	oauthConfig := mcpOAuthConfig{
 		TokenURL: strings.TrimSpace(input.OAuthTokenURL), ClientID: strings.TrimSpace(input.OAuthClientID),
-		ClientSecret: input.OAuthClientSecret, Scopes: strings.TrimSpace(input.OAuthScopes),
+		ClientSecret: input.OAuthClientSecret, Scopes: strings.TrimSpace(input.OAuthScopes), RefreshToken: input.OAuthRefreshToken,
 	}
 	if oauthConfig.TokenURL != "" {
 		if err := validateMCPOAuth(oauthConfig.TokenURL, oauthConfig.ClientID); err != nil {
@@ -306,6 +306,9 @@ func (s *Service) UpdateMCPServer(id string, patch model.MCPServerPatch) (model.
 		}
 		if patch.OAuthScopes != nil {
 			config.Scopes = strings.TrimSpace(*patch.OAuthScopes)
+		}
+		if patch.OAuthRefreshToken != nil && *patch.OAuthRefreshToken != "" {
+			config.RefreshToken = *patch.OAuthRefreshToken
 		}
 		if config.TokenURL == "" {
 			delete(s.st.Secrets, mcpOAuthSecretName(id))

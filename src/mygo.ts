@@ -364,6 +364,7 @@ export interface MCPServerInput {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
+  oauthRefreshToken?: string;
   enabled: boolean;
 }
 
@@ -380,6 +381,7 @@ export interface MCPServerPatch {
   oauthClientId?: string;
   oauthClientSecret?: string;
   oauthScopes?: string;
+  oauthRefreshToken?: string;
   enabled?: boolean;
 }
 

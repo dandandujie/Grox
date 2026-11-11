@@ -2042,3 +2042,37 @@ func TestMCPServerOAuthClientCredentials(t *testing.T) {
 		t.Fatalf("configs = %+v", configs)
 	}
 }
+
+func TestMCPServerOAuthRefreshToken(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("form: %v", err)
+		}
+		if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("refresh_token") != "refresh-1" {
+			t.Errorf("refresh form = %v", r.Form)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"refreshed-token","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+	svc, _, _ := newTestService(t)
+	server, err := svc.CreateMCPServer(model.MCPServerInput{
+		Name: "Refresh MCP", URL: "https://mcp.example.test/mcp", Enabled: true,
+		OAuthTokenURL: tokenServer.URL, OAuthClientID: "client-1", OAuthRefreshToken: "refresh-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	configs := svc.mcpConfigsLocked()
+	svc.mu.Unlock()
+	found := false
+	for _, config := range configs {
+		if config.ID == server.ID && config.Token == "refreshed-token" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("configs = %+v", configs)
+	}
+}
