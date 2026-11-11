@@ -72,6 +72,10 @@ type Request struct {
 	MemoryText string
 	// RecallText is a bounded set of matching topic passages for this turn.
 	RecallText string
+	// MCPServers are user-managed remote servers for CLI engines.
+	MCPServers []model.MCPServerConfig
+	// Env is merged into a CLI subprocess environment.
+	Env map[string]string
 }
 
 // Result is a finished turn.

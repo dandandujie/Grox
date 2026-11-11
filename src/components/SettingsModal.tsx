@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight, Cloud, Database, Eye, EyeOff, FolderOpen, Globe, Info, KeyRound, Laptop,
-  Languages, MonitorSpeaker, Palette, Play, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Trash2,
+  Languages, MonitorSpeaker, Palette, Play, Plug, Plus, RefreshCw, Save, ShieldCheck, Smartphone, Sparkles, Trash2,
   Upload, Volume2, X,
 } from "lucide-react";
 import { useApp, type SettingsSection } from "@/state/store";
-import { Segmented, Switch, Spinner } from "@/components/ui";
+import { Modal, Segmented, Switch, Spinner } from "@/components/ui";
 import { speak } from "@/lib/speech";
 import { GroxLogo, ProviderMark } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
-import type { Settings } from "@/lib/bridge";
+import type { MCPServer, Settings } from "@/lib/bridge";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Palette size={16} /> },
   { id: "connections", label: "Connections", icon: <KeyRound size={16} /> },
   { id: "engines", label: "Engines", icon: <Sparkles size={16} /> },
+  { id: "mcp", label: "MCP servers", icon: <Plug size={16} /> },
   { id: "computer", label: "Computers", icon: <Laptop size={16} /> },
   { id: "phone", label: "Phone", icon: <Smartphone size={16} /> },
   { id: "voice", label: "Voice", icon: <Volume2 size={16} /> },
@@ -451,6 +452,165 @@ function VoiceSection() {
           always works.
         </p>
       </SectionCard>
+    </>
+  );
+}
+
+function MCPEditor({ server, open, onClose, onSaved }: {
+  server: MCPServer | undefined;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { backend, toast } = useApp();
+  const [name, setName] = useState(server?.name ?? "");
+  const [url, setUrl] = useState(server?.url ?? "");
+  const [token, setToken] = useState("");
+  const [enabled, setEnabled] = useState(server?.enabled ?? true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(server?.name ?? "");
+    setUrl(server?.url ?? "");
+    setToken("");
+    setEnabled(server?.enabled ?? true);
+    setError("");
+    setBusy(false);
+  }, [open, server?.id]);
+
+  if (!open) return null;
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || !url.trim()) {
+      setError("Give the server a name and a full URL.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (server) {
+        await backend.updateMCPServer(server.id, {
+          name: name.trim(), url: url.trim(), enabled,
+          ...(token.trim() ? { token: token.trim() } : {}),
+        });
+      } else {
+        await backend.createMCPServer({ name: name.trim(), url: url.trim(), token: token.trim(), enabled });
+      }
+      onSaved();
+      onClose();
+      toast({ kind: "success", title: server ? "MCP server updated" : "MCP server added" });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the MCP server.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={server ? "Edit MCP server" : "Add MCP server"} width={620}>
+      <form className="routine-form" onSubmit={submit}>
+        <div className="form-two">
+          <label className="panel-field">
+            <span>Name</span>
+            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="linear" />
+          </label>
+          <label className="panel-field">
+            <span>Enabled</span>
+            <div className="switch-row-inline"><Switch checked={enabled} label="Enable MCP server" onChange={setEnabled} /></div>
+          </label>
+        </div>
+        <label className="panel-field">
+          <span>Streamable HTTP URL</span>
+          <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://mcp.example.com/mcp" spellCheck={false} />
+        </label>
+        <label className="panel-field">
+          <span>Bearer token (optional)</span>
+          <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder={server?.authConfigured ? "Configured; leave blank to keep" : "Stored in secrets.json"} autoComplete="off" />
+        </label>
+        <p className="panel-note">Tokens are stored in the 0600 secrets file, never in AppState or the page. Claude/Grok/Gemini receive the Authorization header in a temporary 0600 config; Codex receives a temporary environment variable. Servers are enabled per turn only when this switch is on.</p>
+        {error && <p className="panel-note is-error">{error}</p>}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save server"}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function MCPSection() {
+  const { backend, toast, requestConfirm } = useApp();
+  const [servers, setServers] = useState<MCPServer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<MCPServer | undefined>();
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      setServers(await backend.listMCPServers());
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not read MCP servers", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const toggle = async (server: MCPServer, enabled: boolean) => {
+    try {
+      await backend.updateMCPServer(server.id, { enabled });
+      await load();
+    } catch (cause) {
+      toast({ kind: "error", title: "MCP server not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const remove = (server: MCPServer) => {
+    requestConfirm({
+      title: "Delete MCP server?",
+      body: server.name + " will stop being added to new CLI turns. Its stored token is removed.",
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: () => {
+        void backend.deleteMCPServer(server.id).then(load).catch((cause: unknown) => {
+          toast({ kind: "error", title: "MCP server not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+        });
+      },
+    });
+  };
+
+  return (
+    <>
+      <SectionCard
+        title="Remote MCP servers"
+        hint="Add a streamable-HTTP MCP server to every CLI turn. Grox never installs or executes a local MCP command."
+        action={<button type="button" className="btn btn-secondary" onClick={() => { setEditing(undefined); setEditorOpen(true); }}><Plus size={14} /> Add server</button>}
+      >
+        {loading ? <p className="panel-note">Reading servers…</p> : servers.length === 0 ? (
+          <p className="panel-note">No remote MCP servers. The per-turn Composio gateway and ask_user tool are still available.</p>
+        ) : (
+          <div className="mcp-list">
+            {servers.map((server) => (
+              <div key={server.id} className={cn("mcp-row", server.enabled && "is-enabled")}>
+                <span className="mcp-icon"><Plug size={15} /></span>
+                <div className="mcp-copy">
+                  <strong>{server.name}</strong>
+                  <span>{server.url}</span>
+                  <small>{server.authConfigured ? "Bearer token configured" : "No bearer token"}</small>
+                </div>
+                <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
+                <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>
+                <button type="button" className="link-button is-danger" onClick={() => remove(server)}><Trash2 size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+      <MCPEditor server={editing} open={editorOpen} onClose={() => setEditorOpen(false)} onSaved={() => void load()} />
     </>
   );
 }

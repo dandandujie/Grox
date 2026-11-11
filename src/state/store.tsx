@@ -11,7 +11,7 @@ import { speak } from "@/lib/speech";
 
 export type View = "chat" | "routines" | "apps";
 export type Panel = "profile" | "skills" | "memory" | "computer" | "activity";
-export type SettingsSection = "general" | "connections" | "engines" | "computer" | "phone" | "voice" | "data" | "about";
+export type SettingsSection = "general" | "connections" | "engines" | "mcp" | "computer" | "phone" | "voice" | "data" | "about";
 
 export interface ToastItem {
   id: string;
@@ -245,7 +245,7 @@ function initialUI(boot: Bootstrap): UIState {
     ? latestGroupThread(activeGroup, requestedThread ?? (boot.state.activeGroupId === activeGroup.id ? boot.state.activeThreadId : undefined))
     : (activeBot?.threads.find((item) => item.id === requestedThread) ?? activeBot?.threads.find((item) => item.id === boot.state.activeThreadId) ?? activeBot?.threads[0]);
   const settingsParam = params.get("settings");
-  const settingsSections = ["general", "connections", "engines", "computer", "phone", "voice", "data", "about"];
+  const settingsSections = ["general", "connections", "engines", "mcp", "computer", "phone", "voice", "data", "about"];
   const panelParam = params.get("panel");
   const viewParam = params.get("view");
   return {

@@ -751,3 +751,15 @@
 .webhook-actions { display: flex; gap: 10px; }
 .link-button.is-danger { color: var(--danger); }
 .group-export { width: 100%; margin-top: 10px; justify-content: center; }
+
+/* ── Remote MCP servers ─────────────────────────────────────────────── */
+.switch-row-inline { display: flex; align-items: center; min-height: 34px; }
+.mcp-list { display: flex; flex-direction: column; gap: 7px; }
+.mcp-row { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--edge); border-radius: 9px; background: var(--inset); }
+.mcp-row.is-enabled { border-color: color-mix(in srgb, var(--success) 30%, var(--edge)); }
+.mcp-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 28px; border: 1px solid var(--edge); border-radius: 7px; background: var(--card); color: var(--ink-2); }
+.mcp-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mcp-copy strong { font-size: 11.5px; font-weight: 600; }
+.mcp-copy span { color: var(--ink-3); font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); }
+.mcp-copy small { color: var(--ink-3); font-size: 9px; }
+.mcp-row .link-button { flex: 0 0 auto; font-size: 10px; }

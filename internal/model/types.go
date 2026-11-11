@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.11.0"
+	AppVersion = "0.12.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -40,6 +40,7 @@ type AppState struct {
 	Webhooks       []Webhook             `json:"webhooks"`
 	Runs           []Run                 `json:"runs"`
 	Connections    map[string]Connection `json:"connections"`
+	MCPServers     []MCPServer           `json:"mcpServers,omitempty"`
 	Settings       Settings              `json:"settings"`
 	ActiveBotID    string                `json:"activeBotId"`
 	ActiveGroupID  string                `json:"activeGroupId"`
@@ -225,6 +226,42 @@ type TeamImportResult struct {
 	Skills   int    `json:"skills"`
 	Memories int    `json:"memories"`
 	Name     string `json:"name"`
+}
+
+// MCPServer is a user-managed remote streamable-HTTP MCP server. The bearer
+// token is stored in secrets.json, never in AppState or API responses.
+type MCPServer struct {
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	URL            string    `json:"url"`
+	Enabled        bool      `json:"enabled"`
+	AuthConfigured bool      `json:"authConfigured"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// MCPServerInput is the add form. Token is write-only.
+type MCPServerInput struct {
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Token   string `json:"token"`
+	Enabled bool   `json:"enabled"`
+}
+
+// MCPServerPatch edits only fields that are set; an empty Token keeps the old one.
+type MCPServerPatch struct {
+	Name    *string `json:"name,omitempty"`
+	URL     *string `json:"url,omitempty"`
+	Token   *string `json:"token,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+}
+
+// MCPServerConfig is the runtime-only view; Token never leaves the Go process.
+type MCPServerConfig struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
 // Thread is one conversation with a bot: a chat, a task, or a routine run.

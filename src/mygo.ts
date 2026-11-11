@@ -37,6 +37,7 @@ export interface AppState {
   webhooks: Webhook[];
   runs: Run[];
   connections: Record<string, Connection>;
+  mcpServers?: MCPServer[];
   settings: Settings;
   activeBotId: string;
   activeGroupId: string;
@@ -291,6 +292,36 @@ export interface GroupPatch {
   memberIds?: string[];
   leadId?: string;
   pinned?: boolean;
+}
+
+/**
+ * MCPServer is a user-managed remote streamable-HTTP MCP server. The bearer
+ * token is stored in secrets.json, never in AppState or API responses.
+ */
+export interface MCPServer {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  authConfigured: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** MCPServerInput is the add form. Token is write-only. */
+export interface MCPServerInput {
+  name: string;
+  url: string;
+  token: string;
+  enabled: boolean;
+}
+
+/** MCPServerPatch edits only fields that are set; an empty Token keeps the old one. */
+export interface MCPServerPatch {
+  name?: string;
+  url?: string;
+  token?: string;
+  enabled?: boolean;
 }
 
 /**
@@ -617,6 +648,9 @@ export const Grox = {
   createGroupThread(groupID: string, title: string): Promise<Thread> {
     return call("Grox.CreateGroupThread", groupID, title);
   },
+  createMCPServer(input: MCPServerInput): Promise<MCPServer> {
+    return call("Grox.CreateMCPServer", input);
+  },
   /** CreateRoutine adds a scheduled task. */
   createRoutine(input: RoutineInput): Promise<Routine> {
     return call("Grox.CreateRoutine", input);
@@ -648,6 +682,9 @@ export const Grox = {
   /** DeleteGroupThread removes a channel conversation, keeping one empty one. */
   deleteGroupThread(groupID: string, threadID: string): Promise<void> {
     return call("Grox.DeleteGroupThread", groupID, threadID);
+  },
+  deleteMCPServer(id: string): Promise<void> {
+    return call("Grox.DeleteMCPServer", id);
   },
   /**
    * DeleteRoutine removes a schedule. Runs that already happened stay in the
@@ -710,6 +747,10 @@ export const Grox = {
   /** ListComputerFiles returns one folder inside the bot's local computer. */
   listComputerFiles(botID: string, path: string): Promise<FolderListing> {
     return call("Grox.ListComputerFiles", botID, path);
+  },
+  /** ListMCPServers returns user-managed remote MCP servers without token values. */
+  listMCPServers(): Promise<MCPServer[]> {
+    return call("Grox.ListMCPServers");
   },
   /**
    * ListSkills discovers SKILL.md files visible to a bot and returns their
@@ -872,6 +913,9 @@ export const Grox = {
   /** UpdateGroupThread renames a channel conversation. */
   updateGroupThread(groupID: string, threadID: string, title: string): Promise<Thread> {
     return call("Grox.UpdateGroupThread", groupID, threadID, title);
+  },
+  updateMCPServer(id: string, patch: MCPServerPatch): Promise<MCPServer> {
+    return call("Grox.UpdateMCPServer", id, patch);
   },
   /** UpdateRoutine edits a routine and recomputes its next run. */
   updateRoutine(id: string, patch: RoutinePatch): Promise<Routine> {

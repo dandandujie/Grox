@@ -1,8 +1,8 @@
 import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
-  MemoryState, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult, Settings, Skill, Thread,
-  TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, Routine, RoutineInput, RoutinePatch, SecretStatus,
+  SendResult, Settings, Skill, Thread, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
 export interface Backend {
@@ -54,6 +54,10 @@ export interface Backend {
   deleteWebhook(id: string): Promise<void>;
   exportTeam(groupId: string): Promise<string>;
   importTeam(raw: string): Promise<TeamImportResult>;
+  listMCPServers(): Promise<MCPServer[]>;
+  createMCPServer(input: MCPServerInput): Promise<MCPServer>;
+  updateMCPServer(id: string, patch: MCPServerPatch): Promise<MCPServer>;
+  deleteMCPServer(id: string): Promise<void>;
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;
   connectComposioApp(appId: string): Promise<ComposioLink>;
   disconnectComposioApp(appId: string): Promise<void>;
@@ -81,8 +85,8 @@ export interface Backend {
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
-  MemoryState, PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn,
-  TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, PhoneInfo, RoutineInput, RoutinePatch, Run, SecretStatus,
+  SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 export type { Event as AppEvent } from "@/mygo";
 

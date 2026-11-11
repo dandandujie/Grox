@@ -1125,3 +1125,49 @@ func TestAskUserMCPWaitsForAnswer(t *testing.T) {
 		t.Fatal("ask_user did not reply")
 	}
 }
+
+func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	server, err := svc.CreateMCPServer(model.MCPServerInput{Name: "Linear MCP", URL: "https://mcp.example.test/mcp", Token: "secret-token", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !server.AuthConfigured {
+		t.Fatal("server should report configured auth")
+	}
+	if _, err := svc.CreateMCPServer(model.MCPServerInput{Name: "Bad", URL: "file:///tmp/x", Enabled: true}); err == nil {
+		t.Fatal("file URL should be refused")
+	}
+	state, _ := json.Marshal(svc.st.State)
+	if strings.Contains(string(state), "secret-token") {
+		t.Fatal("MCP token leaked into AppState")
+	}
+	svc.mu.Lock()
+	configs := svc.mcpConfigsLocked()
+	svc.mu.Unlock()
+	if len(configs) != 1 || configs[0].Token != "secret-token" {
+		t.Fatalf("runtime config = %+v", configs)
+	}
+	updated, err := svc.UpdateMCPServer(server.ID, model.MCPServerPatch{Enabled: new(bool)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Enabled {
+		t.Fatal("server should be disabled")
+	}
+	if _, err := svc.UpdateMCPServer(server.ID, model.MCPServerPatch{Token: new(string)}); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	configs = svc.mcpConfigsLocked()
+	svc.mu.Unlock()
+	if len(configs) != 0 {
+		t.Fatalf("disabled server still configured: %+v", configs)
+	}
+	if err := svc.DeleteMCPServer(server.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := svc.st.Secrets[mcpSecretName(server.ID)]; ok {
+		t.Fatal("token should be removed with the server")
+	}
+}

@@ -1,7 +1,8 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  MemoryState, Settings, Skill, TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, Settings, Skill, TeamImportResult, Thread,
+  Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
 
@@ -630,6 +631,22 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
 
   async importTeam(_raw: string): Promise<TeamImportResult> {
     throw new Error("Team packages are imported by the desktop app.");
+  }
+
+  async listMCPServers(): Promise<MCPServer[]> {
+    return [];
+  }
+
+  async createMCPServer(_input: MCPServerInput): Promise<MCPServer> {
+    throw new Error("Remote MCP servers are configured in the desktop app.");
+  }
+
+  async updateMCPServer(_id: string, _patch: MCPServerPatch): Promise<MCPServer> {
+    throw new Error("Remote MCP servers are configured in the desktop app.");
+  }
+
+  async deleteMCPServer(_id: string): Promise<void> {
+    throw new Error("Remote MCP servers are configured in the desktop app.");
   }
 
   async getWebhookInfo(): Promise<WebhookInfo> {

@@ -152,6 +152,7 @@ The table below is intentionally blunt.
 | Inbound webhooks | **Working locally**: loopback receiver, capability URL, JSON/text payload, task thread per delivery, pause/edit/delete. See [webhooks](docs/WEBHOOKS.md) |
 | Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines; additive import with safe defaults. See [team packages](docs/TEAMS.md) |
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
+| Remote MCP servers | **Working locally**: HTTP/HTTPS URL, optional write-only bearer token, per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
 > phone companion, routines, Composio connections, CLI tool approvals and per-turn MCP tools are real.

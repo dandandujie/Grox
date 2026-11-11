@@ -179,6 +179,9 @@ func (s *Store) Normalize() {
 	if st.Webhooks == nil {
 		st.Webhooks = []model.Webhook{}
 	}
+	if st.MCPServers == nil {
+		st.MCPServers = []model.MCPServer{}
+	}
 	for appID, app := range appCatalogMap() {
 		c, ok := st.Connections[appID]
 		if !ok {

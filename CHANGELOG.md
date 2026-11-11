@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0
+
+- Added user-managed remote streamable-HTTP MCP servers in Settings -> MCP servers.
+- Tokens are write-only: stored in 0600 secrets.json, never in AppState or RPC responses.
+- Claude, Grok, Codex and Gemini each receive enabled servers in a temporary per-turn config; Codex gets
+  its token through a temporary subprocess environment variable.
+- Added add/edit/enable/delete, URL validation, blank-token preservation and automatic token removal on
+  delete.
+- Fixed Grok/Codex turn wiring to use the temporary home configs, restoring the intended hook and MCP
+  configuration path.
+- Still not ported: local stdio MCP commands, OAuth/dynamic registration, per-server tool policy and the
+  full vault.
+
 ## 0.11.0
 
 - Added bounded lexical memory recall: matching topic paragraphs are added to a turn before the model runs.

@@ -58,19 +58,10 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 				mode = "auto"
 			}
 		}
-		grokConfig := map[string]any{}
-		if req.MCPURL != "" {
-			grokConfig["mcp_servers"] = map[string]any{"grox": map[string]any{"url": req.MCPURL, "enabled": true}}
-		}
-		if req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
-			grokConfig["hooks"] = map[string]any{"PreToolUse": []any{map[string]any{
-				"matcher": "*",
-				"hooks":   []any{map[string]any{"type": "http", "url": req.HookURL + "?style=grok", "timeout": 300}},
-			}}}
-		}
-		if len(grokConfig) > 0 {
-			if data, err := json.Marshal(grokConfig); err == nil {
-				envExtras["GROK_CONFIG"] = string(data)
+		if req.MCPURL != "" || req.HookURL != "" || len(req.MCPServers) > 0 {
+			if home, cleanup, err := prepareGrokHome(req.MCPURL, req.HookURL, req.MCPServers...); err == nil {
+				envExtras["GROK_HOME"] = home
+				cleanups = append(cleanups, cleanup)
 			}
 		}
 		args = []string{
@@ -117,8 +108,8 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 				args = append(args, "--settings", string(data))
 			}
 		}
-		if req.MCPURL != "" {
-			if path, cleanup, err := writeMCPConfig(req.MCPURL); err == nil {
+		if req.MCPURL != "" || len(req.MCPServers) > 0 {
+			if path, cleanup, err := writeMCPConfig(req.MCPURL, req.MCPServers...); err == nil {
 				cleanups = append(cleanups, cleanup)
 				args = append(args, "--mcp-config", path, "--strict-mcp-config")
 			}
@@ -138,17 +129,20 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 		} else {
 			args = append(args, "-s", sandbox)
 		}
-		if req.MCPURL != "" {
-			args = append(args, "-c", fmt.Sprintf("mcp_servers.grox.url=%q", req.MCPURL))
-		}
-		if req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
-			script, cleanup, scriptErr := makeToolHookScript(req.HookURL, "codex")
-			if scriptErr == nil {
+		if req.MCPURL != "" || (req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask") || len(req.MCPServers) > 0 {
+			script := ""
+			if req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
+				if hookScript, cleanup, scriptErr := makeToolHookScript(req.HookURL, "codex"); scriptErr == nil {
+					script = hookScript
+					cleanups = append(cleanups, cleanup)
+				}
+			}
+			if home, cleanup, homeErr := prepareCodexHome(req.MCPURL, script, req.MCPServers...); homeErr == nil {
+				envExtras["CODEX_HOME"] = home
 				cleanups = append(cleanups, cleanup)
-				args = append(args,
-					"-c", fmt.Sprintf("hooks.PreToolUse=[{matcher=\"*\",hooks=[{type=\"command\",command=%q,timeout=300}]}]", script),
-					"--dangerously-bypass-hook-trust",
-				)
+				if script != "" {
+					args = append(args, "--dangerously-bypass-hook-trust")
+				}
 			}
 		}
 		args = append(args, "-")
@@ -166,14 +160,20 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 			}
 		}
 		args = []string{"-p", prompt, "-m", req.Model.ID, "-o", "stream-json", "--skip-trust", "--approval-mode", mode}
-		if req.MCPURL != "" || req.HookURL != "" {
-			if home, cleanup, err := prepareGeminiHome(req.MCPURL, req.HookURL); err == nil {
+		if req.MCPURL != "" || req.HookURL != "" || len(req.MCPServers) > 0 {
+			if home, cleanup, err := prepareGeminiHome(req.MCPURL, req.HookURL, req.MCPServers...); err == nil {
 				envExtras["GEMINI_CLI_HOME"] = home
 				cleanups = append(cleanups, cleanup)
-				if req.MCPURL != "" {
-					args = append(args, "--allowed-mcp-server-names", "grox")
-				}
 			}
+		}
+	}
+
+	for key, value := range req.Env {
+		envExtras[key] = value
+	}
+	for _, server := range req.MCPServers {
+		if strings.TrimSpace(server.Token) != "" {
+			envExtras[mcpEnvName(server.ID)] = server.Token
 		}
 	}
 
@@ -515,7 +515,7 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func prepareGeminiHome(mcpURL, hookURL string) (string, func(), error) {
+func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerConfig) (string, func(), error) {
 	home, err := os.MkdirTemp("", "grox-gemini-*")
 	if err != nil {
 		return "", func() {}, err
@@ -550,12 +550,21 @@ func prepareGeminiHome(mcpURL, hookURL string) (string, func(), error) {
 			}
 		}
 	}
-	if mcpURL != "" {
+	if mcpURL != "" || len(serversConfig) > 0 {
 		servers, _ := settings["mcpServers"].(map[string]any)
 		if servers == nil {
 			servers = map[string]any{}
 		}
-		servers["grox"] = map[string]any{"url": mcpURL, "type": "http"}
+		if mcpURL != "" {
+			servers["grox"] = map[string]any{"url": mcpURL, "type": "http"}
+		}
+		for _, server := range serversConfig {
+			entry := map[string]any{"url": server.URL, "type": "http"}
+			if auth := mcpAuthorization(server); auth != "" {
+				entry["headers"] = map[string]any{"Authorization": auth}
+			}
+			servers[mcpConfigName(server.Name)] = entry
+		}
 		settings["mcpServers"] = servers
 	}
 	if hookURL != "" {
