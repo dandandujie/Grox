@@ -206,7 +206,7 @@ func (s *Service) ImportOpenMausPackage(raw string) (model.PackageImportResult, 
 		continuity, _ := routine["continuity"].(bool)
 		if _, err := s.CreateRoutine(model.RoutineInput{
 			BotID: bot.ID, Name: bot.Name + ": " + yamlString(routine, "name"), Prompt: prompt,
-			Cadence: cadence, TimeOfDay: clock, Continuity: continuity, Checks: yamlKeys(routine, "checks"), Enabled: false,
+			Cadence: cadence, TimeOfDay: clock, Continuity: continuity, Checks: yamlKeys(routine, "checks"), Overlap: yamlString(routine, "overlap"), Enabled: false,
 		}); err == nil {
 			result.Routines++
 		}

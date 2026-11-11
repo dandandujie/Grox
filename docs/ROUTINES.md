@@ -11,6 +11,12 @@ remains the default when continuity is off.
 Continuity is carried through openmaus.package v2 import/export. Overlap queueing, cloud execution, room
 goals and timeouts are not ported.
 
+## Busy and failure behavior
+
+While the bot is busy, **Skip this run** advances to the next scheduled time; **Retry shortly** checks again in
+about two minutes. This is a retry, not a FIFO queue. When a run fails, the next retry backs off from 15
+minutes, doubles per consecutive failure and caps at four hours; a completed run resets the counter.
+
 ## Runs check
 
 A routine can opt into **Only when there is news**. On a scheduled tick, Grox looks for other routines' runs

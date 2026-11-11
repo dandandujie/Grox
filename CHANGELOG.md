@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.54.0
+
+- Added routine busy policy (skip to next schedule or retry shortly) and failure backoff: 15 minutes,
+  doubling per consecutive failure, capped at four hours; success resets it.
+- Carried overlap through package v2 import/export and added the editor control.
+- Still not ported: FIFO queueing, cloud jobs, room goals, timeouts and mail/calendar checks.
+
 ## 0.53.0
 
 - Package v2 connections now retain their valueNames as required MCP values. They are visible in the MCP list

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.53.0"
+	AppVersion = "0.54.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -612,23 +612,25 @@ type ComposioTool struct {
 
 // Routine is a recurring task: a prompt sent to a bot on a schedule.
 type Routine struct {
-	ID           string    `json:"id"`
-	BotID        string    `json:"botId"`
-	Name         string    `json:"name"`
-	Prompt       string    `json:"prompt"`
-	Cadence      string    `json:"cadence"`
-	TimeOfDay    string    `json:"timeOfDay"`
-	Weekday      int       `json:"weekday"`
-	Enabled      bool      `json:"enabled"`
-	NextRun      time.Time `json:"nextRun"`
-	LastRun      time.Time `json:"lastRun,omitempty"`
-	LastStatus   string    `json:"lastStatus,omitempty"`
-	Continuity   bool      `json:"continuity,omitempty"`
-	Checks       []string  `json:"checks,omitempty"`
-	LastCheckAt  time.Time `json:"lastCheckAt,omitempty"`
-	LastThreadID string    `json:"lastThreadId,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID                  string    `json:"id"`
+	BotID               string    `json:"botId"`
+	Name                string    `json:"name"`
+	Prompt              string    `json:"prompt"`
+	Cadence             string    `json:"cadence"`
+	TimeOfDay           string    `json:"timeOfDay"`
+	Weekday             int       `json:"weekday"`
+	Enabled             bool      `json:"enabled"`
+	NextRun             time.Time `json:"nextRun"`
+	LastRun             time.Time `json:"lastRun,omitempty"`
+	LastStatus          string    `json:"lastStatus,omitempty"`
+	Continuity          bool      `json:"continuity,omitempty"`
+	Checks              []string  `json:"checks,omitempty"`
+	Overlap             string    `json:"overlap,omitempty"`
+	ConsecutiveFailures int       `json:"consecutiveFailures,omitempty"`
+	LastCheckAt         time.Time `json:"lastCheckAt,omitempty"`
+	LastThreadID        string    `json:"lastThreadId,omitempty"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // Run records one execution of a routine.
@@ -854,6 +856,7 @@ type RoutineInput struct {
 	Weekday    int      `json:"weekday"`
 	Continuity bool     `json:"continuity,omitempty"`
 	Checks     []string `json:"checks,omitempty"`
+	Overlap    string   `json:"overlap,omitempty"`
 	Enabled    bool     `json:"enabled"`
 }
 
@@ -866,6 +869,7 @@ type RoutinePatch struct {
 	Weekday    *int      `json:"weekday,omitempty"`
 	Continuity *bool     `json:"continuity,omitempty"`
 	Checks     *[]string `json:"checks,omitempty"`
+	Overlap    *string   `json:"overlap,omitempty"`
 	Enabled    *bool     `json:"enabled,omitempty"`
 }
 

@@ -326,6 +326,9 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 		for i := range s.st.State.Routines {
 			if s.st.State.Routines[i].ID == runRoutineID(s, runID) {
 				s.st.State.Routines[i].LastStatus = status
+				if status == "completed" {
+					s.st.State.Routines[i].ConsecutiveFailures = 0
+				}
 				break
 			}
 		}

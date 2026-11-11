@@ -623,6 +623,8 @@ export interface Routine {
   lastStatus?: string;
   continuity?: boolean;
   checks?: string[];
+  overlap?: string;
+  consecutiveFailures?: number;
   lastCheckAt?: string;
   lastThreadId?: string;
   createdAt: string;
@@ -639,6 +641,7 @@ export interface RoutineInput {
   weekday: number;
   continuity?: boolean;
   checks?: string[];
+  overlap?: string;
   enabled: boolean;
 }
 
@@ -651,6 +654,7 @@ export interface RoutinePatch {
   weekday?: number;
   continuity?: boolean;
   checks?: string[];
+  overlap?: string;
   enabled?: boolean;
 }
 

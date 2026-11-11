@@ -51,8 +51,9 @@ two products are code-identical.
   Automatic grants, avatars, routine continuity/cloud jobs, package signatures and a trust registry are not.
 - Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
   playbook import/review and the full package metadata are not.
-- Routines: scheduled tasks, opt-in continuous threads and a local runs check are ported. Mail/calendar
-  checks, the proactive brief, overlap queueing, cloud jobs, room goals and timeouts are not.
+- Routines: scheduled tasks, continuous threads, a local runs check, busy skip/retry and failure backoff are
+  ported. Mail/calendar checks, the proactive brief, FIFO queueing, cloud jobs, room goals and timeouts are
+  not.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
 - Jev/decision routing: Auto rooms can use OpenRouter chat, Workers AI Clef-flash or native Jev to pick one

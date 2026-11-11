@@ -10,6 +10,15 @@ import (
 )
 
 // CreateRoutine adds a scheduled task.
+func normalizeRoutineOverlap(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "queue":
+		return "queue"
+	default:
+		return "skip"
+	}
+}
+
 func normalizeRoutineChecks(values []string) []string {
 	out := []string{}
 	for _, value := range values {
@@ -39,7 +48,7 @@ func (s *Service) CreateRoutine(input model.RoutineInput) (model.Routine, error)
 	r := model.Routine{
 		ID: newID("routine"), BotID: input.BotID, Name: name, Prompt: prompt,
 		Cadence: normalCadence(input.Cadence), TimeOfDay: schedule.Clock(input.TimeOfDay),
-		Weekday: input.Weekday, Continuity: input.Continuity, Checks: normalizeRoutineChecks(input.Checks), Enabled: input.Enabled,
+		Weekday: input.Weekday, Continuity: input.Continuity, Checks: normalizeRoutineChecks(input.Checks), Overlap: normalizeRoutineOverlap(input.Overlap), Enabled: input.Enabled,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	r.NextRun = schedule.Next(r, now)
@@ -98,6 +107,9 @@ func (s *Service) UpdateRoutine(id string, patch model.RoutinePatch) (model.Rout
 	}
 	if patch.Checks != nil {
 		r.Checks = normalizeRoutineChecks(*patch.Checks)
+	}
+	if patch.Overlap != nil {
+		r.Overlap = normalizeRoutineOverlap(*patch.Overlap)
 	}
 	if patch.Enabled != nil {
 		r.Enabled = *patch.Enabled
@@ -253,6 +265,15 @@ func (s *Service) runRoutine(id string, scheduled bool) (model.SendResult, error
 		for i := range s.st.State.Routines {
 			if s.st.State.Routines[i].ID == id {
 				s.st.State.Routines[i].LastStatus = "failed"
+				s.st.State.Routines[i].ConsecutiveFailures++
+				delay := 15 * time.Minute
+				for n := 1; n < s.st.State.Routines[i].ConsecutiveFailures && n < 5; n++ {
+					delay *= 2
+				}
+				if delay > 4*time.Hour {
+					delay = 4 * time.Hour
+				}
+				s.st.State.Routines[i].NextRun = time.Now().Add(delay)
 			}
 		}
 		s.touchLocked()
@@ -303,7 +324,11 @@ func (s *Service) runDueRoutines() {
 			}
 		}
 		if busy {
-			r.NextRun = now.Add(2 * time.Minute)
+			if normalizeRoutineOverlap(r.Overlap) == "queue" {
+				r.NextRun = now.Add(2 * time.Minute)
+			} else {
+				r.NextRun = schedule.Next(*r, now)
+			}
 			r.UpdatedAt = now
 			changed = true
 			continue

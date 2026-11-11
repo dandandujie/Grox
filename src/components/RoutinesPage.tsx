@@ -67,6 +67,7 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
   const [weekday, setWeekday] = useState(1);
   const [continuity, setContinuity] = useState(false);
   const [checkRuns, setCheckRuns] = useState(false);
+  const [overlap, setOverlap] = useState<"skip" | "queue">("skip");
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -81,6 +82,7 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
     setWeekday(routine?.weekday || 1);
     setContinuity(Boolean(routine?.continuity));
     setCheckRuns(Boolean(routine?.checks?.includes("runs")));
+    setOverlap(routine?.overlap === "queue" ? "queue" : "skip");
     setEnabled(routine?.enabled ?? true);
     setError("");
     setBusy(false);
@@ -96,9 +98,9 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
     }
     setBusy(true);
     if (routine) {
-      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], enabled });
+      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], overlap, enabled });
     } else {
-      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], enabled });
+      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], overlap, enabled });
     }
     setBusy(false);
     onClose();
@@ -166,6 +168,15 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
             <span className="row-sub">Check other routines' finished runs first; skip the turn when nothing new finished.</span>
           </span>
           <Switch checked={checkRuns} label="Check routine runs" onChange={setCheckRuns} />
+        </div>
+        <div className="panel-field">
+          <span>While busy</span>
+          <Segmented
+            label="While busy"
+            value={overlap}
+            options={[{ value: "skip", label: "Skip this run" }, { value: "queue", label: "Retry shortly" }]}
+            onChange={setOverlap}
+          />
         </div>
         <div className="switch-row routine-enabled">
           <span className="row-copy">
