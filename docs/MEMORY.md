@@ -70,8 +70,10 @@ directly. The Memory tab has a Reload button for inspecting a tool-written note.
 
 There is a memory_tidy tool and a Memory tab Tidy action. Tidy moves the oldest dated entries into
 memory/topics/archive.md until MEMORY.md is within the 200-line / 24 KB budget. The archive is written
-before the memory file, manual header lines are kept, and the archive is excluded from recall. There is no
-memory_delete or automatic scheduled upkeep yet.
+before the memory file, manual header lines are kept, and the archive is excluded from recall.
+
+memory_forget and the Memory tab Forget field remove matching top-level entries (three-character minimum)
+and copy them to the archive with a forgotten marker. Automatic scheduled upkeep is not ported yet.
 
 ## API
 

@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.18.0"
+	AppVersion = "0.19.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -120,6 +120,12 @@ type MemoryState struct {
 	LimitBytes  int           `json:"limitBytes"`
 	LimitLines  int           `json:"limitLines"`
 	Topics      []MemoryTopic `json:"topics"`
+}
+
+// MemoryForgetResult reports a forget pass over MEMORY.md.
+type MemoryForgetResult struct {
+	Removed  int `json:"removed"`
+	Archived int `json:"archived"`
 }
 
 // MemoryTidyResult reports an archive pass over MEMORY.md.

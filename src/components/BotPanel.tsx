@@ -636,6 +636,8 @@ function MemoryTab({ bot }: { bot: Bot }) {
   const [topicDraft, setTopicDraft] = useState("");
   const [topicSaving, setTopicSaving] = useState(false);
   const [topicError, setTopicError] = useState("");
+  const [forgetQuery, setForgetQuery] = useState("");
+  const [forgetting, setForgetting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -663,6 +665,25 @@ function MemoryTab({ bot }: { bot: Bot }) {
       setMemory(await backend.getMemory(bot.id));
     } catch (cause) {
       toast({ kind: "error", title: "Memory switch not updated", body: cause instanceof Error ? cause.message : "Try again." });
+    }
+  };
+
+  const forget = async () => {
+    if (forgetQuery.trim().length < 3) return;
+    setForgetting(true);
+    try {
+      const result = await backend.forgetMemory(bot.id, forgetQuery.trim());
+      if (result.removed > 0) {
+        setForgetQuery("");
+        await load();
+        toast({ kind: "success", title: "Memory forgotten", body: result.removed + " entries moved to topics/archive.md." });
+      } else {
+        toast({ kind: "info", title: "Nothing matched", body: "No top-level MEMORY.md entries contain that phrase." });
+      }
+    } catch (cause) {
+      toast({ kind: "error", title: "Could not forget", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setForgetting(false);
     }
   };
 
@@ -791,6 +812,15 @@ function MemoryTab({ bot }: { bot: Bot }) {
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving || loading || !memory}>
             {saving ? <Loader2 size={14} className="spin" /> : null} Save memory
           </button>
+        </div>
+      </section>
+
+      <section className="panel-card">
+        <div className="panel-card-title"><span>Forget</span><span className="avatar-seed">MEMORY.md entries</span></div>
+        <p className="panel-note">Remove top-level entries containing a phrase. A copy stays in topics/archive.md for audit.</p>
+        <div className="memory-forget-row">
+          <input value={forgetQuery} onChange={(event) => setForgetQuery(event.target.value)} placeholder="phrase to forget" />
+          <button type="button" className="btn btn-danger" onClick={() => void forget()} disabled={forgetting || forgetQuery.trim().length < 3}>{forgetting ? "Forgetting…" : "Forget"}</button>
         </div>
       </section>
 

@@ -256,6 +256,17 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		items = append(items, map[string]any{
+			"name":        "memory_forget",
+			"description": "Remove matching top-level MEMORY.md entries and keep a copy in topics/archive.md. Use only when the person asked to forget something.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string", "description": "At least three characters to match entries."},
+				},
+				"required": []string{"query"},
+			},
+		})
+		items = append(items, map[string]any{
 			"name":        "memory_tidy",
 			"description": "Archive the oldest dated MEMORY.md entries when the memory file is over the 200-line / 24 KB load budget.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
@@ -291,6 +302,16 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			writeMCP(w, id, nil, &mcpError{Code: -32602, Message: "tool name is required"})
 			return
 		}
+		if slug == "memory_forget" {
+			value, err := s.memoryForgetTool(target, args)
+			if err != nil {
+				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
+				return
+			}
+			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": value}}}, nil)
+			return
+		}
+
 		if slug == "memory_tidy" {
 			value, err := s.memoryTidyTool(target)
 			if err != nil {

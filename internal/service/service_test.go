@@ -641,14 +641,14 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 4 || req.ExecuteTool == nil {
+	if len(req.Tools) != 5 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
 	}
 	names := map[string]bool{}
 	for _, tool := range req.Tools {
 		names[tool.Name] = true
 	}
-	if !names["ask_user"] || !names["memory_update"] || !names["memory_tidy"] || !names["GITHUB_GET_REPO"] {
+	if !names["ask_user"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
 		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
@@ -1409,5 +1409,46 @@ func TestMemoryTopicReadSaveDelete(t *testing.T) {
 	}
 	if _, err := svc.ReadMemoryTopic(bot.ID, "../secret"); err == nil {
 		t.Fatal("path traversal should be refused")
+	}
+}
+
+func TestForgetMemoryArchivesMatches(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Forget Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.appendMemory(bot.ID, "The launch is Tuesday.", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.appendMemory(bot.ID, "The office is in Brooklyn.", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.appendMemory(bot.ID, "Priya owns the launch email.", ""); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.ForgetMemory(bot.ID, "launch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Removed != 2 || result.Archived != 2 {
+		t.Fatalf("forget result = %+v", result)
+	}
+	state, err := svc.GetMemory(bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(state.Content, "launch") || !strings.Contains(state.Content, "Brooklyn") {
+		t.Fatalf("memory after forget = %q", state.Content)
+	}
+	archive, err := os.ReadFile(filepath.Join(filepath.Dir(state.Path), "topics", "archive.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(archive), "forgotten") || !strings.Contains(string(archive), "Priya") {
+		t.Fatalf("archive after forget = %s", archive)
+	}
+	if _, err := svc.ForgetMemory(bot.ID, "la"); err == nil {
+		t.Fatal("expected too-short forget query to fail")
 	}
 }

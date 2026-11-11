@@ -766,3 +766,6 @@
 .memory-head-actions { display: flex; align-items: center; gap: 8px; }
 .memory-topic { width: 100%; text-align: left; color: inherit; cursor: pointer; }
 .memory-topic:hover { border-color: var(--hairline); background: var(--raised); }
+.memory-forget-row { display: flex; gap: 7px; margin-top: 9px; }
+.memory-forget-row input { flex: 1; min-width: 0; height: 32px; padding: 0 9px; border: 1px solid var(--edge); border-radius: 7px; background: var(--inset); color: var(--ink); font-size: 11px; }
+.memory-forget-row input:focus { outline: none; border-color: var(--accent); }

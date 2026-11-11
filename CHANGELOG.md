@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0
+
+- Added memory_forget and a Memory tab Forget field. Matching top-level MEMORY.md entries are removed and
+  copied to topics/archive.md with a forgotten marker.
+- Requires at least three characters; no match is a no-op; the archive write happens before the memory
+  rewrite.
+- Added memory_forget MCP/API tools and TestForgetMemoryArchivesMatches.
+- Still not ported: automatic capture, model-ranked recall and scheduled upkeep.
+
 ## 0.18.0
 
 - Added editable memory topics: click a topic in the Memory tab to open its full markdown, save it with a

@@ -334,6 +334,12 @@ export interface MCPServerPatch {
   enabled?: boolean;
 }
 
+/** MemoryForgetResult reports a forget pass over MEMORY.md. */
+export interface MemoryForgetResult {
+  removed: number;
+  archived: number;
+}
+
 /**
  * MemoryState is the bot's editable MEMORY.md and the read-only topic index.
  * The bytes live under <dataDir>/memory/<botID>; only MemoryOff is in state.
@@ -792,6 +798,14 @@ export const Grox = {
   },
   exportWorkspace(): Promise<string> {
     return call("Grox.ExportWorkspace");
+  },
+  /**
+   * ForgetMemory removes matching top-level MEMORY.md entries and appends them
+   * to topics/archive.md with a forgotten marker. Topic files are edited through
+   * their own editor; this tool is deliberately limited to MEMORY.md.
+   */
+  forgetMemory(botID: string, query: string): Promise<MemoryForgetResult> {
+    return call("Grox.ForgetMemory", botID, query);
   },
   /** GetMemory returns the editable MEMORY.md plus the read-only topic index. */
   getMemory(botID: string): Promise<MemoryState> {

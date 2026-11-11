@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  MCPServer, MCPServerInput, MCPServerPatch, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  MCPServer, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -607,6 +607,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
 
   async deleteMemoryTopic(botId: string, name: string): Promise<void> {
     this.memoryTopics.delete(botId + ":" + name);
+  }
+
+  async forgetMemory(_botId: string, _query: string): Promise<MemoryForgetResult> {
+    return { removed: 0, archived: 0 };
   }
 
   async tidyMemory(botId: string): Promise<MemoryTidyResult> {
