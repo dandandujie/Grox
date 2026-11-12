@@ -52,7 +52,7 @@ Import is additive. It is not a merge and it does not carry a host or organizati
 ## Not ported
 
 - Organization library and admin packages.
-- Presets and complete Markdown team files from BotMRR.
+- Presets and Markdown team files.
 - Signed packages, package ids/versions and update-in-place releases.
 - Photo/avatar images; Grox portraits are generated from the bot name.
 

@@ -1,4 +1,4 @@
-# OpenMausBot feature port ledger
+# Feature scope ledger
 
 This ledger tracks the port from the reference implementation at
 OpenMausBot commit f9c25dd. Grox is an independent Go + MyGo project; the ledger is not a claim that the
@@ -11,7 +11,7 @@ two products are code-identical.
 - Claude PermissionRequest broker and Grok / Codex / Gemini per-turn tool hooks.
 - Per-turn streamable-HTTP MCP endpoint exposing Composio tools to every CLI engine.
 - Composio app connections, OAuth, live tool runner, and automatic tools for Auto/Full API bots.
-- Bot groups/channels with @mention routing, leads, shared folder and responder rules.
+- Bot groups/channels with @mention routing, leads and a shared folder.
 - Attachments and image input, streaming replies, approval cards, option cards, activity.
 - Local computer (screenshot, files, terminal) and real SSH computer.
 - Voice calls using the system speech service; private LAN phone companion.
@@ -41,16 +41,12 @@ two products are code-identical.
 - Usage: OpenAI-compatible API turns and Claude/Grok result events record input/output/total tokens, and
   optional local per-million pricing labels cost. Codex/Gemini usage, provider price tables and budgets are
   not shown.
-- Onboarding/import: a local first-run welcome and a Grok Bot import with split-document merging, isolated
-  per-bot skills, event-routine notes, and team package import exist. Package v2 conversion of a Grok export
-  is not ported.
+- Onboarding/import: a local first-run welcome and team package import exist. Hosted onboarding and legacy
+  import flows are not included.
 
-## Not yet ported (local code in the reference repo)
+- Team packages: channel-level export/import of bots, enabled skills, memory and routines, plus local
+  ed25519 signing and tamper verification, are ported. Organization libraries and a trust registry are not.
 
-- Team packages: channel-level export/import, local ed25519 signing for both grox.team and
-  openmaus.package v2, BotMRR Markdown v1 and v2 JSON import/export are ported, including approval mapping
-  and required value names. Automatic grants, avatars, routine cloud jobs and an organization trust registry
-  are not.
 - Playbooks: per-bot file playbooks with trigger selection and prompt injection are ported. Package-authored
   playbook import/review and the full package metadata are not.
 - Routines: scheduled tasks, continuous threads, a local runs check, busy skip/queued retry and failure
@@ -58,10 +54,6 @@ two products are code-identical.
   timeouts are not.
 - The full memory upkeep/recall lifecycle (manual MEMORY.md and topic index are ported).
 - App-event triggers, trigger broker and automatic delivery retries.
-- Jev/decision routing: Auto rooms can use OpenRouter chat, Workers AI Clef-flash or native Jev to pick one
-  member, with a 0.6 threshold, lead fallback, a metadata-only decision log and decide/extract tools.
-  OpenRouter's decisions API, the several-members option, Workers Clairic extraction and inbox triage are
-  not ported.
 - MCP OAuth/dynamic registration, connector requirements and full vault-secret handling.
 - Saved steps, extractor, attachment extraction, browser automation and computer-ask.
 - Email, phone numbers, meetings, Postiz/social publishing and related connectors.
@@ -81,10 +73,17 @@ local-only binary cannot create:
 
 Grox labels these as absent rather than returning fake success.
 
-## Port order
+## Deliberate scope
 
-1. Skills, memory files and team packages (local, high leverage).
-2. Webhook triggers, trigger broker and usage accounting.
-3. MCP vault / local stdio / per-tool policy, artifacts.
-4. Headless API/MCP surface, onboarding/import.
-5. Hosted features only when a real backend is available.
+This build is intentionally smaller than the reference feature list:
+
+- Core: roster, chat, engines, channels, routines, memory, skills, approvals, local/SSH computer, phone
+  companion, MCP and Composio.
+- Selected add-ons: webhooks, team packages, playbooks, automation API, departments, presets, onboarding,
+  usage labels and OAuth.
+- Removed to keep the app maintainable: Grok Bot migration, BotMRR Markdown import, openmaus.package v2,
+  the experimental decision-provider/decide/extract path, and unreachable preset extensions.
+- Hosted-only services remain labelled absent.
+
+The rule is simple: if a feature cannot be implemented and verified by the local Go service, it is not
+presented as working.

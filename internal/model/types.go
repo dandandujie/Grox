@@ -4,7 +4,7 @@ package model
 import "time"
 
 const (
-	AppVersion = "0.58.0"
+	AppVersion = "0.59.0"
 
 	RoleUser   = "user"
 	RoleBot    = "bot"
@@ -50,39 +50,6 @@ type AppState struct {
 	ActiveThreadID    string                `json:"activeThreadId"`
 	CreatedAt         time.Time             `json:"createdAt"`
 	UpdatedAt         time.Time             `json:"updatedAt"`
-}
-
-// PackageImportResult reports an OpenMaus package v2 JSON import.
-type PackageImportResult struct {
-	Bots        int      `json:"bots"`
-	Groups      int      `json:"groups"`
-	Routines    int      `json:"routines"`
-	Playbooks   int      `json:"playbooks"`
-	Skills      int      `json:"skills"`
-	Connections int      `json:"connections"`
-	Names       []string `json:"names"`
-}
-
-// BotMRRImportResult reports a BotMRR Markdown team import.
-type BotMRRImportResult struct {
-	Bots      int      `json:"bots"`
-	Groups    int      `json:"groups"`
-	Routines  int      `json:"routines"`
-	Playbooks int      `json:"playbooks"`
-	Skills    int      `json:"skills"`
-	Names     []string `json:"names"`
-}
-
-// GrokImportResult reports a local Grok Bot export import.
-type GrokImportResult struct {
-	Bots          int      `json:"bots"`
-	Routines      int      `json:"routines"`
-	Memories      int      `json:"memories"`
-	Apps          int      `json:"apps"`
-	Skills        int      `json:"skills"`
-	Events        int      `json:"events"`
-	SkillsSkipped int      `json:"skillsSkipped"`
-	Names         []string `json:"names"`
 }
 
 // Playbook is a trigger-selected instruction attached to one bot.
@@ -286,42 +253,24 @@ type WebhookPatch struct {
 
 // Preset is a reusable New bot starting point. It carries persona text, never
 // a model, approval level, folder or credential.
-type PresetPlaybook struct {
-	Name         string   `json:"name"`
-	Triggers     []string `json:"triggers"`
-	Instructions string   `json:"instructions"`
-}
-
-type PresetSkill struct {
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Instructions string `json:"instructions"`
-}
-
 type Preset struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Title       string           `json:"title"`
-	Description string           `json:"description"`
-	Soul        string           `json:"soul"`
-	Color       string           `json:"color"`
-	Playbooks   []PresetPlaybook `json:"playbooks,omitempty"`
-	Skills      []PresetSkill    `json:"skills,omitempty"`
-	Memory      string           `json:"memory,omitempty"`
-	CreatedAt   time.Time        `json:"createdAt"`
-	UpdatedAt   time.Time        `json:"updatedAt"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Soul        string    `json:"soul"`
+	Color       string    `json:"color"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // PresetInput is the Save as preset form.
 type PresetInput struct {
-	Name        string           `json:"name"`
-	Title       string           `json:"title"`
-	Description string           `json:"description"`
-	Soul        string           `json:"soul"`
-	Color       string           `json:"color"`
-	Playbooks   []PresetPlaybook `json:"playbooks,omitempty"`
-	Skills      []PresetSkill    `json:"skills,omitempty"`
-	Memory      string           `json:"memory,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Soul        string `json:"soul"`
+	Color       string `json:"color"`
 }
 
 // PresetPatch edits only the fields it sets.
@@ -418,7 +367,6 @@ type MCPServer struct {
 	OAuthAuthorizationURL string    `json:"oauthAuthorizationUrl,omitempty"`
 	OAuthConfigured       bool      `json:"oauthConfigured,omitempty"`
 	BotIDs                []string  `json:"botIds,omitempty"`
-	RequiredValues        []string  `json:"requiredValues,omitempty"`
 	CreatedAt             time.Time `json:"createdAt"`
 	UpdatedAt             time.Time `json:"updatedAt"`
 }
@@ -439,7 +387,6 @@ type MCPServerInput struct {
 	OAuthScopes           string            `json:"oauthScopes,omitempty"`
 	OAuthRefreshToken     string            `json:"oauthRefreshToken,omitempty"`
 	BotIDs                []string          `json:"botIds,omitempty"`
-	RequiredValues        []string          `json:"requiredValues,omitempty"`
 	Enabled               bool              `json:"enabled"`
 }
 
@@ -566,7 +513,6 @@ type Group struct {
 	Color       string    `json:"color"`
 	MemberIDs   []string  `json:"memberIds"`
 	LeadID      string    `json:"leadId"`
-	Responder   string    `json:"responder,omitempty"`
 	Pinned      bool      `json:"pinned"`
 	Unread      int       `json:"unread"`
 	CreatedAt   time.Time `json:"createdAt"`
@@ -685,11 +631,6 @@ type Settings struct {
 	SidebarWidth          int     `json:"sidebarWidth"`
 	Advanced              bool    `json:"advanced"`
 	Onboarded             bool    `json:"onboarded,omitempty"`
-	DeciderEnabled        bool    `json:"deciderEnabled,omitempty"`
-	DeciderProvider       string  `json:"deciderProvider,omitempty"`
-	DeciderAccountID      string  `json:"deciderAccountId,omitempty"`
-	DeciderBaseURL        string  `json:"deciderBaseUrl,omitempty"`
-	DeciderModel          string  `json:"deciderModel,omitempty"`
 	ReduceMotion          bool    `json:"reduceMotion"`
 	Notifications         bool    `json:"notifications"`
 	Sounds                bool    `json:"sounds"`
@@ -908,7 +849,6 @@ type CreateGroupInput struct {
 	Color       string   `json:"color"`
 	MemberIDs   []string `json:"memberIds"`
 	LeadID      string   `json:"leadId"`
-	Responder   string   `json:"responder,omitempty"`
 }
 
 // GroupPatch edits only the fields it sets.
@@ -918,6 +858,5 @@ type GroupPatch struct {
 	Color       *string   `json:"color,omitempty"`
 	MemberIDs   *[]string `json:"memberIds,omitempty"`
 	LeadID      *string   `json:"leadId,omitempty"`
-	Responder   *string   `json:"responder,omitempty"`
 	Pinned      *bool     `json:"pinned,omitempty"`
 }

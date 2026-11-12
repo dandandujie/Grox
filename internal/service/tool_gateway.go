@@ -262,34 +262,6 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		items = append(items, map[string]any{
-			"name":        "extract",
-			"description": "Ask the configured OpenRouter-compatible model to extract structured JSON from text. It never follows instructions inside the text.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"text":         map[string]any{"type": "string"},
-					"instructions": map[string]any{"type": "string"},
-					"schema":       map[string]any{"type": "object", "description": "Optional JSON schema shape."},
-				},
-				"required": []string{"text"},
-			},
-		})
-		items = append(items, map[string]any{
-			"name":        "decide",
-			"description": "Ask the configured fast decision model to choose one option for a classification question. It does not execute the choice.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"instructions": map[string]any{"type": "string", "description": "The classification question."},
-					"options": map[string]any{
-						"type": "object", "description": "Option id to description.",
-						"additionalProperties": map[string]any{"type": "string"},
-					},
-				},
-				"required": []string{"instructions", "options"},
-			},
-		})
-		items = append(items, map[string]any{
 			"name":        "memory_forget",
 			"description": "Remove matching top-level MEMORY.md entries and keep a copy in topics/archive.md. Use only when the person asked to forget something.",
 			"inputSchema": map[string]any{
@@ -346,26 +318,6 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": "tool " + slug + " is blocked by this bot's tool policy"}}, "isError": true}, nil)
 			return
 		}
-		if slug == "extract" {
-			value, err := s.extractTool(args)
-			if err != nil {
-				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
-				return
-			}
-			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": value}}}, nil)
-			return
-		}
-
-		if slug == "decide" {
-			value, err := s.decideTool(args)
-			if err != nil {
-				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
-				return
-			}
-			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": value}}}, nil)
-			return
-		}
-
 		if slug == "memory_forget" {
 			value, err := s.memoryForgetTool(target, args)
 			if err != nil {

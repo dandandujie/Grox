@@ -8,8 +8,8 @@ A routine can opt into **Keep one thread**. The first run creates a task thread,
 same thread. If that thread is still busy, a new run is refused instead of overlapping. A fresh task thread
 remains the default when continuity is off.
 
-Continuity is carried through openmaus.package v2 import/export. Overlap queueing, cloud execution, room
-goals and timeouts are not ported.
+Continuity and checks are local workspace state; they are not carried by the current team package format. Overlap
+queueing, cloud execution, room goals and timeouts are not ported.
 
 ## Busy and failure behavior
 

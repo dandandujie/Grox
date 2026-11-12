@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, Download, Hash, MessagesSquare, Plus, Trash2, Users, X } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
-import { IconButton, Segmented } from "@/components/ui";
+import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
 
@@ -12,14 +12,12 @@ export function GroupPanel() {
   const [description, setDescription] = useState(activeGroup?.description ?? "");
   const [memberIds, setMemberIds] = useState<string[]>(activeGroup?.memberIds ?? []);
   const [leadId, setLeadId] = useState(activeGroup?.leadId ?? "");
-  const [responder, setResponder] = useState(activeGroup?.responder === "auto" ? "auto" : "lead");
 
   useEffect(() => {
     setName(activeGroup?.name ?? "");
     setDescription(activeGroup?.description ?? "");
     setMemberIds(activeGroup?.memberIds ?? []);
     setLeadId(activeGroup?.leadId ?? "");
-    setResponder(activeGroup?.responder === "auto" ? "auto" : "lead");
   }, [activeGroup?.id]);
 
   if (!activeGroup) return null;
@@ -37,7 +35,7 @@ export function GroupPanel() {
 
   const saveRoster = () => {
     if (memberIds.length === 0) return;
-    void updateGroup(activeGroup.id, { memberIds, leadId: memberIds.includes(leadId) ? leadId : memberIds[0], responder });
+    void updateGroup(activeGroup.id, { memberIds, leadId: memberIds.includes(leadId) ? leadId : memberIds[0]});
   };
 
   const toggle = (id: string) => {
@@ -49,25 +47,6 @@ export function GroupPanel() {
       }
       return [...previous, id];
     });
-  };
-
-  const exportPackage = async () => {
-    if (!activeGroup) return;
-    try {
-      const raw = await backend.exportOpenMausPackage(activeGroup.id);
-      const blob = new Blob([raw], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = activeGroup.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".openmaus.json";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      toast({ kind: "success", title: "OpenMaus package exported", body: "Agents, skills, playbooks, memory, routines and disabled connections are in the file." });
-    } catch (cause) {
-      toast({ kind: "error", title: "Could not export the package", body: cause instanceof Error ? cause.message : "Try again." });
-    }
   };
 
   const exportTeam = async () => {
@@ -121,9 +100,6 @@ export function GroupPanel() {
           <button type="button" className="btn btn-secondary group-export" onClick={() => void exportTeam()}>
             <Download size={14} /> Export team package
           </button>
-          <button type="button" className="btn btn-secondary group-export" onClick={() => void exportPackage()}>
-            <Download size={14} /> Export OpenMaus package
-          </button>
         </section>
 
         <section className="group-section">
@@ -173,16 +149,6 @@ export function GroupPanel() {
                 </div>
               );
             })}
-          </div>
-          <div className="panel-field">
-            <span>Who answers</span>
-            <Segmented
-              label="Who answers"
-              value={responder}
-              options={[{ value: "lead", label: "Lead" }, { value: "auto", label: "Auto (fast decisions)" }]}
-              onChange={setResponder}
-            />
-            <p className="panel-note">Auto asks the decision model only for messages that @mention nobody; any failure falls back to the lead.</p>
           </div>
           <button type="button" className="btn btn-secondary group-save" onClick={saveRoster} disabled={memberIds.length === 0}>
             Save roster

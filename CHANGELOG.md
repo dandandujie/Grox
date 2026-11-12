@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.59.0
+
+Scope cleanup. The project is now focused on a stable local-first desktop app and selected add-ons instead of
+chasing every reference feature.
+
+- Removed Grok Bot import, BotMRR Markdown import, OpenMaus package v2 import/export and their docs/UI.
+- Removed the experimental decision-provider layer (Auto room routing, decide/extract tools, decision log)
+  and the extra decision keys/settings.
+- Removed unreachable preset extras and package required-value fields; presets are persona-only again.
+- Removed the YAML dependency, unused code and stale documentation.
+- Fixed the continuous-routine test cleanup race.
+- Kept the core roster/chat/engines/channels/routines/memory/skills/approvals/computer/phone/MCP/Composio
+  surfaces plus webhooks, team packages, playbooks, automation API, departments, presets, onboarding and
+  token usage.
+- Hosted cloud computers, organization admin/billing and native mobile remain explicitly absent.
+
 ## 0.58.0
 
 - openmaus.package v2 export is now signed with the local ed25519 team key; import verifies present

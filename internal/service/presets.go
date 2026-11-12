@@ -53,7 +53,6 @@ func (s *Service) CreatePreset(input model.PresetInput) (model.Preset, error) {
 	preset := model.Preset{
 		ID: newID("preset"), Name: s.uniquePresetNameLocked(name), Title: strings.TrimSpace(input.Title),
 		Description: strings.TrimSpace(input.Description), Soul: strings.TrimSpace(input.Soul), Color: color,
-		Playbooks: input.Playbooks, Skills: input.Skills, Memory: strings.TrimSpace(input.Memory),
 		CreatedAt: now, UpdatedAt: now,
 	}
 	s.st.State.Presets = append(s.st.State.Presets, preset)

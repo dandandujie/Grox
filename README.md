@@ -153,17 +153,13 @@ The table below is intentionally blunt.
 | Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines, plus local ed25519 signatures and tamper verification; additive import. See [team packages](docs/TEAMS.md) |
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
 | MCP servers | **Working locally**: remote HTTP/HTTPS with bearer token, OAuth authorization-code/PKCE or client credentials/refresh tokens, custom headers and per-bot scope, or local stdio; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
-| New bot presets | **Working locally**: seeded and saved presets with playbooks, isolated skills and starter notes; profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
+| New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
 | Departments | **Working locally**: standalone shelves with add/rename/delete, empty shelves in the sidebar, bot counts, and General protection. See [departments](docs/DEPARTMENTS.md) |
 | Onboarding | **Working locally**: first-run welcome with create-bot, demo and engine actions; resettable from About. See [onboarding](docs/ONBOARDING.md) |
 | Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
-| Fast room decisions | **Partial**: Auto rooms use OpenRouter, Workers AI or native Jev to pick one member, with a 0.6 threshold, lead fallback, a metadata-only decision log, and bot decide/extract tools. See [decisions](docs/DECIDER.md) |
 | Playbooks | **Partial**: per-bot Markdown playbooks selected by trigger words and injected as bounded process guidance. See [playbooks](docs/PLAYBOOKS.md) |
-| Continuous routines | **Partial**: continuous thread, local runs check, queued retry, failure backoff, carried through package v2. See [routines](docs/ROUTINES.md) |
+| Continuous routines | **Partial**: continuous thread, local runs check, queued retry and failure backoff. See [routines](docs/ROUTINES.md) |
 | Automation API | **Working locally**: optional loopback JSON API with bearer token, state/bots/groups/routines reads, SSE events, messages, approvals, answers and routine runs. See [API](docs/API.md) |
-| Grok Bot import | **Partial**: paste one or split Grok Bot exports to create bots, isolated enabled skills, memory, paused simple routines, event notes and disabled MCP servers. See [import](docs/GROK-IMPORT.md) |
-| BotMRR teams | **Partial**: import BotMRR Markdown agents, isolated skills, playbooks, rooms and paused routines. See [BotMRR](docs/BOTMRR.md) |
-| Package v2 | **Partial**: signed import/export of openmaus.package v2 agents, seed memory, isolated skills, playbooks, rooms, paused routines, disabled connections, required value names and presets. See [package v2](docs/PACKAGE-V2.md) |
 | Token usage | **Partial**: API-engine and Claude/Grok result usage shows input/output/total tokens; optional local pricing adds a cost label. Codex/Gemini usage and provider price tables are unlabelled. See [usage](docs/USAGE.md) |
 
 > In other words: the conversation, roster, models, channels, attachments, voice, local and SSH computers,
@@ -173,9 +169,10 @@ The table below is intentionally blunt.
 > This repository is an independent project; it is not affiliated with xAI, Anthropic, OpenAI, Google,
 > Manus, Meta, or the OpenMausBot project.
 
-See the [OpenMausBot feature port ledger](docs/PARITY.md) for the exact ported / partial / hosted-only
-boundary. The ledger is deliberately explicit: a local binary cannot truthfully port a hosted cloud
-computer, relay, billing service or organization admin by itself.
+See the [feature ledger](docs/PARITY.md) for the exact local / partial / hosted-only boundary. This build
+deliberately prioritizes a stable core and a small set of useful add-ons; experimental migration and
+decision-provider paths were removed rather than kept half-finished. A local binary cannot truthfully port a
+hosted cloud computer, relay, billing service or organization admin by itself.
 
 ## How it works
 

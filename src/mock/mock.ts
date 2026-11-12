@@ -1,7 +1,7 @@
 import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
-  APIInfo, BotMRRImportResult, Department, GrokImportResult, PackageImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
+  APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
   TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
@@ -663,18 +663,6 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
 
   private playbooks = new Map<string, Playbook[]>();
 
-  async importOpenMausPackage(_raw: string): Promise<PackageImportResult> {
-    throw new Error("Package import is only available in the desktop app.");
-  }
-
-  async importBotMRR(_raw: string): Promise<BotMRRImportResult> {
-    throw new Error("BotMRR import is only available in the desktop app.");
-  }
-
-  async importGrokBot(_raw: string): Promise<GrokImportResult> {
-    throw new Error("Grok Bot import is only available in the desktop app.");
-  }
-
   async listPlaybooks(botId: string): Promise<Playbook[]> {
     return this.playbooks.get(botId) ?? [];
   }
@@ -731,10 +719,6 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
     throw new Error("Webhooks are only available in the desktop app.");
   }
 
-  async exportOpenMausPackage(_groupId: string): Promise<string> {
-    throw new Error("Package export is only available in the desktop app.");
-  }
-
   async exportTeam(_groupId: string): Promise<string> {
     throw new Error("Team packages are exported by the desktop app.");
   }
@@ -746,8 +730,6 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   async listPresets(): Promise<Preset[]> {
     return clone(this.state.presets ?? []);
   }
-
-  async applyPreset(_botId: string, _presetId: string): Promise<void> {}
 
   async createPreset(input: PresetInput): Promise<Preset> {
     const now = nowISO();

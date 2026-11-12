@@ -1,7 +1,7 @@
 import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
-  APIInfo, BotMRRImportResult, Department, GrokImportResult, PackageImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
+  APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
   SecretStatus, SendResult, Settings, Skill, Thread, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
@@ -57,9 +57,6 @@ export interface Backend {
   listPlaybooks(botId: string): Promise<Playbook[]>;
   savePlaybook(botId: string, input: PlaybookInput): Promise<Playbook>;
   deletePlaybook(botId: string, id: string): Promise<void>;
-  importGrokBot(raw: string): Promise<GrokImportResult>;
-  importBotMRR(raw: string): Promise<BotMRRImportResult>;
-  importOpenMausPackage(raw: string): Promise<PackageImportResult>;
   beginMCPOAuth(id: string): Promise<MCPOAuthStart>;
   createDepartment(name: string): Promise<Department>;
   renameDepartment(id: string, name: string): Promise<Department>;
@@ -74,7 +71,6 @@ export interface Backend {
   setAPIEnabled(enabled: boolean): Promise<APIInfo>;
   rotateAPIToken(): Promise<APIInfo>;
   exportTeam(groupId: string): Promise<string>;
-  exportOpenMausPackage(groupId: string): Promise<string>;
   importTeam(raw: string): Promise<TeamImportResult>;
   listMCPServers(): Promise<MCPServer[]>;
   createMCPServer(input: MCPServerInput): Promise<MCPServer>;
@@ -82,7 +78,6 @@ export interface Backend {
   deleteMCPServer(id: string): Promise<void>;
   listPresets(): Promise<Preset[]>;
   createPreset(input: PresetInput): Promise<Preset>;
-  applyPreset(botId: string, presetId: string): Promise<void>;
   updatePreset(id: string, patch: PresetPatch): Promise<Preset>;
   deletePreset(id: string): Promise<void>;
   setPhoneEnabled(enabled: boolean): Promise<PhoneInfo>;
@@ -112,7 +107,7 @@ export interface Backend {
 export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
-  APIInfo, BotMRRImportResult, Department, GrokImportResult, PackageImportResult, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
+  APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
   RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult,
   Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";

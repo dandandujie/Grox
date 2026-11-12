@@ -644,14 +644,14 @@ func TestEngineRequestAttachesComposioTools(t *testing.T) {
 	bot := model.Bot{Name: "Auto", Approval: model.ApprovalAuto, ModelID: "gpt-5.2"}
 	thread := model.Thread{ID: "t", Messages: []model.Message{{ID: "m", Role: model.RoleUser, Text: "hi"}}}
 	req, _ := svc.engineRequestLocked(&bot, &thread, "hi", "")
-	if len(req.Tools) != 7 || req.ExecuteTool == nil {
+	if len(req.Tools) != 5 || req.ExecuteTool == nil {
 		t.Fatalf("auto tools = %+v", req.Tools)
 	}
 	names := map[string]bool{}
 	for _, tool := range req.Tools {
 		names[tool.Name] = true
 	}
-	if !names["ask_user"] || !names["decide"] || !names["extract"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
+	if !names["ask_user"] || !names["memory_update"] || !names["memory_tidy"] || !names["memory_forget"] || !names["GITHUB_GET_REPO"] {
 		t.Fatalf("auto tools missing built-ins = %+v", req.Tools)
 	}
 	bot.Approval = model.ApprovalAsk
@@ -2134,51 +2134,6 @@ func TestMCPServerOAuthAuthorizationCode(t *testing.T) {
 	}
 }
 
-func TestAutoRoomDecisionChoosesMember(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		if r.Header.Get("Authorization") != "Bearer decision-key" {
-			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
-		}
-		w.Header().Set("Content-Type", "application/json")
-		payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": `{"choice":"bot-omiii","pTop":0.94}`}}}})
-		_, _ = w.Write(payload)
-	}))
-	defer server.Close()
-	svc, dataDir, events := newTestService(t)
-	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
-		t.Fatal(err)
-	}
-	settings := svc.st.State.Settings
-	settings.DeciderEnabled = true
-	settings.DeciderBaseURL = server.URL
-	settings.DeciderModel = "test-decider"
-	if _, err := svc.UpdateSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-	auto := "auto"
-	if _, err := svc.UpdateGroup("group-launch", model.GroupPatch{Responder: &auto}); err != nil {
-		t.Fatal(err)
-	}
-	group := svc.st.State.Groups[0]
-	thread := group.Threads[0]
-	if _, err := svc.SendGroup(group.ID, thread.ID, "Who should take the pricing question?"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, events, 5*time.Second, "the auto-routed group turn", func(ev model.Event) bool {
-		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-omiii" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
-	})
-	logData, err := os.ReadFile(filepath.Join(dataDir, "decider-log", time.Now().Format("2006-01")+".ndjson"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(logData), `"choice":"bot-omiii"`) || strings.Contains(string(logData), "pricing question") {
-		t.Fatalf("decision log = %s", logData)
-	}
-}
-
 func TestPlaybookSelectionAndPrompt(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Playbook Bot", ModelID: "grox-demo"})
@@ -2215,245 +2170,6 @@ func TestPlaybookSelectionAndPrompt(t *testing.T) {
 	}
 }
 
-func TestWorkersAiRoomDecision(t *testing.T) {
-	account := strings.Repeat("a", 32)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/accounts/"+account+"/ai/run/@cf/cloudflare/clef-flash" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true,"result":{"answers":{"room":{"choice":"bot-omiii","probabilities":{"bot-omiii":0.91,"bot-emaily":0.09}}}}}`))
-	}))
-	defer server.Close()
-	svc, _, events := newTestService(t)
-	if _, err := svc.SetSecret("decider-workers", "cloud-key"); err != nil {
-		t.Fatal(err)
-	}
-	settings := svc.st.State.Settings
-	settings.DeciderEnabled = true
-	settings.DeciderProvider = "workersai"
-	settings.DeciderBaseURL = server.URL
-	settings.DeciderAccountID = account
-	if _, err := svc.UpdateSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-	auto := "auto"
-	if _, err := svc.UpdateGroup("group-launch", model.GroupPatch{Responder: &auto}); err != nil {
-		t.Fatal(err)
-	}
-	group := svc.st.State.Groups[0]
-	thread := group.Threads[0]
-	if _, err := svc.SendGroup(group.ID, thread.ID, "Who handles this?"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, events, 5*time.Second, "the Workers AI routed turn", func(ev model.Event) bool {
-		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-omiii" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
-	})
-}
-
-func TestJevRoomDecision(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/systemone" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"answers":{"room":{"choice":"bot-emaily","probabilities":{"bot-emaily":0.88,"bot-omiii":0.12}}}}`))
-	}))
-	defer server.Close()
-	svc, _, events := newTestService(t)
-	if _, err := svc.SetSecret("decider-jev", "jev-key"); err != nil {
-		t.Fatal(err)
-	}
-	settings := svc.st.State.Settings
-	settings.DeciderEnabled = true
-	settings.DeciderProvider = "jev"
-	settings.DeciderBaseURL = server.URL
-	if _, err := svc.UpdateSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-	auto := "auto"
-	if _, err := svc.UpdateGroup("group-launch", model.GroupPatch{Responder: &auto}); err != nil {
-		t.Fatal(err)
-	}
-	group := svc.st.State.Groups[0]
-	thread := group.Threads[0]
-	if _, err := svc.SendGroup(group.ID, thread.ID, "Inbox question"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, events, 5*time.Second, "the Jev routed turn", func(ev model.Event) bool {
-		return ev.Type == "message" && ev.GroupID == group.ID && ev.BotID == "bot-emaily" && ev.Message != nil && ev.Message.Role == model.RoleBot && !ev.Message.Pending && strings.TrimSpace(ev.Message.Text) != ""
-	})
-}
-
-func TestGrokBotImport(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	export := map[string]any{
-		"format": "grok-bot-export", "version": 1,
-		"bots": []any{map[string]any{
-			"name": "Moved Bot", "title": "Research bot", "instructions": "Be concise.",
-			"memories": []any{"The launch is Tuesday."}, "user_facts": []any{"The person prefers tea."},
-			"skills": []any{map[string]any{"name": "checklist", "instructions": "Use a checklist."}},
-			"routines": []any{map[string]any{
-				"name": "Morning brief", "instruction": "Write a short brief.", "trigger": "schedule", "schedule_cron": "0 8 * * 1-5",
-			}, map[string]any{"name": "Webhook follow-up", "instruction": "Handle the webhook.", "trigger": "webhook"}},
-			"apps": []any{map[string]any{"name": "crm", "mcp_url": "https://mcp.example.test/mcp"}},
-		}},
-	}
-	raw, _ := json.Marshal(export)
-	result, err := svc.ImportGrokBot(string(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Bots != 1 || result.Routines != 1 || result.Events != 1 || result.Memories != 2 || result.Apps != 1 || result.Skills != 1 {
-		t.Fatalf("result = %+v", result)
-	}
-	var imported *model.Bot
-	svc.mu.Lock()
-	for index := range svc.st.State.Bots {
-		if svc.st.State.Bots[index].Name == "Moved Bot" {
-			imported = &svc.st.State.Bots[index]
-		}
-	}
-	svc.mu.Unlock()
-	if imported == nil || imported.WorkingDir == "" {
-		t.Fatalf("imported bot missing working dir: %+v", imported)
-	}
-	skills, err := svc.ListSkills(imported.ID)
-	foundSkill := false
-	for _, skill := range skills {
-		if skill.Source == "Workspace" && skill.Enabled {
-			foundSkill = true
-		}
-	}
-	if err != nil || !foundSkill {
-		t.Fatalf("imported skills = %+v err=%v", skills, err)
-	}
-	state, err := svc.GetMemory(imported.ID)
-	if err != nil || !strings.Contains(state.Content, "prefers tea") || !strings.Contains(state.Content, "event routines") {
-		t.Fatalf("memory = %+v err=%v", state, err)
-	}
-	svc.mu.Lock()
-	routines := append([]model.Routine(nil), svc.st.State.Routines...)
-	svc.mu.Unlock()
-	found := false
-	for _, routine := range routines {
-		if routine.BotID == imported.ID && routine.Name == "Moved Bot: Morning brief" && !routine.Enabled {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("imported routine missing")
-	}
-	bad := map[string]any{"bots": []any{map[string]any{"name": "Bad", "api_key": "secret"}}}
-	badRaw, _ := json.Marshal(bad)
-	if _, err := svc.ImportGrokBot(string(badRaw)); err == nil {
-		t.Fatal("credential-looking export should be refused")
-	}
-}
-
-func TestBotMRRMarkdownImport(t *testing.T) {
-	raw, err := os.ReadFile("testdata/botmrr.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc, _, _ := newTestService(t)
-	result, err := svc.ImportBotMRR(string(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Bots != 2 || result.Groups != 1 || result.Routines != 1 || result.Playbooks != 1 || result.Skills != 1 {
-		t.Fatalf("result = %+v", result)
-	}
-	var scout *model.Bot
-	svc.mu.Lock()
-	for index := range svc.st.State.Bots {
-		if svc.st.State.Bots[index].Name == "Imported Scout" {
-			scout = &svc.st.State.Bots[index]
-		}
-	}
-	routines := append([]model.Routine(nil), svc.st.State.Routines...)
-	svc.mu.Unlock()
-	if scout == nil || scout.WorkingDir == "" {
-		t.Fatalf("imported scout = %+v", scout)
-	}
-	foundRoutine := false
-	for _, routine := range routines {
-		if routine.BotID == scout.ID && !routine.Enabled && routine.Cadence == "weekdays" {
-			foundRoutine = true
-		}
-	}
-	if !foundRoutine {
-		t.Fatalf("routines = %+v", routines)
-	}
-	playbooks, err := svc.ListPlaybooks(scout.ID)
-	if err != nil || len(playbooks) != 1 {
-		t.Fatalf("playbooks = %+v err=%v", playbooks, err)
-	}
-}
-
-func TestOpenMausPackageV2Import(t *testing.T) {
-	document := map[string]any{
-		"format": "openmaus.package", "version": 2,
-		"package": map[string]any{
-			"name": "Imported Desk",
-			"agents": []any{
-				map[string]any{"key": "lead", "name": "Package Lead", "soul": "Coordinate.", "approval": "full", "appearance": map[string]any{"color": "purple"}, "skills": []any{"research"}, "playbooks": []any{"qualify"}, "seed": map[string]any{"memory": map[string]any{"MEMORY.md": "- Remember the launch.\n"}}},
-				map[string]any{"key": "writer", "name": "Package Writer"},
-			},
-			"rooms":       []any{map[string]any{"key": "desk", "name": "Package Room", "members": []any{"lead", "writer"}, "defaultResponder": map[string]any{"kind": "agent", "agent": "lead"}}},
-			"routines":    []any{map[string]any{"name": "Daily digest", "agent": "lead", "prompt": "Summarize the day.", "runOn": "maus", "schedule": map[string]any{"type": "daily", "time": "09:00"}}},
-			"playbooks":   []any{map[string]any{"key": "qualify", "name": "Qualify", "triggers": []any{"lead"}, "instructions": "Ask about budget."}},
-			"skills":      map[string]any{"version": float64(1), "entries": []any{map[string]any{"name": "research", "description": "Research", "instructions": "Research carefully."}}},
-			"connections": []any{map[string]any{"key": "crm", "label": "CRM", "mcp": map[string]any{"url": "https://mcp.example.test/crm", "valueNames": []any{"Authorization"}}}},
-		},
-	}
-	raw, _ := json.Marshal(document)
-	svc, _, _ := newTestService(t)
-	result, err := svc.ImportOpenMausPackage(string(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Bots != 2 || result.Groups != 1 || result.Routines != 1 || result.Playbooks != 1 || result.Skills != 1 || result.Connections != 1 {
-		t.Fatalf("result = %+v", result)
-	}
-	var lead *model.Bot
-	svc.mu.Lock()
-	for index := range svc.st.State.Bots {
-		if svc.st.State.Bots[index].Name == "Package Lead" {
-			lead = &svc.st.State.Bots[index]
-		}
-	}
-	svc.mu.Unlock()
-	if lead == nil || lead.WorkingDir == "" || lead.Approval != model.ApprovalFull {
-		t.Fatalf("lead = %+v", lead)
-	}
-	state, err := svc.GetMemory(lead.ID)
-	if err != nil || !strings.Contains(state.Content, "Remember the launch") {
-		t.Fatalf("memory = %+v err=%v", state, err)
-	}
-	skills, _ := svc.ListSkills(lead.ID)
-	found := false
-	for _, skill := range skills {
-		if skill.Source == "Workspace" && skill.Enabled {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("skills = %+v", skills)
-	}
-	svc.mu.Lock()
-	required := []string{}
-	for _, server := range svc.st.State.MCPServers {
-		if strings.EqualFold(server.Name, "crm") {
-			required = server.RequiredValues
-		}
-	}
-	svc.mu.Unlock()
-	if len(required) != 1 || required[0] != "Authorization" {
-		t.Fatalf("required values = %+v", required)
-	}
-}
-
 func TestMCPServerBotScope(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	first, err := svc.CreateBot(model.CreateBotInput{Name: "Scope One", ModelID: "grox-demo"})
@@ -2483,48 +2199,6 @@ func TestMCPServerBotScope(t *testing.T) {
 	}
 }
 
-func TestOpenMausPackageV2ExportRoundTrip(t *testing.T) {
-	source, _, _ := newTestService(t)
-	if _, err := source.SavePlaybook("bot-brody", model.PlaybookInput{Name: "Export checklist", Triggers: []string{"export"}, Instructions: "Check the export."}); err != nil {
-		t.Fatal(err)
-	}
-	state, err := source.GetMemory("bot-brody")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := source.SaveMemory("bot-brody", "# Notes\n\n- Export this note.\n", state.Revision); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := source.CreateMCPServer(model.MCPServerInput{Name: "Export MCP", URL: "https://mcp.example.test/export", Enabled: true, BotIDs: []string{"bot-brody"}}); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := source.ExportOpenMausPackage("group-launch")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(raw, `"format": "openmaus.package"`) || !strings.Contains(raw, `"signature"`) || strings.Contains(raw, "secret-token") {
-		t.Fatalf("unexpected export: %s", raw[:min(len(raw), 200)])
-	}
-	var signed map[string]any
-	if err := json.Unmarshal([]byte(raw), &signed); err != nil {
-		t.Fatal(err)
-	}
-	signed["tampered"] = true
-	tampered, _ := json.Marshal(signed)
-	tamperTarget, _, _ := newTestService(t)
-	if _, err := tamperTarget.ImportOpenMausPackage(string(tampered)); err == nil {
-		t.Fatal("tampered package imported")
-	}
-	target, _, _ := newTestService(t)
-	result, err := target.ImportOpenMausPackage(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Bots < 3 || result.Groups != 1 || result.Playbooks < 1 || result.Connections < 1 {
-		t.Fatalf("roundtrip = %+v", result)
-	}
-}
-
 func TestRoutineContinuityReusesThread(t *testing.T) {
 	svc, _, events := newTestService(t)
 	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Continuous Bot", ModelID: "grox-demo"})
@@ -2551,6 +2225,9 @@ func TestRoutineContinuityReusesThread(t *testing.T) {
 	if first.ThreadID != second.ThreadID {
 		t.Fatalf("continuity threads = %q and %q", first.ThreadID, second.ThreadID)
 	}
+	waitFor(t, events, 5*time.Second, "the second continuous run", func(ev model.Event) bool {
+		return ev.Type == "turn" && ev.BotID == bot.ID && ev.ThreadID == second.ThreadID && ev.Turn != nil && !ev.Turn.Busy
+	})
 }
 
 func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
@@ -2598,119 +2275,6 @@ func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
 	waitFor(t, events, 5*time.Second, "the checked routine turn", func(ev model.Event) bool {
 		return ev.Type == "turn" && ev.BotID == bot.ID && ev.ThreadID == result.ThreadID && ev.Turn != nil && !ev.Turn.Busy
 	})
-}
-
-func TestDecideToolUsesProvider(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"choice\":\"red\",\"pTop\":0.9}"}}]}`))
-	}))
-	defer server.Close()
-	svc, _, _ := newTestService(t)
-	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
-		t.Fatal(err)
-	}
-	settings := svc.st.State.Settings
-	settings.DeciderEnabled = true
-	settings.DeciderProvider = "openrouter"
-	settings.DeciderBaseURL = server.URL
-	settings.DeciderModel = "test"
-	if _, err := svc.UpdateSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-	value, err := svc.decideTool(map[string]any{
-		"instructions": "Pick a colour",
-		"options":      map[string]any{"red": "warm", "blue": "cool"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(value, `"choice":"red"`) || !strings.Contains(value, "0.9") {
-		t.Fatalf("decision = %s", value)
-	}
-}
-
-func TestExtractToolReturnsJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"name\":\"Ada\",\"deadline\":\"Tuesday\"}"}}]}`))
-	}))
-	defer server.Close()
-	svc, _, _ := newTestService(t)
-	if _, err := svc.SetSecret("decider", "decision-key"); err != nil {
-		t.Fatal(err)
-	}
-	settings := svc.st.State.Settings
-	settings.DeciderBaseURL = server.URL
-	settings.DeciderModel = "test"
-	if _, err := svc.UpdateSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-	value, err := svc.extractTool(map[string]any{
-		"text":   "Ada needs this by Tuesday.",
-		"schema": map[string]any{"name": "string", "deadline": "string"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(value, `"name":"Ada"`) || !strings.Contains(value, "Tuesday") {
-		t.Fatalf("extraction = %s", value)
-	}
-}
-
-func TestPresetAppliesPlaybookSkillAndMemory(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	preset, err := svc.CreatePreset(model.PresetInput{
-		Name: "Portable preset", Title: "Starter", Soul: "Be useful.", Color: "green",
-		Playbooks: []model.PresetPlaybook{{Name: "Preset playbook", Triggers: []string{"start"}, Instructions: "Use the preset checklist."}},
-		Skills:    []model.PresetSkill{{Name: "preset-skill", Description: "A preset skill", Instructions: "Do the preset thing."}},
-		Memory:    "# Preset notes\n\n- Remember the preset.\n",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Preset Bot", ModelID: "grox-demo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ApplyPreset(bot.ID, preset.ID); err != nil {
-		t.Fatal(err)
-	}
-	playbooks, err := svc.ListPlaybooks(bot.ID)
-	if err != nil || len(playbooks) != 1 {
-		t.Fatalf("playbooks = %+v err=%v", playbooks, err)
-	}
-	skills, err := svc.ListSkills(bot.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	foundSkill := false
-	for _, skill := range skills {
-		if skill.Source == "Workspace" && skill.Enabled {
-			foundSkill = true
-		}
-	}
-	if !foundSkill {
-		t.Fatalf("skills = %+v", skills)
-	}
-	memory, err := svc.GetMemory(bot.ID)
-	if err != nil || !strings.Contains(memory.Content, "Remember the preset") {
-		t.Fatalf("memory = %+v err=%v", memory, err)
-	}
-}
-
-func TestGrokBotImportMergesSplitDocuments(t *testing.T) {
-	svc, _, _ := newTestService(t)
-	first, _ := json.Marshal(map[string]any{"bots": []any{map[string]any{"name": "Split Bot", "memories": []any{"first fact"}}}})
-	second, _ := json.Marshal(map[string]any{"bots": []any{map[string]any{"name": "Split Bot", "memories": []any{"second fact"}}}})
-	raw := "part one:\n" + string(first) + "\npart two:\n" + string(second)
-	result, err := svc.ImportGrokBot(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Bots != 1 || result.Memories != 2 {
-		t.Fatalf("split result = %+v", result)
-	}
 }
 
 func TestRoutineQueueRetriesAfterBusy(t *testing.T) {

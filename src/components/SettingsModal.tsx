@@ -40,9 +40,6 @@ const KEY_FIELDS = [
   { name: "google", label: "Google AI API key", hint: "Used by Gemini models.", placeholder: "AIza…" },
   { name: "composio", label: "Composio project key", hint: "Enables real OAuth links and the live tool runner in Connected apps.", placeholder: "ak_…" },
   { name: "api", label: "Custom API key", hint: "For an OpenAI-compatible gateway or a local model.", placeholder: "Optional" },
-  { name: "decider", label: "OpenRouter decision key", hint: "Used by Auto rooms for fast bot routing. Write-only.", placeholder: "sk-or-…" },
-  { name: "decider-workers", label: "Cloudflare Workers AI token", hint: "For Clef decisions (requires an account ID).", placeholder: "Bearer token" },
-  { name: "decider-jev", label: "TypeSafe Jev key", hint: "Native Jev system-one decisions.", placeholder: "jev-…" },
 ];
 
 const ENGINE_LABEL: Record<string, string> = {
@@ -253,23 +250,13 @@ function EnginesSection() {
   const [apiModel, setApiModel] = useState(state.settings.apiModel);
   const [inputPrice, setInputPrice] = useState(String(state.settings.inputPricePerMillion ?? 0));
   const [outputPrice, setOutputPrice] = useState(String(state.settings.outputPricePerMillion ?? 0));
-  const [deciderEnabled, setDeciderEnabled] = useState(Boolean(state.settings.deciderEnabled));
-  const [deciderBase, setDeciderBase] = useState(state.settings.deciderBaseUrl ?? "https://openrouter.ai/api/v1");
-  const [deciderModel, setDeciderModel] = useState(state.settings.deciderModel ?? "typesafe/jev-1.13");
-  const [deciderProvider, setDeciderProvider] = useState(state.settings.deciderProvider || "openrouter");
-  const [deciderAccount, setDeciderAccount] = useState(state.settings.deciderAccountId ?? "");
 
   useEffect(() => {
     setBaseUrl(state.settings.apiBaseUrl);
     setApiModel(state.settings.apiModel);
     setInputPrice(String(state.settings.inputPricePerMillion ?? 0));
     setOutputPrice(String(state.settings.outputPricePerMillion ?? 0));
-    setDeciderEnabled(Boolean(state.settings.deciderEnabled));
-    setDeciderBase(state.settings.deciderBaseUrl ?? "https://openrouter.ai/api/v1");
-    setDeciderModel(state.settings.deciderModel ?? "typesafe/jev-1.13");
-    setDeciderProvider(state.settings.deciderProvider || "openrouter");
-    setDeciderAccount(state.settings.deciderAccountId ?? "");
-  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion, state.settings.deciderEnabled, state.settings.deciderBaseUrl, state.settings.deciderModel, state.settings.deciderProvider, state.settings.deciderAccountId]);
+  }, [state.settings.apiBaseUrl, state.settings.apiModel, state.settings.inputPricePerMillion, state.settings.outputPricePerMillion]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -354,45 +341,6 @@ function EnginesSection() {
           </label>
           <div className="settings-form-actions">
             <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ inputPricePerMillion: Math.max(0, Number(inputPrice) || 0), outputPricePerMillion: Math.max(0, Number(outputPrice) || 0) })}><Save size={14} /> Save pricing</button>
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Fast decisions" hint="Auto rooms ask an OpenRouter-compatible chat model to pick one member. A 1.5 second timeout or any failure falls back to the room lead.">
-        <div className="switch-row">
-          <span className="row-copy">
-            <span className="row-title">Use fast decisions</span>
-            <span className="row-sub">Requires an OpenRouter decision key under Connections.</span>
-          </span>
-          <Switch checked={deciderEnabled} label="Use fast decisions" onChange={setDeciderEnabled} />
-        </div>
-        <div className="settings-form">
-          <div className="panel-field">
-            <span>Decision provider</span>
-            <Segmented
-              label="Decision provider"
-              value={deciderProvider}
-              options={[{ value: "openrouter", label: "OpenRouter" }, { value: "workersai", label: "Workers AI" }, { value: "jev", label: "Jev" }]}
-              onChange={setDeciderProvider}
-            />
-          </div>
-          <label className="panel-field">
-            <span>Decision base URL</span>
-            <input value={deciderBase} onChange={(event) => setDeciderBase(event.target.value)} placeholder={deciderProvider === "workersai" ? "https://api.cloudflare.com/client/v4" : deciderProvider === "jev" ? "https://api.typesafe.ai" : "https://openrouter.ai/api/v1"} spellCheck={false} />
-          </label>
-          {deciderProvider === "workersai" ? (
-            <label className="panel-field">
-              <span>Cloudflare account ID</span>
-              <input value={deciderAccount} onChange={(event) => setDeciderAccount(event.target.value)} placeholder="32 hexadecimal characters" spellCheck={false} />
-            </label>
-          ) : (
-            <label className="panel-field">
-              <span>Decision model</span>
-              <input value={deciderModel} onChange={(event) => setDeciderModel(event.target.value)} placeholder={deciderProvider === "jev" ? "jev-latest" : "typesafe/jev-1.13"} spellCheck={false} />
-            </label>
-          )}
-          <div className="settings-form-actions">
-            <button type="button" className="btn btn-primary" onClick={() => void patchSettings({ deciderEnabled, deciderProvider, deciderBaseUrl: deciderBase.trim(), deciderModel: deciderModel.trim(), deciderAccountId: deciderAccount.trim().toLowerCase() })}><Save size={14} /> Save decisions</button>
           </div>
         </div>
       </SectionCard>
@@ -926,7 +874,6 @@ function MCPEditor({ server, open, onClose, onSaved }: {
           </div>
           <p className="panel-note">No selection means all bots. This only filters the per-turn CLI config; it is not an access control boundary.</p>
         </div>
-        {server?.requiredValues?.length ? <p className="panel-note">Package requires values: {server.requiredValues.join(", ")}. Fill them as additional headers or a bearer token.</p> : null}
         <p className="panel-note">HTTP tokens are stored in the 0600 secrets file, never in AppState or the page. A local command is launched by the selected CLI, not by Grox; only enable a command you trust. Servers are enabled per turn only when this switch is on.</p>
         {error && <p className="panel-note is-error">{error}</p>}
         <div className="modal-actions">
@@ -998,7 +945,7 @@ function MCPSection() {
                 <div className="mcp-copy">
                   <strong>{server.name}</strong>
                   <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
-                  <small>{server.transport === "stdio" ? "Local command" : (server.requiredValues?.length ?? 0) > 0 ? ("Needs " + server.requiredValues?.join(", ")) : (server.botIds?.length ?? 0) > 0 ? (server.botIds?.length + " bot(s)") : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
+                  <small>{server.transport === "stdio" ? "Local command" : (server.botIds?.length ?? 0) > 0 ? (server.botIds?.length + " bot(s)") : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>
@@ -1016,12 +963,6 @@ function MCPSection() {
 function DataSection() {
   const { boot, exportWorkspace, resetWorkspace, revealDataFolder, backend, toast } = useApp();
   const importRef = useRef<HTMLInputElement>(null);
-  const [grokText, setGrokText] = useState("");
-  const [grokBusy, setGrokBusy] = useState(false);
-  const [teamMarkdown, setTeamMarkdown] = useState("");
-  const [teamBusy, setTeamBusy] = useState(false);
-  const [packageJSON, setPackageJSON] = useState("");
-  const [packageBusy, setPackageBusy] = useState(false);
 
   const importTeam = async (file: File | undefined) => {
     if (!file) return;
@@ -1075,51 +1016,6 @@ function DataSection() {
             onChange={(event) => void importTeam(event.target.files?.[0])}
           />
         </div>
-      </SectionCard>
-      <SectionCard title="OpenMaus package v2" hint="Paste an openmaus.package v2 JSON document. Creates new bots, rooms, paused routines, playbooks, isolated skills and disabled connections.">
-        <label className="panel-field">
-          <span>Package JSON</span>
-          <textarea rows={5} value={packageJSON} onChange={(event) => setPackageJSON(event.target.value)} placeholder="Paste the package JSON" spellCheck={false} />
-        </label>
-        <button type="button" className="btn btn-secondary" disabled={packageBusy || !packageJSON.trim()} onClick={() => {
-          setPackageBusy(true);
-          void backend.importOpenMausPackage(packageJSON).then((result) => {
-            setPackageJSON("");
-            toast({ kind: "success", title: "Package imported", body: result.bots + " bots, " + result.groups + " rooms, " + result.routines + " paused routines, " + result.playbooks + " playbooks, " + result.skills + " skills, " + result.connections + " connections." });
-          }).catch((cause: unknown) => {
-            toast({ kind: "error", title: "Package import failed", body: cause instanceof Error ? cause.message : "Try again." });
-          }).finally(() => setPackageBusy(false));
-        }}>{packageBusy ? "Importing…" : "Import package"}</button>
-      </SectionCard>
-      <SectionCard title="BotMRR team Markdown" hint="Paste a BotMRR blueprint. Bots, rooms, paused routines, playbooks and isolated per-bot skills are created; nothing existing is overwritten.">
-        <label className="panel-field">
-          <span>Team Markdown</span>
-          <textarea rows={5} value={teamMarkdown} onChange={(event) => setTeamMarkdown(event.target.value)} placeholder="Paste the BotMRR Markdown with frontmatter" spellCheck={false} />
-        </label>
-        <button type="button" className="btn btn-secondary" disabled={teamBusy || !teamMarkdown.trim()} onClick={() => {
-          setTeamBusy(true);
-          void backend.importBotMRR(teamMarkdown).then((result) => {
-            setTeamMarkdown("");
-            toast({ kind: "success", title: "BotMRR team imported", body: result.bots + " bots, " + result.groups + " rooms, " + result.routines + " paused routines, " + result.playbooks + " playbooks, " + result.skills + " skills." });
-          }).catch((cause: unknown) => {
-            toast({ kind: "error", title: "BotMRR import failed", body: cause instanceof Error ? cause.message : "Try again." });
-          }).finally(() => setTeamBusy(false));
-        }}>{teamBusy ? "Importing…" : "Import BotMRR team"}</button>
-      </SectionCard>
-      <SectionCard title="Move from Grok Bot" hint="Paste a Grok Bot export JSON. Grox creates new bots and never overwrites existing ones. Skills are not imported because Grox skills are global.">
-        <label className="panel-field">
-          <span>Grok Bot export</span>
-          <textarea rows={5} value={grokText} onChange={(event) => setGrokText(event.target.value)} placeholder="Paste the grok-bot-export JSON or the chat reply containing it" spellCheck={false} />
-        </label>
-        <button type="button" className="btn btn-secondary" disabled={grokBusy || !grokText.trim()} onClick={() => {
-          setGrokBusy(true);
-          void backend.importGrokBot(grokText).then((result) => {
-            setGrokText("");
-            toast({ kind: "success", title: "Grok Bot import complete", body: result.bots + " bots, " + result.skills + " skills, " + result.routines + " routines, " + result.events + " event notes, " + result.memories + " notes, " + result.apps + " MCP servers." });
-          }).catch((cause: unknown) => {
-            toast({ kind: "error", title: "Grok Bot import failed", body: cause instanceof Error ? cause.message : "Try again." });
-          }).finally(() => setGrokBusy(false));
-        }}>{grokBusy ? "Importing…" : "Import from Grok Bot"}</button>
       </SectionCard>
       <SectionCard title="Reset" hint="Replace the workspace with the first-run team. Keys are kept.">
         <div className="data-row">

@@ -31,5 +31,5 @@ instructions.
 
 ## Not ported
 
-- Package-authored playbooks, BotMRR import and playbook review screens.
+- Package-authored playbooks and playbook review screens.
 - The actual OpenMausBot selection algorithm uses package metadata; this port uses local files and triggers.

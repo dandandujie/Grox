@@ -136,16 +136,6 @@ export interface Bot {
   threads: Thread[];
 }
 
-/** BotMRRImportResult reports a BotMRR Markdown team import. */
-export interface BotMRRImportResult {
-  bots: number;
-  groups: number;
-  routines: number;
-  playbooks: number;
-  skills: number;
-  names: string[];
-}
-
 /** BotPatch edits only the fields it sets. */
 export interface BotPatch {
   name?: string;
@@ -243,7 +233,6 @@ export interface CreateGroupInput {
   color: string;
   memberIds: string[];
   leadId: string;
-  responder?: string;
 }
 
 /**
@@ -314,18 +303,6 @@ export interface FolderListing {
   entries: FileEntry[];
 }
 
-/** GrokImportResult reports a local Grok Bot export import. */
-export interface GrokImportResult {
-  bots: number;
-  routines: number;
-  memories: number;
-  apps: number;
-  skills: number;
-  events: number;
-  skillsSkipped: number;
-  names: string[];
-}
-
 /**
  * Group is a channel: a shared conversation with a roster of bots. The lead
  * answers by default; @mentions route a message to another member.
@@ -337,7 +314,6 @@ export interface Group {
   color: string;
   memberIds: string[];
   leadId: string;
-  responder?: string;
   pinned: boolean;
   unread: number;
   createdAt: string;
@@ -352,7 +328,6 @@ export interface GroupPatch {
   color?: string;
   memberIds?: string[];
   leadId?: string;
-  responder?: string;
   pinned?: boolean;
 }
 
@@ -379,7 +354,6 @@ export interface MCPServer {
   oauthAuthorizationUrl?: string;
   oauthConfigured?: boolean;
   botIds?: string[];
-  requiredValues?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -400,7 +374,6 @@ export interface MCPServerInput {
   oauthScopes?: string;
   oauthRefreshToken?: string;
   botIds?: string[];
-  requiredValues?: string[];
   enabled: boolean;
 }
 
@@ -523,17 +496,6 @@ export interface Option {
   description?: string;
 }
 
-/** PackageImportResult reports an OpenMaus package v2 JSON import. */
-export interface PackageImportResult {
-  bots: number;
-  groups: number;
-  routines: number;
-  playbooks: number;
-  skills: number;
-  connections: number;
-  names: string[];
-}
-
 /**
  * PhoneInfo describes the local web companion. The token is part of the URL;
  * anyone on the same network with it can read and send this workspace's chats.
@@ -564,6 +526,10 @@ export interface PlaybookInput {
   instructions: string;
 }
 
+/**
+ * Preset is a reusable New bot starting point. It carries persona text, never
+ * a model, approval level, folder or credential.
+ */
 export interface Preset {
   id: string;
   name: string;
@@ -571,9 +537,6 @@ export interface Preset {
   description: string;
   soul: string;
   color: string;
-  playbooks?: PresetPlaybook[];
-  skills?: PresetSkill[];
-  memory?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -585,9 +548,6 @@ export interface PresetInput {
   description: string;
   soul: string;
   color: string;
-  playbooks?: PresetPlaybook[];
-  skills?: PresetSkill[];
-  memory?: string;
 }
 
 /** PresetPatch edits only the fields it sets. */
@@ -597,22 +557,6 @@ export interface PresetPatch {
   description?: string;
   soul?: string;
   color?: string;
-}
-
-/**
- * Preset is a reusable New bot starting point. It carries persona text, never
- * a model, approval level, folder or credential.
- */
-export interface PresetPlaybook {
-  name: string;
-  triggers: string[];
-  instructions: string;
-}
-
-export interface PresetSkill {
-  name: string;
-  description: string;
-  instructions: string;
 }
 
 /** Provider groups models by the engine that serves them. */
@@ -715,11 +659,6 @@ export interface Settings {
   sidebarWidth: number;
   advanced: boolean;
   onboarded?: boolean;
-  deciderEnabled?: boolean;
-  deciderProvider?: string;
-  deciderAccountId?: string;
-  deciderBaseUrl?: string;
-  deciderModel?: string;
   reduceMotion: boolean;
   notifications: boolean;
   sounds: boolean;
@@ -881,13 +820,6 @@ export const Grox = {
   answerGroup(groupID: string, threadID: string, messageID: string, answer: string): Promise<void> {
     return call("Grox.AnswerGroup", groupID, threadID, messageID, answer);
   },
-  /**
-   * ApplyPreset adds a preset's playbooks, isolated skills and starter memory to
-   * an already-created bot. Persona fields are applied by the New bot form.
-   */
-  applyPreset(botID: string, presetID: string): Promise<void> {
-    return call("Grox.ApplyPreset", botID, presetID);
-  },
   /** BeginMCPOAuth starts a loopback callback and returns the authorization URL. */
   beginMCPOAuth(id: string): Promise<MCPOAuthStart> {
     return call("Grox.BeginMCPOAuth", id);
@@ -1009,13 +941,6 @@ export const Grox = {
     return call("Grox.ExecuteComposioTool", slug, arguments_);
   },
   /**
-   * ExportOpenMausPackage writes one channel as an openmaus.package v2 JSON
-   * document. It carries no tokens, connection values or chat history.
-   */
-  exportOpenMausPackage(groupID: string): Promise<string> {
-    return call("Grox.ExportOpenMausPackage", groupID);
-  },
-  /**
    * ExportTeam writes one channel and its member bots as a portable JSON package.
    * It includes only enabled SKILL.md bodies, persona text, MEMORY.md and routines;
    * no keys, connections, threads or app credentials travel.
@@ -1045,27 +970,6 @@ export const Grox = {
   /** GetWebhookInfo reports the loopback receiver and the current trigger list. */
   getWebhookInfo(): Promise<WebhookInfo> {
     return call("Grox.GetWebhookInfo");
-  },
-  /**
-   * ImportBotMRR imports the structured BotMRR Markdown frontmatter. It creates
-   * new bots, rooms, paused routines, playbooks and per-bot skill folders.
-   */
-  importBotMRR(raw: string): Promise<BotMRRImportResult> {
-    return call("Grox.ImportBotMRR", raw);
-  },
-  /**
-   * ImportGrokBot imports a pasted Grok Bot export. It creates new bots and never
-   * overwrites an existing one; skills are skipped because Grox skills are global.
-   */
-  importGrokBot(raw: string): Promise<GrokImportResult> {
-    return call("Grox.ImportGrokBot", raw);
-  },
-  /**
-   * ImportOpenMausPackage imports an openmaus.package v2 JSON document. It is
-   * additive and creates disabled connections and paused routines.
-   */
-  importOpenMausPackage(raw: string): Promise<PackageImportResult> {
-    return call("Grox.ImportOpenMausPackage", raw);
   },
   /**
    * ImportTeam adds a package as new records. Bots start at Ask approval, skills
