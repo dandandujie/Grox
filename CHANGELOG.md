@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.61.0
+
+- Recover from panics inside an engine turn: the thread is finalized with a clear error instead of taking
+  down the whole app.
+- Recover scheduler panics so one bad routine tick cannot terminate the service.
+- Panic details are logged with a stack for diagnosis.
+
 ## 0.60.0
 
 - MCP OAuth tokens are now prefetched before a turn takes the service lock. A slow token endpoint no longer

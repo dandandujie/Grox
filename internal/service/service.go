@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -163,11 +165,24 @@ func (s *Service) start() {
 			case <-s.stop:
 				return
 			case <-ticker.C:
-				s.runDueRoutines()
-				s.runMemoryUpkeep()
+				s.safeSchedulerTick()
 			}
 		}
 	}()
+}
+
+func (s *Service) safeSchedulerTick() {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logPanic("scheduler", recovered)
+		}
+	}()
+	s.runDueRoutines()
+	s.runMemoryUpkeep()
+}
+
+func logPanic(scope string, recovered any) {
+	log.Printf("grox: %s panic recovered: %v\n%s", scope, recovered, debug.Stack())
 }
 
 // Close stops timers and flushes the workspace. It is a package function so
