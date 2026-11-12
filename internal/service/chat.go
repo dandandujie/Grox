@@ -353,6 +353,8 @@ func (s *Service) defaultModelForProviderLocked(provider string) model.Model {
 	return model.Model{}
 }
 
+var runAgent = agent.Run
+
 func (s *Service) runTurn(ctx context.Context, key string, req agent.Request, sel agent.Selection, runID string) {
 	sink := &turnSink{svc: s, key: key, botID: req.Bot.ID, groupID: req.GroupID, threadID: req.Thread.ID, engine: sel.Engine, model: req.Model}
 	finished := false
@@ -365,7 +367,7 @@ func (s *Service) runTurn(ctx context.Context, key string, req agent.Request, se
 			s.finishTurn(key, sink, fmt.Errorf("the engine stopped unexpectedly"), runID)
 		}
 	}()
-	_, err := agent.Run(ctx, sel, req, sink)
+	_, err := runAgent(ctx, sel, req, sink)
 	if err != nil && sel.Kind == "cli" && !errors.Is(err, context.Canceled) && isConnectionError(err) {
 		// A CLI that is installed but signed out should not make the app
 		// silent. Use the local demo for this reply and say so.

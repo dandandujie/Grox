@@ -3,6 +3,7 @@ package service
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
@@ -2350,4 +2351,35 @@ func TestMCPOAuthPrefetchFeedsTurnConfig(t *testing.T) {
 		}
 	}
 	t.Fatalf("prefetched configs = %+v", configs)
+}
+
+func TestTurnPanicIsRecovered(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Panic Bot", ModelID: "grox-demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	thread := svc.findBotLocked(bot.ID).Threads[0]
+	threadCopy := thread
+	req := agent.Request{Bot: *svc.findBotLocked(bot.ID), Thread: threadCopy}
+	svc.mu.Unlock()
+	previous := runAgent
+	runAgent = func(context.Context, agent.Selection, agent.Request, agent.Sink) (agent.Result, error) {
+		panic("boom")
+	}
+	defer func() { runAgent = previous }()
+	svc.runTurn(context.Background(), bot.ID+"|"+thread.ID, req, agent.Selection{}, "")
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	current := svc.findBotLocked(bot.ID)
+	if current == nil || current.Threads[0].Busy {
+		t.Fatal("thread was left busy after a panic")
+	}
+	for _, message := range current.Threads[0].Messages {
+		if message.Error && strings.Contains(message.Text, "engine stopped unexpectedly") {
+			return
+		}
+	}
+	t.Fatalf("messages = %+v", current.Threads[0].Messages)
 }

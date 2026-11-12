@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.62.0
+
+- Added a turn-runner seam and a regression test that forces an engine panic and verifies the thread is
+  finalized instead of left busy.
+- Rebuilt the release with the same runtime behavior as 0.61.0.
+
 ## 0.61.0
 
 - Recover from panics inside an engine turn: the thread is finalized with a clear error instead of taking
