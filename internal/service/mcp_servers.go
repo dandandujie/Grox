@@ -380,7 +380,7 @@ func (s *Service) DeleteMCPServer(id string) error {
 	return fmt.Errorf("MCP server not found")
 }
 
-func (s *Service) mcpConfigsLocked(botID string) []model.MCPServerConfig {
+func (s *Service) mcpConfigsForTurn(botID string) []model.MCPServerConfig {
 	out := make([]model.MCPServerConfig, 0, len(s.st.State.MCPServers))
 	for _, server := range s.st.State.MCPServers {
 		if !server.Enabled {
@@ -397,19 +397,22 @@ func (s *Service) mcpConfigsLocked(botID string) []model.MCPServerConfig {
 				continue
 			}
 		}
-		item := model.MCPServerConfig{
+		if normalizeMCPTransport(server.Transport) != "http" {
+			out = append(out, model.MCPServerConfig{
+				ID: server.ID, Name: server.Name, Transport: normalizeMCPTransport(server.Transport),
+				URL: server.URL, Command: server.Command, Args: append([]string(nil), server.Args...),
+			})
+			continue
+		}
+		token := s.st.Secrets[mcpSecretName(server.ID)]
+		if server.OAuthConfigured {
+			token = s.cachedMCPOAuthTokenLocked(server.ID)
+		}
+		out = append(out, model.MCPServerConfig{
 			ID: server.ID, Name: server.Name, Transport: normalizeMCPTransport(server.Transport),
 			URL: server.URL, Command: server.Command, Args: append([]string(nil), server.Args...),
-		}
-		if item.Transport == "http" {
-			if server.OAuthConfigured {
-				item.Token = s.mcpOAuthAccessTokenLocked(server.ID)
-			} else {
-				item.Token = s.st.Secrets[mcpSecretName(server.ID)]
-			}
-			item.Headers = s.mcpHeadersLocked(server.ID)
-		}
-		out = append(out, item)
+			Token: token, Headers: s.mcpHeadersLocked(server.ID),
+		})
 	}
 	return out
 }

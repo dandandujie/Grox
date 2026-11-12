@@ -93,6 +93,7 @@ func titleFromText(text string) string {
 // startTurn prepares the request and runs the selected engine in the
 // background. It must be called without s.mu held.
 func (s *Service) startTurn(botID, threadID, agentText, extraContext, runID string) error {
+	s.prefetchMCPOAuth()
 	s.mu.Lock()
 	bot := s.findBotLocked(botID)
 	if bot == nil {
@@ -213,7 +214,7 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
 		ExtraContext: extraContext, SkillText: skillText, PlaybookText: s.selectedPlaybookTextLocked(bot.ID, agentText), MemoryText: memoryText, RecallText: recallText,
-		MCPServers: s.mcpConfigsLocked(bot.ID),
+		MCPServers: s.mcpConfigsForTurn(bot.ID),
 	}
 	req.Prompt = agent.Compose(botCopy, threadCopy, agentText, req.PlaybookText)
 	if skillText != "" {

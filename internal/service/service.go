@@ -72,6 +72,7 @@ type Service struct {
 	oauthMu      sync.Mutex
 	oauthTokens  map[string]mcpOAuthToken
 	oauthPending map[string]*mcpOAuthPending
+	oauthRetry   map[string]time.Time
 }
 
 type turnControl struct {
@@ -91,6 +92,7 @@ func New(dir string, emit func(model.Event)) (*Service, error) {
 		apiSubs:        map[chan model.Event]struct{}{},
 		oauthTokens:    map[string]mcpOAuthToken{},
 		oauthPending:   map[string]*mcpOAuthPending{},
+		oauthRetry:     map[string]time.Time{},
 		approvalTokens: map[string]claudeHookTarget{}, hookApprovals: map[string]*claudeHookApproval{},
 		questionWaiters: map[string]*questionWaiter{}, webhookReplays: map[string]time.Time{},
 	}, nil

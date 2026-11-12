@@ -1173,8 +1173,9 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 	if strings.Contains(string(state), "secret-token") || strings.Contains(string(state), "header-value") {
 		t.Fatal("MCP secret leaked into AppState")
 	}
+	svc.prefetchMCPOAuth()
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked("")
+	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
 	if len(configs) != 2 {
 		t.Fatalf("runtime config = %+v", configs)
@@ -1195,8 +1196,9 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 	if _, err := svc.UpdateMCPServer(server.ID, model.MCPServerPatch{Token: new(string)}); err != nil {
 		t.Fatal(err)
 	}
+	svc.prefetchMCPOAuth()
 	svc.mu.Lock()
-	configs = svc.mcpConfigsLocked("")
+	configs = svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
 	if len(configs) != 1 || configs[0].Name != "local-tools" || configs[0].Transport != "stdio" {
 		t.Fatalf("stdio runtime config = %+v", configs)
@@ -2031,8 +2033,9 @@ func TestMCPServerOAuthClientCredentials(t *testing.T) {
 	if !server.OAuthConfigured || server.OAuthTokenURL != tokenServer.URL {
 		t.Fatalf("oauth server = %+v", server)
 	}
+	svc.prefetchMCPOAuth()
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked("")
+	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
 	found := false
 	for _, config := range configs {
@@ -2065,8 +2068,9 @@ func TestMCPServerOAuthRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	svc.prefetchMCPOAuth()
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked("")
+	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
 	found := false
 	for _, config := range configs {
@@ -2120,8 +2124,9 @@ func TestMCPServerOAuthAuthorizationCode(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("callback = %d", response.StatusCode)
 	}
+	svc.prefetchMCPOAuth()
 	svc.mu.Lock()
-	configs := svc.mcpConfigsLocked("")
+	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
 	found := false
 	for _, config := range configs {
@@ -2190,9 +2195,9 @@ func TestMCPServerBotScope(t *testing.T) {
 		t.Fatalf("server scope = %+v", server)
 	}
 	svc.mu.Lock()
-	one := svc.mcpConfigsLocked(first.ID)
-	two := svc.mcpConfigsLocked(second.ID)
-	all := svc.mcpConfigsLocked("")
+	one := svc.mcpConfigsForTurn(first.ID)
+	two := svc.mcpConfigsForTurn(second.ID)
+	all := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
 	if len(one) != 1 || len(two) != 0 || len(all) != 1 {
 		t.Fatalf("scoped configs one=%+v two=%+v all=%+v", one, two, all)
@@ -2318,4 +2323,31 @@ func TestRoutineQueueRetriesAfterBusy(t *testing.T) {
 	waitFor(t, events, 5*time.Second, "the queued routine turn", func(ev model.Event) bool {
 		return ev.Type == "turn" && ev.BotID == bot.ID && ev.Turn != nil && !ev.Turn.Busy
 	})
+}
+
+func TestMCPOAuthPrefetchFeedsTurnConfig(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"prefetched-token","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+	svc, _, _ := newTestService(t)
+	server, err := svc.CreateMCPServer(model.MCPServerInput{
+		Name: "Prefetch MCP", URL: "https://mcp.example.test/mcp", Enabled: true,
+		OAuthTokenURL: tokenServer.URL, OAuthClientID: "client-1", OAuthClientSecret: "secret-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth()
+	svc.mu.Lock()
+	configs := svc.mcpConfigsForTurn("")
+	svc.mu.Unlock()
+	for _, config := range configs {
+		if config.ID == server.ID && config.Token == "prefetched-token" {
+			return
+		}
+	}
+	t.Fatalf("prefetched configs = %+v", configs)
 }

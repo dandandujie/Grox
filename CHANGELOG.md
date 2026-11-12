@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.60.0
+
+- MCP OAuth tokens are now prefetched before a turn takes the service lock. A slow token endpoint no longer
+  freezes the roster/chat/settings while a turn starts.
+- Added a 30 second failure cooldown so an unreachable token endpoint is not retried on every turn.
+- Removed the legacy locked token-fetch path; turns use only the cached token snapshot.
+- Added prefetch coverage.
+
 ## 0.59.0
 
 Scope cleanup. The project is now focused on a stable local-first desktop app and selected add-ons instead of
