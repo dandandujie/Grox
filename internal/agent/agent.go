@@ -65,6 +65,7 @@ type Request struct {
 	Bot          model.Bot
 	Thread       model.Thread
 	UserText     string
+	Language     string
 	Prompt       string
 	History      []model.Message
 	Model        model.Model

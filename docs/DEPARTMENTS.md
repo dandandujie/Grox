@@ -1,31 +1,7 @@
-# Departments
+# 部门
 
-Bots can belong to a department, and the sidebar groups the roster by that label. This is a local
-organizational layer, not an organization account: there are no roles, permissions, shared libraries or
-hosted members.
+[English](DEPARTMENTS.en.md)
 
-## Behavior
+在「设置 → 部门」中创建、重命名或删除分组。在新建助理或助理资料中为它选择部门。存在多个部门时，侧边栏按部门组织助理。部门内部仍遵循置顶和隐藏设置。
 
-- Every bot has a department string; the default is General.
-- New bot and the profile editor can change it.
-- The sidebar shows department headers only when more than one department is present.
-- Bot ordering inside a department keeps the existing pinned/hidden order.
-- Team packages carry the department value.
-
-Standalone department records now exist in AppState.Departments. Settings -> Departments can add an empty
-shelf, rename it (bots using the old name move with it), or delete it (bots move to General). General cannot
-be renamed or deleted. The sidebar shows an empty department with a "No bots yet" line.
-
-## Not ported
-
-- Department rename/delete actions independent of bots.
-- Department sharing, access control, admin ownership and organization libraries.
-- Team Cloud departments and hosted member directories.
-
-## Files
-
-- internal/model/types.go - Bot.Department, CreateBotInput.Department, BotPatch.Department
-- internal/service/bots.go - default and patch handling
-- internal/store/store.go - migration default
-- src/components/NewBotDialog.tsx and BotPanel.tsx - editing
-- src/components/Sidebar.tsx - grouped roster
+常规分组是基础分组。删除自建部门会把其中的助理移回常规分组，助理和会话会保留。导入团队包时会读入受支持的部门字段。分组用于整理本地列表，权限由助理及引擎配置决定。

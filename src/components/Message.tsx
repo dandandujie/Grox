@@ -1,3 +1,4 @@
+import { localeTag, useLanguage, useT } from "@/i18n";
 import { useState } from "react";
 import {
   Check, CheckCircle2, Copy, Loader2, ShieldCheck, Sparkles, Volume2, X, XCircle,
@@ -29,6 +30,8 @@ function ActivityChips({ message }: { message: Message }) {
 }
 
 function MessageActions({ message, bot }: { message: Message; bot: Bot }) {
+  const t = useT();
+  const language = useLanguage();
   const [copied, setCopied] = useState(false);
   const copy = () => {
     void navigator.clipboard?.writeText(message.text).then(() => {
@@ -46,33 +49,34 @@ function MessageActions({ message, bot }: { message: Message; bot: Bot }) {
   return (
     <div className={cn("message-actions", message.role === "user" && "is-user")}>
       {message.text && (
-        <button type="button" onClick={copy} aria-label="Copy message" title="Copy">
+        <button type="button" onClick={copy} aria-label={t("Copy message")} title={t("Copy")}>
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       )}
       {message.role === "bot" && message.text && (
-        <button type="button" onClick={speak} aria-label="Read aloud" title="Read aloud">
+        <button type="button" onClick={speak} aria-label={t("Read aloud")} title={t("Read aloud")}>
           <Volume2 size={14} />
         </button>
       )}
-      <span className="message-time">{clock(message.createdAt)}</span>
+      <span className="message-time">{clock(message.createdAt, language)}</span>
       {message.usage && message.usage.totalTokens > 0 && (
-        <span className="message-usage" title={message.usage.inputTokens + " in / " + message.usage.outputTokens + " out"}>{message.usage.totalTokens.toLocaleString()} tok</span>
+        <span className="message-usage" title={t("{0} in / {1} out", message.usage.inputTokens, message.usage.outputTokens)}>{t("{0} tok", message.usage.totalTokens.toLocaleString(localeTag(language)))}</span>
       )}
       {message.usage && (message.usage.costUsd ?? 0) > 0 && (
-        <span className="message-cost" title="Estimated from the local token prices">${message.usage.costUsd!.toFixed(6)}</span>
+        <span className="message-cost" title={t("Estimated from the local token prices")}>${message.usage.costUsd!.toFixed(6)}</span>
       )}
-      {message.engine && <span className="message-engine" title={message.engine}>{message.engine}</span>}
-      {message.role === "bot" && bot.name && <span className="sr-only">from {bot.name}</span>}
+      {message.engine && <span className="message-engine" title={t(message.engine)}>{t(message.engine)}</span>}
+      {message.role === "bot" && bot.name && <span className="sr-only">{t("from {0}", bot.name)}</span>}
     </div>
   );
 }
 
 function ApprovalCard({ message, onDecide }: { message: Message; onDecide: (decision: string) => void }) {
+  const t = useT();
   const approval = message.approval;
   if (!approval) return null;
   const pending = message.status === "pending";
-  const decision = message.status === "expired" ? "Expired" : message.status === "denied" ? "Denied" : message.status === "always" ? "Always allowed" : "Allowed";
+  const decision = message.status === "expired" ? t("Expired") : message.status === "denied" ? t("Denied") : message.status === "always" ? t("Always allowed") : t("Allowed");
   if (!pending) {
     const denied = message.status === "denied" || message.status === "expired";
     return (
@@ -92,23 +96,24 @@ function ApprovalCard({ message, onDecide }: { message: Message; onDecide: (deci
       <div className="decision-head">
         <span className="decision-icon"><ShieldCheck size={18} /></span>
         <div className="decision-heading">
-          <div className="decision-title">{approval.title || "Approval needed"}</div>
-          <div className="decision-kicker">This bot waits for you before it acts.</div>
+          <div className="decision-title">{approval.title || t("Approval needed")}</div>
+          <div className="decision-kicker">{t("This bot waits for you before it acts.")}</div>
         </div>
       </div>
       {approval.command && <pre className="decision-command">{approval.command}</pre>}
       {approval.reason && <p className="decision-reason">{approval.reason}</p>}
       {approval.risk && <p className="decision-risk">{approval.risk}</p>}
       <div className="decision-actions">
-        <button type="button" className="btn btn-primary" onClick={() => onDecide("allow")}>Allow once</button>
-        <button type="button" className="btn btn-secondary" onClick={() => onDecide("always")}>Always allow</button>
-        <button type="button" className="btn btn-ghost danger-text" onClick={() => onDecide("deny")}>Deny</button>
+        <button type="button" className="btn btn-primary" onClick={() => onDecide("allow")}>{t("Allow once")}</button>
+        <button type="button" className="btn btn-secondary" onClick={() => onDecide("always")}>{t("Always allow")}</button>
+        <button type="button" className="btn btn-ghost danger-text" onClick={() => onDecide("deny")}>{t("Deny")}</button>
       </div>
     </div>
   );
 }
 
 function OptionsCard({ message, onAnswer }: { message: Message; onAnswer: (answer: string) => void }) {
+  const t = useT();
   const [custom, setCustom] = useState("");
   const pending = message.status === "pending";
   const options = message.options ?? [];
@@ -116,11 +121,11 @@ function OptionsCard({ message, onAnswer }: { message: Message; onAnswer: (answe
     <div className={cn("options-card", !pending && "is-settled")}>
       <div className="options-heading">
         <div>
-          <div className="options-kicker"><Sparkles size={14} /> A question for you</div>
-          <div className="options-title">{message.text || "Which way should we go?"}</div>
-          <div className="options-sub">Pick whatever is closest; we can always expand from there.</div>
+          <div className="options-kicker"><Sparkles size={14} /> {t("A question for you")}</div>
+          <div className="options-title">{message.text || t("Which way should we go?")}</div>
+          <div className="options-sub">{t("Pick whatever is closest; we can always expand from there.")}</div>
         </div>
-        {!pending && <span className="settled-pill">{message.status === "answered" ? <><Check size={12} /> Answered</> : "Closed"}</span>}
+        {!pending && <span className="settled-pill">{message.status === "answered" ? <><Check size={12} /> {t("Answered")}</> : t("Closed")}</span>}
       </div>
       <div className="options-list">
         {options.map((option, index) => (
@@ -150,10 +155,10 @@ function OptionsCard({ message, onAnswer }: { message: Message; onAnswer: (answe
           <input
             value={custom}
             onChange={(event) => setCustom(event.target.value)}
-            placeholder="Type your own answer"
-            aria-label="Your own answer"
+            placeholder={t("Type your own answer")}
+            aria-label={t("Your own answer")}
           />
-          <button type="submit" disabled={!custom.trim()} aria-label="Send answer">
+          <button type="submit" disabled={!custom.trim()} aria-label={t("Send answer")}>
             <Check size={16} />
           </button>
         </form>
@@ -169,6 +174,7 @@ export function MessageItem({ message, bot, showSender, onDecide, onAnswer }: {
   onDecide: (messageId: string, decision: string) => void;
   onAnswer: (messageId: string, answer: string) => void;
 }) {
+  const t = useT();
   const user = message.role === "user";
   if (message.kind === "approval") {
     return (
@@ -187,7 +193,7 @@ export function MessageItem({ message, bot, showSender, onDecide, onAnswer }: {
     );
   }
   if (message.kind === "notice") {
-    return <div className="notice-row">{message.text}</div>;
+    return <div className="notice-row">{t(message.text)}</div>;
   }
 
   return (
@@ -199,11 +205,11 @@ export function MessageItem({ message, bot, showSender, onDecide, onAnswer }: {
           <div className={cn("bubble", user ? "bubble-user" : "bubble-bot", message.error && "is-error", message.pending && "is-pending")}>
             {message.text && (user
               ? <div className="plain-text">{message.text}</div>
-              : <Markdown>{message.text}</Markdown>
+              : <Markdown>{message.error ? message.text.replace("**Couldn't finish this turn**", t("**Couldn't finish this turn**")) : message.status === "stopped" ? t(message.text) : message.text}</Markdown>
             )}
             <AttachmentGallery attachments={message.attachments ?? []} />
             {message.pending && !message.text && (
-              <span className="typing-dots" aria-label="Typing"><i /><i /><i /></span>
+              <span className="typing-dots" aria-label={t("Typing")}><i /><i /><i /></span>
             )}
             {message.pending && message.text && <span className="typing-caret" aria-hidden="true" />}
           </div>
@@ -224,10 +230,11 @@ function SenderLabel({ bot, name }: { bot: Bot; name: string }) {
 }
 
 export function WorkingRow({ botName, status }: { botName: string; status: string }) {
+  const t = useT();
   return (
     <div className="working-row" role="status" aria-live="polite">
       <span className="working-orb" />
-      <span className="working-copy">{botName} is {status ? status.toLowerCase() : "working"}<span className="working-ellipsis"><i>.</i><i>.</i><i>.</i></span></span>
+      <span className="working-copy">{t("{0} is {1}", botName, t(status || "Working"))}<span className="working-ellipsis"><i>.</i><i>.</i><i>.</i></span></span>
     </div>
   );
 }

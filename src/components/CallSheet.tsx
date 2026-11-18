@@ -1,3 +1,4 @@
+import { useLanguage, useT } from "@/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff, Volume2, VolumeX } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -13,6 +14,8 @@ function formatDuration(seconds: number): string {
 }
 
 export function CallSheet() {
+  const t = useT();
+  const language = useLanguage();
   const { ui, setUI, activeBot, activeGroup, activeThread, state, send } = useApp();
   const bot = activeGroup ? state.bots.find((item) => item.id === activeGroup.leadId) : activeBot;
   const [elapsed, setElapsed] = useState(0);
@@ -37,11 +40,11 @@ export function CallSheet() {
   const startRecognition = useCallback(() => {
     const Ctor = getRecognitionCtor();
     if (!Ctor) {
-      setMicError("Live listening is not exposed by this webview. You can type in the call instead.");
+      setMicError(t("Live listening is not exposed by this webview. You can type in the call instead."));
       return;
     }
     const recognition = new Ctor();
-    recognition.lang = typeof navigator !== "undefined" ? navigator.language || "en-US" : "en-US";
+    recognition.lang = language === "zh" ? "zh-CN" : "en-US";
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
@@ -62,7 +65,7 @@ export function CallSheet() {
     recognition.onerror = (event) => {
       setListening(false);
       const denied = event.error === "not-allowed" || event.error === "service-not-allowed";
-      setMicError(denied ? "Microphone permission was denied. Allow it in System Settings, or type below." : "The microphone stopped. Type below or resume the call.");
+      setMicError(denied ? t("Microphone permission was denied. Allow it in System Settings, or type below.") : t("The microphone stopped. Type below or resume the call."));
     };
     recognition.onend = () => {
       setListening(false);
@@ -80,9 +83,9 @@ export function CallSheet() {
       setMicError("");
     } catch {
       setListening(false);
-      setMicError("The microphone could not start. Type below instead.");
+      setMicError(t("The microphone could not start. Type below instead."));
     }
-  }, [send, ui.callMuted]);
+  }, [send, ui.callMuted, t, language]);
 
   useEffect(() => {
     openRef.current = ui.callOpen;
@@ -137,58 +140,58 @@ export function CallSheet() {
   };
 
   return (
-    <div className="call-layer" role="dialog" aria-modal="true" aria-label={"Voice call with " + name}>
+    <div className="call-layer" role="dialog" aria-modal="true" aria-label={t("Voice call with ") + name}>
       <div className="call-sheet">
         <div className="call-top">
-          <span className="call-live"><i /> Live</span>
+          <span className="call-live"><i /> {t("Live")}</span>
           <span className="call-duration">{formatDuration(elapsed)}</span>
-          <span className="call-mode">{activeGroup ? "Channel call" : "Agent call"}</span>
+          <span className="call-mode">{activeGroup ? t("Channel call") : t("Agent call")}</span>
         </div>
         <div className={cn("call-avatar", listening && !ui.callMuted && "is-listening")}>
           <Mascot seed={bot.name} size={94} title={bot.name} />
         </div>
         <h2>{name}</h2>
         <p className="call-status">
-          {ui.callMuted ? "Speaker muted" : micError ? "Type below" : listening ? "Listening — speak naturally" : "Connecting the microphone…"}
+          {ui.callMuted ? t("Speaker muted") : micError ? t("Type below") : listening ? t("Listening — speak naturally") : t("Connecting the microphone…")}
         </p>
         {interim && <div className="call-interim">{interim}</div>}
         {micError && <div className="call-error">{micError}</div>}
 
         <div className="call-captions">
-          {messages.length === 0 && <div className="call-caption-empty">The conversation will appear here as you speak.</div>}
+          {messages.length === 0 && <div className="call-caption-empty">{t("The conversation will appear here as you speak.")}</div>}
           {messages.map((message) => {
             const sender = message.role === "user"
-              ? "You"
+              ? t("You")
               : message.senderName || bot.name;
             return (
               <div key={message.id} className={cn("call-caption", message.role === "user" && "is-user")}>
                 <span>{sender}</span>
                 <p>{message.text.replace(/[*_#>\x60]/g, "").slice(0, 240)}</p>
-                <time>{clock(message.createdAt)}</time>
+                <time>{clock(message.createdAt, language)}</time>
               </div>
             );
           })}
         </div>
 
         <form className="call-fallback" onSubmit={sendTyped}>
-          <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={"Type to " + name + " instead"} aria-label="Type a message" />
-          <button type="submit" disabled={!typed.trim()}>Send</button>
+          <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={t("Type to {0} instead", name)} aria-label={t("Type a message")} />
+          <button type="submit" disabled={!typed.trim()}>{t("Send")}</button>
         </form>
 
         <div className="call-controls">
-          <button type="button" className={cn("call-control", listening && !micError && "is-on")} onClick={toggleMic} aria-label={listening ? "Mute microphone" : "Unmute microphone"}>
+          <button type="button" className={cn("call-control", listening && !micError && "is-on")} onClick={toggleMic} aria-label={listening ? t("Mute microphone") : t("Unmute microphone")}>
             {listening ? <Mic size={20} /> : <MicOff size={20} />}
-            <span>{listening ? "Mic on" : "Mic off"}</span>
+            <span>{listening ? t("Mic on") : t("Mic off")}</span>
           </button>
-          <button type="button" className="call-end" onClick={end} aria-label="End call">
+          <button type="button" className="call-end" onClick={end} aria-label={t("End call")}>
             <PhoneOff size={22} />
           </button>
-          <button type="button" className={cn("call-control", !ui.callMuted && "is-on")} onClick={() => setUI({ callMuted: !ui.callMuted })} aria-label={ui.callMuted ? "Unmute speaker" : "Mute speaker"}>
+          <button type="button" className={cn("call-control", !ui.callMuted && "is-on")} onClick={() => setUI({ callMuted: !ui.callMuted })} aria-label={ui.callMuted ? t("Unmute speaker") : t("Mute speaker")}>
             {ui.callMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-            <span>{ui.callMuted ? "Muted" : "Speaker"}</span>
+            <span>{ui.callMuted ? t("Muted") : t("Speaker")}</span>
           </button>
         </div>
-        <p className="call-footnote">Speech recognition and the system voice stay on this machine. Nothing is uploaded by Grox.</p>
+        <p className="call-footnote">{t("Speech recognition and the system voice stay on this machine. Nothing is uploaded by Grox.")}</p>
       </div>
     </div>
   );

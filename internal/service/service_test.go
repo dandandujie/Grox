@@ -422,7 +422,7 @@ func TestPhoneCompanion(t *testing.T) {
 	}
 	body, _ := io.ReadAll(page.Body)
 	_ = page.Body.Close()
-	if page.StatusCode != 200 || !strings.Contains(string(body), "Grox") {
+	if page.StatusCode != 200 || !strings.Contains(string(body), `lang="zh-CN"`) || !strings.Contains(string(body), `aria-label="发送"`) {
 		t.Fatalf("phone page = %d %q", page.StatusCode, string(body[:min(len(body), 80)]))
 	}
 	stateResponse, err := http.Get(base + "/api/state?token=" + info.Token)

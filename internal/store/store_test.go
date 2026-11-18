@@ -44,6 +44,9 @@ func TestOpenSeedsAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s.State.Settings.Language != "zh" {
+		t.Fatalf("fresh workspace language = %q", s.State.Settings.Language)
+	}
 	if len(s.State.Bots) != 1 {
 		t.Fatalf("expected one starter agent, got %d", len(s.State.Bots))
 	}
@@ -101,5 +104,45 @@ func TestCorruptStateIsBackedUp(t *testing.T) {
 	matches, _ := filepath.Glob(filepath.Join(dir, "state.json.broken-*"))
 	if len(matches) != 1 {
 		t.Fatalf("expected one backup, got %d", len(matches))
+	}
+}
+
+func TestLanguageMigrationAndEnglishPreference(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.State.Version = 1
+	s.State.Settings.Language = "en"
+	s.State.Bots[0].Threads[0].Title = "Kept conversation"
+	if err := s.SaveState(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.State.Settings.Language != "zh" || migrated.State.Bots[0].Threads[0].Title != "Kept conversation" {
+		t.Fatalf("migration language = %q, conversation = %q", migrated.State.Settings.Language, migrated.State.Bots[0].Threads[0].Title)
+	}
+	migrated.State.Settings.Language = "en"
+	if err := migrated.SaveState(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.State.Settings.Language != "en" {
+		t.Fatalf("reopened language = %q", reopened.State.Settings.Language)
+	}
+	if err := reopened.Reset(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.State.Settings.Language != "en" {
+		t.Fatalf("reset language = %q", reopened.State.Settings.Language)
 	}
 }

@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Play, Search, Wrench } from "lucide-react";
 import type { ComposioTool } from "@/lib/bridge";
@@ -6,6 +7,7 @@ import { Modal } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 export function ComposioToolsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const { backend, toast } = useApp();
   const [tools, setTools] = useState<ComposioTool[]>([]);
   const [query, setQuery] = useState("");
@@ -47,7 +49,7 @@ export function ComposioToolsDialog({ open, onClose }: { open: boolean; onClose:
     let parsed: Record<string, unknown> = {};
     try {
       const value = JSON.parse(args || "{}");
-      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Arguments must be a JSON object.");
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(t("Arguments must be a JSON object."));
       parsed = value as Record<string, unknown>;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -68,16 +70,16 @@ export function ComposioToolsDialog({ open, onClose }: { open: boolean; onClose:
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Composio tools" width={780} className="tools-modal">
+    <Modal open={open} onClose={onClose} title={t("Composio tools")} width={780} className="tools-modal">
       <div className="tools-layout">
         <div className="tools-list-column">
           <div className="sidebar-search tools-search">
             <Search size={15} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search live tools" aria-label="Search tools" spellCheck={false} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search live tools")} aria-label={t("Search tools")} spellCheck={false} />
           </div>
-          {loading && <div className="tools-empty"><Loader2 size={15} className="spin" /> Loading tools…</div>}
+          {loading && <div className="tools-empty"><Loader2 size={15} className="spin" /> {t("Loading tools…")}</div>}
           {!loading && error && !tools.length && <div className="tools-empty is-error">{error}</div>}
-          {!loading && !error && filtered.length === 0 && <div className="tools-empty">No tools match.</div>}
+          {!loading && !error && filtered.length === 0 && <div className="tools-empty">{t("No tools match.")}</div>}
           <div className="tools-list">
             {filtered.slice(0, 200).map((tool) => (
               <button
@@ -99,31 +101,31 @@ export function ComposioToolsDialog({ open, onClose }: { open: boolean; onClose:
           {selected ? (
             <>
               <h3>{selected.name || selected.slug}</h3>
-              <p className="tools-description">{selected.description || "No description."}</p>
-              <div className="tools-schema-label">Arguments</div>
+              <p className="tools-description">{selected.description || t("No description.")}</p>
+              <div className="tools-schema-label">{t("Arguments")}</div>
               <textarea
                 className="tools-args"
                 rows={7}
                 value={args}
                 onChange={(event) => setArgs(event.target.value)}
                 spellCheck={false}
-                aria-label="Tool arguments JSON"
+                aria-label={t("Tool arguments JSON")}
               />
               {selected.inputSchema && (
                 <details className="tools-schema">
-                  <summary>Input schema</summary>
+                  <summary>{t("Input schema")}</summary>
                   <pre>{JSON.stringify(selected.inputSchema, null, 2)}</pre>
                 </details>
               )}
               {error && <p className="tools-error">{error}</p>}
               <button type="button" className="btn btn-primary tools-run" onClick={() => void run()} disabled={running}>
-                {running ? <Loader2 size={14} className="spin" /> : <Play size={14} />} {running ? "Running…" : "Run tool"}
+                {running ? <Loader2 size={14} className="spin" /> : <Play size={14} />} {running ? t("Running…") : t("Run tool")}
               </button>
-              <p className="tools-warning">This runs a real third-party tool with the connected account. Review the arguments before running it.</p>
+              <p className="tools-warning">{t("This runs a real third-party tool with the connected account. Review the arguments before running it.")}</p>
               {result && <pre className="tools-result">{result}</pre>}
             </>
           ) : (
-            <div className="tools-empty">Pick a tool to see its schema and run it.</div>
+            <div className="tools-empty">{t("Pick a tool to see its schema and run it.")}</div>
           )}
         </div>
       </div>

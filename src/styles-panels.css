@@ -804,3 +804,7 @@
 .artifact-thread { min-width: 0; justify-self: start; max-width: 100%; gap: 8px; }
 .artifact-thread span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-thread svg { flex-shrink: 0; }
+
+.language-setting {
+  max-width: 12rem;
+}

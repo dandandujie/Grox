@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { Mascot } from "@/components/Mascot";
 import { generateAvatar } from "@/lib/pixel-avatar";
 
@@ -8,13 +9,14 @@ const SEEDS = [
 ];
 
 export function AvatarGallery() {
+  const t = useT();
   return (
     <div className="avatar-gallery">
       <header className="avatar-gallery-head">
         <div>
-          <h2>Generated portraits</h2>
+          <h2>{t("Generated portraits")}</h2>
         </div>
-        <a href="/" className="btn btn-secondary">Back to Grox</a>
+        <a href="/" className="btn btn-secondary">{t("Back to Grox")}</a>
       </header>
       <div className="avatar-gallery-grid">
         {SEEDS.map((seed) => {

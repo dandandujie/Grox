@@ -229,7 +229,7 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	recallText := s.memoryRecallLocked(bot, agentText)
 	req := agent.Request{
 		Bot: botCopy, Thread: threadCopy, UserText: agentText, History: threadCopy.Messages,
-		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode,
+		Model: modelDef, WorkDir: bot.WorkingDir, EngineMode: engineMode, Language: settings.Language,
 		APIBaseURL: apiBase, APIModel: settings.APIModel, APIKey: apiKey, CLIAvailable: cli,
 		ExtraContext: extraContext, SkillText: skillText, PlaybookText: s.selectedPlaybookTextLocked(bot.ID, agentText), MemoryText: memoryText, RecallText: recallText,
 		MCPServers: s.mcpConfigsForTurn(bot.ID),

@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -40,6 +41,7 @@ export function Modal({
   width?: number;
   labelledBy?: string;
 }) {
+  const t = useT();
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -81,7 +83,7 @@ export function Modal({
         {title && (
           <header className="modal-head">
             <h2 id={titleId}>{title}</h2>
-            <IconButton label="Close" onClick={onClose}><X size={18} /></IconButton>
+            <IconButton label={t("Close")} onClick={onClose}><X size={18} /></IconButton>
           </header>
         )}
         {children}
@@ -158,7 +160,8 @@ export function Field({ label, hint, children, className }: { label: string; hin
 }
 
 export function Spinner({ size = 16, className }: { size?: number; className?: string }) {
-  return <span className={cn("spinner", className)} style={{ width: size, height: size }} role="status" aria-label="Loading" />;
+  const t = useT();
+  return <span className={cn("spinner", className)} style={{ width: size, height: size }} role="status" aria-label={t("Loading")} />;
 }
 
 export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {

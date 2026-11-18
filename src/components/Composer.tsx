@@ -1,3 +1,4 @@
+import { useLanguage, useT } from "@/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Loader2, Mic, Paperclip, Plus, Square, X } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -26,6 +27,8 @@ const emptyDraft: Draft = {
 };
 
 export function Composer({ visible }: { visible: boolean }) {
+  const t = useT();
+  const language = useLanguage();
   const { activeBot, activeGroup, activeThread, state, providers, send, uploadAttachment, stop, newTask, setUI, toast } = useApp();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [plusOpen, setPlusOpen] = useState(false);
@@ -94,7 +97,7 @@ export function Composer({ visible }: { visible: boolean }) {
   }, [busy, queue, queueBlocked, send, threadId, updateDraft, visible]);
 
   if ((!activeBot && !activeGroup) || !activeThread) return null;
-  const conversationName = activeGroup ? "# " + activeGroup.name : activeBot?.name ?? "this chat";
+  const conversationName = activeGroup ? "# " + activeGroup.name : activeBot?.name ?? t("this chat");
 
   const setText = (value: string) => updateDraft(() => ({ text: value, error: "" }));
 
@@ -106,7 +109,7 @@ export function Composer({ visible }: { visible: boolean }) {
     try {
       for (const file of selected) {
         if (file.size > MAX_FILE_BYTES) {
-          toast({ kind: "error", title: "That file is too large", body: file.name + " is over 32 MB." });
+          toast({ kind: "error", title: t("That file is too large"), body: file.name + t(" is over 32 MB.") });
           continue;
         }
         const attachment = await uploadAttachment(file);
@@ -123,7 +126,7 @@ export function Composer({ visible }: { visible: boolean }) {
     if ((!clean && pending.length === 0) || uploads > 0 || inFlight.has(threadId)) return;
     if (busy || (queue.length > 0 && !queueBlocked)) {
       if (pending.length > 0) {
-        toast({ kind: "info", title: "Wait for the current turn", body: "Attachments can be sent with the next message." });
+        toast({ kind: "info", title: t("Wait for the current turn"), body: t("Attachments can be sent with the next message.") });
         return;
       }
       updateDraft((draft) => ({ text: "", queue: [...draft.queue, clean] }));
@@ -153,11 +156,11 @@ export function Composer({ visible }: { visible: boolean }) {
     }
     const Ctor = getRecognitionCtor();
     if (!Ctor) {
-      toast({ kind: "info", title: "Dictation is not available here", body: "This webview does not expose speech recognition. Use a browser preview, or type instead." });
+      toast({ kind: "info", title: t("Dictation is not available here"), body: t("This webview does not expose speech recognition. Use a browser preview, or type instead.") });
       return;
     }
     const recognition = new Ctor();
-    recognition.lang = typeof navigator !== "undefined" ? navigator.language || "en-US" : "en-US";
+    recognition.lang = language === "zh" ? "zh-CN" : "en-US";
     recognition.continuous = false;
     recognition.interimResults = true;
     dictationBase.current = text;
@@ -179,8 +182,8 @@ export function Composer({ visible }: { visible: boolean }) {
     };
     recognition.onerror = (event) => {
       setListening(false);
-      const reason = event.error === "not-allowed" ? "Microphone permission was denied." : "The microphone could not be used.";
-      toast({ kind: "error", title: "Dictation stopped", body: reason });
+      const reason = event.error === "not-allowed" ? t("Microphone permission was denied.") : t("The microphone could not be used.");
+      toast({ kind: "error", title: t("Dictation stopped"), body: reason });
     };
     recognition.onend = () => setListening(false);
     recognitionRef.current = recognition;
@@ -188,7 +191,7 @@ export function Composer({ visible }: { visible: boolean }) {
       recognition.start();
       setListening(true);
     } catch {
-      toast({ kind: "error", title: "Dictation could not start" });
+      toast({ kind: "error", title: t("Dictation could not start") });
     }
   };
 
@@ -196,23 +199,23 @@ export function Composer({ visible }: { visible: boolean }) {
     <div className="composer-dock">
       {(error || unfinished || needsModel) && (
         <div className="composer-notice" role={error ? "alert" : "status"}>
-          <span>{error || (unfinished ? unfinished.error ? "The last turn failed." : "The last turn stopped." : "This model is unavailable.")}</span>
+          <span>{error ? t(error) : (unfinished ? unfinished.error ? t("The last turn failed.") : t("The last turn stopped.") : t("This model is unavailable."))}</span>
           {previousRequest && !text && pending.length === 0 && (
             <button type="button" className="link-button" onClick={() => {
               updateDraft(() => ({ text: previousRequest.text, attachments: previousRequest.attachments ?? [], error: "" }));
               textareaRef.current?.focus();
-            }}>Restore request</button>
+            }}>{t("Restore request")}</button>
           )}
-          <button type="button" className="link-button" onClick={openEngines}>Engines</button>
+          <button type="button" className="link-button" onClick={openEngines}>{t("Engines")}</button>
         </div>
       )}
       {queue.length > 0 && (
         <div className="composer-queue">
           {queue.map((item, index) => (
             <span className="queue-chip" key={item + index}>
-              <span className="queue-label">Queued</span>
+              <span className="queue-label">{t("Queued")}</span>
               <span className="queue-text">{item}</span>
-              <button type="button" aria-label="Remove queued message" disabled={sending && index === 0}
+              <button type="button" aria-label={t("Remove queued message")} disabled={sending && index === 0}
                 onClick={() => updateDraft((draft) => ({
                   queue: draft.queue.filter((_, i) => i !== index),
                   queuePaused: index === 0 ? false : draft.queuePaused,
@@ -221,7 +224,7 @@ export function Composer({ visible }: { visible: boolean }) {
               </button>
             </span>
           ))}
-          {queueBlocked && <button type="button" className="btn btn-ghost" onClick={() => updateDraft(() => ({ queuePaused: false, resumedAfter: unfinished?.id ?? "", error: "" }))}>Resume queue</button>}
+          {queueBlocked && <button type="button" className="btn btn-ghost" onClick={() => updateDraft(() => ({ queuePaused: false, resumedAfter: unfinished?.id ?? "", error: "" }))}>{t("Resume queue")}</button>}
         </div>
       )}
       {pending.length > 0 && (
@@ -234,7 +237,7 @@ export function Composer({ visible }: { visible: boolean }) {
       )}
       <div className={cn("composer", busy && "is-busy")}>
         <div className="composer-plus-wrap no-drag">
-          <IconButton label="More" size={30} onClick={() => setPlusOpen((open) => !open)} active={plusOpen}>
+          <IconButton label={t("More")} size={30} onClick={() => setPlusOpen((open) => !open)} active={plusOpen}>
             <Plus size={20} />
           </IconButton>
           {plusOpen && (
@@ -242,16 +245,16 @@ export function Composer({ visible }: { visible: boolean }) {
               <div className="composer-plus-backdrop" onClick={() => setPlusOpen(false)} />
               <div className="composer-plus-menu" role="menu">
                 <button type="button" role="menuitem" onClick={() => { setPlusOpen(false); fileInputRef.current?.click(); }}>
-                  <Paperclip size={15} /> Attach files or images
+                  <Paperclip size={15} /> {t("Attach files or images")}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setPlusOpen(false); newTask(); }}>
-                  <Plus size={15} /> New task
+                  <Plus size={15} /> {t("New task")}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setPlusOpen(false); setUI({ panel: "profile" }); }}>
-                  <span className="menu-dot" /> {activeGroup ? "Channel details" : "Agent profile"}
+                  <span className="menu-dot" /> {activeGroup ? t("Channel details") : t("Agent profile")}
                 </button>
                 <button type="button" role="menuitem" onClick={() => { setPlusOpen(false); setUI({ settingsOpen: true, settingsSection: "general" }); }}>
-                  <span className="menu-dot" /> Settings
+                  <span className="menu-dot" /> {t("Settings")}
                 </button>
               </div>
             </>
@@ -268,15 +271,15 @@ export function Composer({ visible }: { visible: boolean }) {
             event.preventDefault();
             void submit(text);
           }}
-          placeholder={"Message " + conversationName}
-          aria-label={"Message " + conversationName}
+          placeholder={t("Message ") + conversationName}
+          aria-label={t("Message ") + conversationName}
           className="composer-input"
           spellCheck={false}
         />
         <div className="composer-actions">
           {uploads > 0 && <span className="composer-uploading"><Loader2 size={15} className="spin" /></span>}
           <IconButton
-            label={listening ? "Stop dictation" : "Dictate"}
+            label={listening ? t("Stop dictation") : t("Dictate")}
             size={30}
             className={cn("composer-mic", listening && "is-listening")}
             onClick={toggleDictation}
@@ -284,15 +287,15 @@ export function Composer({ visible }: { visible: boolean }) {
             <Mic size={18} />
           </IconButton>
           {busy ? (
-            <button type="button" className="composer-send is-stop" aria-label="Stop" title="Stop" onClick={stop}>
+            <button type="button" className="composer-send is-stop" aria-label={t("Stop")} title={t("Stop")} onClick={stop}>
               <Square size={13} fill="currentColor" />
             </button>
           ) : (
             <button
               type="button"
               className="composer-send"
-              aria-label="Send"
-              title="Send"
+              aria-label={t("Send")}
+              title={t("Send")}
               disabled={sending || uploads > 0 || (!text.trim() && pending.length === 0)}
               onClick={() => void submit(text)}
             >
@@ -307,11 +310,11 @@ export function Composer({ visible }: { visible: boolean }) {
         multiple
         className="sr-only"
         onChange={(event) => void addFiles(event.target.files)}
-        aria-label="Attach files"
+        aria-label={t("Attach files")}
       />
       <div className="composer-hint">
-        <span>Enter to send · Shift + Enter for a new line</span>
-        {demo && <span className="composer-model">Demo · scripted replies</span>}
+        <span>{t("Enter to send · Shift + Enter for a new line")}</span>
+        {demo && <span className="composer-model">{t("Demo · scripted replies")}</span>}
       </div>
     </div>
   );

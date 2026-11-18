@@ -1,9 +1,11 @@
+import { useT } from "@/i18n";
 import { AlertTriangle, Bell, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Modal } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 export function ConfirmDialog() {
+  const t = useT();
   const { confirm, closeConfirm } = useApp();
   return (
     <Modal open={Boolean(confirm)} onClose={closeConfirm} title={undefined} width={430} className="confirm-modal">
@@ -15,13 +17,13 @@ export function ConfirmDialog() {
           <h2>{confirm.title}</h2>
           {confirm.body && <p>{confirm.body}</p>}
           <div className="modal-actions">
-            <button type="button" className="btn btn-ghost" onClick={closeConfirm}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={closeConfirm}>{t("Cancel")}</button>
             <button
               type="button"
               className={cn("btn", confirm.danger ? "btn-danger" : "btn-primary")}
               onClick={() => { confirm.onConfirm(); closeConfirm(); }}
             >
-              {confirm.confirmLabel ?? "Confirm"}
+              {confirm.confirmLabel ?? t("Confirm")}
             </button>
           </div>
         </div>
@@ -31,10 +33,11 @@ export function ConfirmDialog() {
 }
 
 export function Toasts() {
+  const t = useT();
   const { toasts, dismissToast } = useApp();
   if (!toasts.length) return null;
   return (
-    <div className="toast-stack" role="region" aria-label="Notifications">
+    <div className="toast-stack" role="region" aria-label={t("Notifications")}>
       {toasts.map((toast) => (
         <div key={toast.id} className={cn("toast", "toast-" + toast.kind)} role="status">
           <span className="toast-icon">
@@ -44,7 +47,7 @@ export function Toasts() {
             <div>{toast.title}</div>
             {toast.body && <p>{toast.body}</p>}
           </div>
-          <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismissToast(toast.id)}><X size={13} /></button>
+          <button type="button" className="toast-close" aria-label={t("Dismiss")} onClick={() => dismissToast(toast.id)}><X size={13} /></button>
         </div>
       ))}
     </div>
@@ -65,19 +68,20 @@ const SHORTCUTS: { keys: string; label: string }[] = [
 ];
 
 export function ShortcutsModal() {
+  const t = useT();
   const { ui, setUI } = useApp();
   return (
-    <Modal open={ui.shortcutsOpen} onClose={() => setUI({ shortcutsOpen: false })} title="Keyboard shortcuts" width={520}>
+    <Modal open={ui.shortcutsOpen} onClose={() => setUI({ shortcutsOpen: false })} title={t("Keyboard shortcuts")} width={520}>
       <div className="shortcut-list">
         {SHORTCUTS.map((shortcut) => (
           <div className="shortcut-row" key={shortcut.keys}>
-            <span>{shortcut.label}</span>
+            <span>{t(shortcut.label)}</span>
             <span className="shortcut-keys">{shortcut.keys.split(" ").map((key) => <span className="keycap" key={key}>{key}</span>)}</span>
           </div>
         ))}
       </div>
       <div className="modal-actions">
-        <button type="button" className="btn btn-secondary" onClick={() => setUI({ shortcutsOpen: false })}>Done</button>
+        <button type="button" className="btn btn-secondary" onClick={() => setUI({ shortcutsOpen: false })}>{t("Done")}</button>
       </div>
     </Modal>
   );

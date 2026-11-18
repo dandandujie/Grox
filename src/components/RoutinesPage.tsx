@@ -1,3 +1,4 @@
+import { localeTag, useLanguage, useT, type Language, type Translate } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Copy, Pencil, Play, Plus, Trash2, Webhook, XCircle,
@@ -56,24 +57,25 @@ function occursOn(routine: Routine, day: Date): boolean {
   }
 }
 
-function timeLabel(value: string): string {
+function timeLabel(value: string, language: Language): string {
   const [hours, minutes] = (value || "09:00").split(":").map(Number);
   const date = new Date();
   date.setHours(Number.isFinite(hours) ? hours! : 9, Number.isFinite(minutes) ? minutes! : 0, 0, 0);
-  return date.toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString(localeTag(language), { hour: "numeric", minute: "2-digit" });
 }
 
-function scheduleCopy(routine: Routine): string {
+function scheduleCopy(routine: Routine, t: Translate, language: Language): string {
   switch (routine.cadence) {
-    case "cron": return (routine.cronExpression ?? "") + " · " + (routine.timeZone || "Local time");
-    case "hourly": return "Every hour";
-    case "weekdays": return "Weekdays · " + timeLabel(routine.timeOfDay);
-    case "weekly": return DAY_NAMES[(routine.weekday || 1) - 1] + " · " + timeLabel(routine.timeOfDay);
-    default: return "Daily · " + timeLabel(routine.timeOfDay);
+    case "cron": return (routine.cronExpression ?? "") + " · " + (routine.timeZone || t("Local time"));
+    case "hourly": return t("Every hour");
+    case "weekdays": return t("Weekdays · ") + timeLabel(routine.timeOfDay, language);
+    case "weekly": return t(DAY_NAMES[(routine.weekday || 1) - 1] ?? "Monday") + " · " + timeLabel(routine.timeOfDay, language);
+    default: return t("Daily · ") + timeLabel(routine.timeOfDay, language);
   }
 }
 
 function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefined; open: boolean; onClose: () => void }) {
+  const t = useT();
   const { activeBot, activeGroup, state, createRoutine, updateRoutine, deleteRoutine, runRoutine } = useApp();
   const [groupId, setGroupId] = useState("");
   const [botId, setBotId] = useState("");
@@ -124,11 +126,11 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim() || !prompt.trim() || !availableBots.some((bot) => bot.id === botId)) {
-      setError("Choose a bot and enter a name and prompt.");
+      setError(t("Choose a bot and enter a name and prompt."));
       return;
     }
     if (cadence === "cron" && cronExpression.trim().split(/\s+/).length !== 5) {
-      setError("Enter five cron fields.");
+      setError(t("Enter five cron fields."));
       return;
     }
     setError("");
@@ -145,43 +147,43 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={routine ? "Edit routine" : "New routine"} width={620}>
+    <Modal open={open} onClose={onClose} title={routine ? t("Edit routine") : t("New routine")} width={620}>
       <form className="routine-form" onSubmit={submit}>
         <div className="form-two">
           <label className="panel-field">
-            <span>Conversation</span>
+            <span>{t("Conversation")}</span>
             <select value={groupId} onChange={(event) => selectConversation(event.target.value)}>
-              <option value="">Direct chat</option>
-              {groupId && !group && <option value={groupId}>Deleted channel</option>}
+              <option value="">{t("Direct chat")}</option>
+              {groupId && !group && <option value={groupId}>{t("Deleted channel")}</option>}
               {state.groups.map((item) => <option key={item.id} value={item.id}># {item.name}</option>)}
             </select>
           </label>
           <label className="panel-field">
-            <span>Bot</span>
+            <span>{t("Bot")}</span>
             <select value={botId} onChange={(event) => setBotId(event.target.value)}>
-              {!availableBots.some((bot) => bot.id === botId) && <option value={botId} disabled>Choose a bot</option>}
+              {!availableBots.some((bot) => bot.id === botId) && <option value={botId} disabled>{t("Choose a bot")}</option>}
               {availableBots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
             </select>
           </label>
         </div>
         <label className="panel-field">
-          <span>Name</span>
-          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning research brief" />
+          <span>{t("Name")}</span>
+          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={t("Morning research brief")} />
         </label>
         <label className="panel-field">
-          <span>Prompt</span>
-          <textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What should this bot do each time? Write it as if you were sending a message." />
+          <span>{t("Prompt")}</span>
+          <textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={t("What should this bot do each time? Write it as if you were sending a message.")} />
         </label>
         <div className="panel-field">
-          <span>Schedule</span>
+          <span>{t("Schedule")}</span>
           <Segmented
-            label="Cadence"
+            label={t("Cadence")}
             value={cadence}
             options={[
-              { value: "daily", label: "Daily" },
-              { value: "weekdays", label: "Weekdays" },
-              { value: "weekly", label: "Weekly" },
-              { value: "hourly", label: "Hourly" },
+              { value: "daily", label: t("Daily") },
+              { value: "weekdays", label: t("Weekdays") },
+              { value: "weekly", label: t("Weekly") },
+              { value: "hourly", label: t("Hourly") },
               { value: "cron", label: "Cron" },
             ]}
             onChange={setCadence}
@@ -190,26 +192,26 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
         {cadence === "cron" && (
           <div className="form-two">
             <label className="panel-field">
-              <span>Cron expression</span>
+              <span>{t("Cron expression")}</span>
               <input value={cronExpression} onChange={(event) => setCronExpression(event.target.value)} placeholder="0 10 * * 1" />
             </label>
             <label className="panel-field">
-              <span>Time zone</span>
-              <input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} placeholder="Local time" />
+              <span>{t("Time zone")}</span>
+              <input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} placeholder={t("Local time")} />
             </label>
           </div>
         )}
         {cadence !== "hourly" && cadence !== "cron" && (
           <div className="form-two">
             <label className="panel-field">
-              <span>Time</span>
+              <span>{t("Time")}</span>
               <input type="time" value={timeOfDay} onChange={(event) => setTimeOfDay(event.target.value)} />
             </label>
             {cadence === "weekly" && (
               <label className="panel-field">
-                <span>Day</span>
+                <span>{t("Day")}</span>
                 <select value={weekday} onChange={(event) => setWeekday(Number(event.target.value))}>
-                  {DAY_NAMES.map((day, index) => <option key={day} value={index + 1}>{day}</option>)}
+                  {DAY_NAMES.map((day, index) => <option key={day} value={index + 1}>{t(day)}</option>)}
                 </select>
               </label>
             )}
@@ -217,50 +219,50 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
         )}
         <div className="switch-row">
           <span className="row-copy">
-            <span className="row-title">Keep one thread</span>
-            <span className="row-sub">Continue the previous routine thread instead of creating a fresh task each run.</span>
+            <span className="row-title">{t("Keep one thread")}</span>
+            <span className="row-sub">{t("Continue the previous routine thread instead of creating a fresh task each run.")}</span>
           </span>
-          <Switch checked={continuity} label="Keep one routine thread" onChange={setContinuity} />
+          <Switch checked={continuity} label={t("Keep one routine thread")} onChange={setContinuity} />
         </div>
         <div className="switch-row">
           <span className="row-copy">
-            <span className="row-title">Only when there is news</span>
-            <span className="row-sub">Check other routines' finished runs first; skip the turn when nothing new finished.</span>
+            <span className="row-title">{t("Only when there is news")}</span>
+            <span className="row-sub">{t("Check other routines' finished runs first; skip the turn when nothing new finished.")}</span>
           </span>
-          <Switch checked={checkRuns} label="Check routine runs" onChange={setCheckRuns} />
+          <Switch checked={checkRuns} label={t("Check routine runs")} onChange={setCheckRuns} />
         </div>
         <div className="panel-field">
-          <span>While busy</span>
+          <span>{t("While busy")}</span>
           <Segmented
-            label="While busy"
+            label={t("While busy")}
             value={overlap}
-            options={[{ value: "skip", label: "Skip this run" }, { value: "queue", label: "Retry shortly" }]}
+            options={[{ value: "skip", label: t("Skip this run") }, { value: "queue", label: t("Retry shortly") }]}
             onChange={setOverlap}
           />
         </div>
         <div className="switch-row routine-enabled">
           <span className="row-copy">
-            <span className="row-title">Enabled</span>
+            <span className="row-title">{t("Enabled")}</span>
           </span>
-          <Switch checked={enabled} label="Enabled" onChange={setEnabled} />
+          <Switch checked={enabled} label={t("Enabled")} onChange={setEnabled} />
         </div>
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions split">
           <div>
             {routine && (
               <button type="button" className="btn btn-ghost danger-text" onClick={() => { void deleteRoutine(routine.id); onClose(); }}>
-                <Trash2 size={14} /> Delete
+                <Trash2 size={14} /> {t("Delete")}
               </button>
             )}
           </div>
           <div className="action-cluster">
             {routine && (
               <button type="button" className="btn btn-secondary" onClick={() => { void runRoutine(routine.id); onClose(); }}>
-                <Play size={14} /> Run now
+                <Play size={14} /> {t("Run now")}
               </button>
             )}
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save routine"}</button>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>{t("Cancel")}</button>
+            <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t("Saving…") : t("Save routine")}</button>
           </div>
         </div>
       </form>
@@ -274,6 +276,7 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useT();
   const { state, backend, toast } = useApp();
   const [botId, setBotId] = useState(hook?.botId ?? state.bots[0]?.id ?? "");
   const [name, setName] = useState(hook?.name ?? "");
@@ -299,7 +302,7 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim() || !botId) {
-      setError("A webhook needs a bot and a name.");
+      setError(t("A webhook needs a bot and a name."));
       return;
     }
     setBusy(true);
@@ -311,46 +314,46 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
       }
       onSaved();
       onClose();
-      toast({ kind: "success", title: hook ? "Webhook updated" : "Webhook created" });
+      toast({ kind: "success", title: hook ? t("Webhook updated") : t("Webhook created") });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save the webhook.");
+      setError(cause instanceof Error ? cause.message : t("Could not save the webhook."));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={hook ? "Edit webhook" : "New webhook"} width={620}>
+    <Modal open={open} onClose={onClose} title={hook ? t("Edit webhook") : t("New webhook")} width={620}>
       <form className="routine-form" onSubmit={submit}>
         <div className="form-two">
           <label className="panel-field">
-            <span>Bot</span>
+            <span>{t("Bot")}</span>
             <select value={botId} onChange={(event) => setBotId(event.target.value)} disabled={Boolean(hook)}>
               {state.bots.filter((bot) => !bot.archived).map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
             </select>
           </label>
           <label className="panel-field">
-            <span>Name</span>
-            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Deploy finished" />
+            <span>{t("Name")}</span>
+            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={t("Deploy finished")} />
           </label>
         </div>
         <label className="panel-field">
-          <span>Instruction</span>
-          <textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What should the bot do with the incoming payload?" />
+          <span>{t("Instruction")}</span>
+          <textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={t("What should the bot do with the incoming payload?")} />
         </label>
         <div className="switch-row">
-          <span className="row-copy"><span className="row-title">Enabled</span><span className="row-sub">A disabled trigger keeps its URL but rejects requests.</span></span>
-          <Switch checked={enabled} label="Enable webhook" onChange={setEnabled} />
+          <span className="row-copy"><span className="row-title">{t("Enabled")}</span><span className="row-sub">{t("A disabled trigger keeps its URL but rejects requests.")}</span></span>
+          <Switch checked={enabled} label={t("Enable webhook")} onChange={setEnabled} />
         </div>
         <div className="switch-row">
-          <span className="row-copy"><span className="row-title">Require HMAC signature</span><span className="row-sub">Use the URL token as the signing key and send X-Grox-Timestamp and X-Grox-Signature.</span></span>
-          <Switch checked={requireSignature} label="Require HMAC signature" onChange={setRequireSignature} />
+          <span className="row-copy"><span className="row-title">{t("Require HMAC signature")}</span><span className="row-sub">{t("Use the URL token as the signing key and send X-Grox-Timestamp and X-Grox-Signature.")}</span></span>
+          <Switch checked={requireSignature} label={t("Require HMAC signature")} onChange={setRequireSignature} />
         </div>
-        <p className="panel-note">The endpoint receives one JSON or text payload, creates a task conversation, and starts the bot. The token in the URL is the capability; treat the URL as a password.</p>
+        <p className="panel-note">{t("The endpoint receives one JSON or text payload, creates a task conversation, and starts the bot. The token in the URL is the capability; treat the URL as a password.")}</p>
         {error && <p className="panel-note is-error">{error}</p>}
         <div className="modal-actions">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : hook ? "Save webhook" : "Create webhook"}</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t("Cancel")}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t("Saving…") : hook ? t("Save webhook") : t("Create webhook")}</button>
         </div>
       </form>
     </Modal>
@@ -358,6 +361,8 @@ function WebhookEditor({ hook, open, onClose, onSaved }: {
 }
 
 function WebhooksPanel() {
+  const t = useT();
+  const language = useLanguage();
   const { backend, state, toast, requestConfirm } = useApp();
   const [info, setInfo] = useState<Awaited<ReturnType<typeof backend.getWebhookInfo>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -370,7 +375,7 @@ function WebhooksPanel() {
     try {
       setInfo(await backend.getWebhookInfo());
     } catch (cause) {
-      toast({ kind: "error", title: "Could not read webhooks", body: cause instanceof Error ? cause.message : "Try again." });
+      toast({ kind: "error", title: t("Could not read webhooks"), body: cause instanceof Error ? cause.message : t("Try again.") });
     } finally {
       setLoading(false);
     }
@@ -378,14 +383,14 @@ function WebhooksPanel() {
 
   useEffect(() => { void load(); }, []);
 
-  const botName = (id: string) => state.bots.find((bot) => bot.id === id)?.name ?? "Bot";
+  const botName = (id: string) => state.bots.find((bot) => bot.id === id)?.name ?? t("Bot");
   const endpointFor = (hook: WebhookTrigger) => info?.baseUrl ? info.baseUrl + "/hooks/" + hook.token : "";
 
   const copy = (hook: WebhookTrigger) => {
     const endpoint = endpointFor(hook);
     if (!endpoint) return;
     void navigator.clipboard?.writeText(endpoint);
-    toast({ kind: "success", title: "Webhook URL copied" });
+    toast({ kind: "success", title: t("Webhook URL copied") });
   };
 
   const toggle = async (hook: WebhookTrigger, enabled: boolean) => {
@@ -393,7 +398,7 @@ function WebhooksPanel() {
       await backend.updateWebhook(hook.id, { enabled });
       await load();
     } catch (cause) {
-      toast({ kind: "error", title: "Webhook not updated", body: cause instanceof Error ? cause.message : "Try again." });
+      toast({ kind: "error", title: t("Webhook not updated"), body: cause instanceof Error ? cause.message : t("Try again.") });
     }
   };
 
@@ -402,9 +407,9 @@ function WebhooksPanel() {
     try {
       await backend.replayWebhookDelivery(deliveryId);
       await load();
-      toast({ kind: "success", title: "Webhook replayed", body: "A fresh task was started from the retained payload." });
+      toast({ kind: "success", title: t("Webhook replayed"), body: t("A fresh task was started from the retained payload.") });
     } catch (cause) {
-      toast({ kind: "error", title: "Could not replay", body: cause instanceof Error ? cause.message : "Try again." });
+      toast({ kind: "error", title: t("Could not replay"), body: cause instanceof Error ? cause.message : t("Try again.") });
     } finally {
       setReplaying("");
     }
@@ -412,13 +417,13 @@ function WebhooksPanel() {
 
   const remove = (hook: WebhookTrigger) => {
     requestConfirm({
-      title: "Delete webhook?",
-      body: hook.name + " will stop accepting requests. Its URL token becomes invalid.",
-      confirmLabel: "Delete",
+      title: t("Delete webhook?"),
+      body: hook.name + t(" will stop accepting requests. Its URL token becomes invalid."),
+      confirmLabel: t("Delete"),
       danger: true,
       onConfirm: () => {
         void backend.deleteWebhook(hook.id).then(load).catch((cause: unknown) => {
-          toast({ kind: "error", title: "Webhook not deleted", body: cause instanceof Error ? cause.message : "Try again." });
+          toast({ kind: "error", title: t("Webhook not deleted"), body: cause instanceof Error ? cause.message : t("Try again.") });
         });
       },
     });
@@ -428,22 +433,22 @@ function WebhooksPanel() {
     <div className="webhook-panel">
       <div className="webhook-panel-head">
         <div>
-          <h3>Inbound webhooks</h3>
-          <p>Wake a bot from a local script or an outside service. Requests are accepted only on the loopback receiver.</p>
+          <h3>{t("Inbound webhooks")}</h3>
+          <p>{t("Wake a bot from a local script or an outside service. Requests are accepted only on the loopback receiver.")}</p>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => { setEditing(undefined); setEditorOpen(true); }} disabled={!info?.baseUrl}>
-          <Plus size={14} /> New webhook
+          <Plus size={14} /> {t("New webhook")}
         </button>
       </div>
       {info?.baseUrl && <code className="webhook-base">{info.baseUrl}</code>}
       {info?.error && <p className="panel-note is-warning">{info.error}</p>}
       {loading ? (
-        <p className="panel-note">Reading webhook receiver…</p>
+        <p className="panel-note">{t("Reading webhook receiver…")}</p>
       ) : info && info.items.length === 0 ? (
         <div className="webhook-empty">
           <Webhook size={22} />
-          <h3>No inbound webhooks</h3>
-          <p>Create one to get a local URL with a private capability token.</p>
+          <h3>{t("No inbound webhooks")}</h3>
+          <p>{t("Create one to get a local URL with a private capability token.")}</p>
         </div>
       ) : (
         <div className="webhook-list">
@@ -455,18 +460,18 @@ function WebhooksPanel() {
                   <strong>{hook.name}</strong>
                   <span>{botName(hook.botId)} · {hook.eventCount} event{hook.eventCount === 1 ? "" : "s"}</span>
                 </div>
-                <Switch checked={hook.enabled} label={"Enable " + hook.name} onChange={(value) => void toggle(hook, value)} />
+                <Switch checked={hook.enabled} label={t("Enable ") + hook.name} onChange={(value) => void toggle(hook, value)} />
               </div>
               <div className="webhook-endpoint">
-                <code title={endpointFor(hook)}>{endpointFor(hook) || "Receiver unavailable"}</code>
-                <button type="button" className="icon-button" aria-label="Copy webhook URL" onClick={() => copy(hook)} disabled={!endpointFor(hook)}><Copy size={13} /></button>
+                <code title={endpointFor(hook)}>{endpointFor(hook) || t("Receiver unavailable")}</code>
+                <button type="button" className="icon-button" aria-label={t("Copy webhook URL")} onClick={() => copy(hook)} disabled={!endpointFor(hook)}><Copy size={13} /></button>
               </div>
-              <p className="webhook-prompt">{hook.prompt || "Uses the request body as the task."}</p>
+              <p className="webhook-prompt">{hook.prompt || t("Uses the request body as the task.")}</p>
               <div className="webhook-meta">
-                <span>{hook.lastEventAt ? "Last event " + relative(hook.lastEventAt) : "No events yet"} · {hook.requireSignature ? "signed" : "token only"}</span>
+                <span>{hook.lastEventAt ? t("Last event ") + relative(hook.lastEventAt, language) : t("No events yet")} · {hook.requireSignature ? t("Signed") : t("token only")}</span>
                 <div className="webhook-actions">
-                  <button type="button" className="link-button" onClick={() => { setEditing(hook); setEditorOpen(true); }}><Pencil size={11} /> Edit</button>
-                  <button type="button" className="link-button is-danger" onClick={() => remove(hook)}><Trash2 size={11} /> Delete</button>
+                  <button type="button" className="link-button" onClick={() => { setEditing(hook); setEditorOpen(true); }}><Pencil size={11} /> {t("Edit")}</button>
+                  <button type="button" className="link-button is-danger" onClick={() => remove(hook)}><Trash2 size={11} /> {t("Delete")}</button>
                 </div>
               </div>
             </section>
@@ -475,15 +480,15 @@ function WebhooksPanel() {
       )}
       {info && (info.deliveries?.length ?? 0) > 0 && (
         <section className="webhook-deliveries">
-          <div className="panel-card-title"><span>Recent deliveries</span><span className="avatar-seed">{info.deliveries?.length}</span></div>
+          <div className="panel-card-title"><span>{t("Recent deliveries")}</span><span className="avatar-seed">{info.deliveries?.length}</span></div>
           {info.deliveries?.map((delivery) => (
             <div key={delivery.id} className="webhook-delivery">
               <div className="webhook-delivery-copy">
                 <strong>{delivery.webhookName}</strong>
-                <span>{relative(delivery.at)} · {delivery.status}{delivery.error ? " · " + delivery.error : ""}</span>
+                <span>{relative(delivery.at, language)} · {t(delivery.status)}{delivery.error ? " · " + delivery.error : ""}</span>
               </div>
               <button type="button" className="link-button" onClick={() => void replay(delivery.id)} disabled={replaying === delivery.id}>
-                {replaying === delivery.id ? "Replaying…" : "Replay"}
+                {replaying === delivery.id ? t("Replaying…") : t("Replay")}
               </button>
             </div>
           ))}
@@ -495,6 +500,8 @@ function WebhooksPanel() {
 }
 
 export function RoutinesPage() {
+  const t = useT();
+  const language = useLanguage();
   const { state, ui, setUI, runRoutine, updateRoutine, openThread, openGroupThread } = useApp();
   const [view, setView] = useState<"day" | "3day" | "week">("week");
   const [anchor, setAnchor] = useState(new Date());
@@ -532,13 +539,13 @@ export function RoutinesPage() {
   };
 
   const label = view === "day"
-    ? anchor.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })
-    : days[0]!.toLocaleDateString("en", { month: "long", day: "numeric" }) + " – " + days[days.length - 1]!.toLocaleDateString("en", { month: "long", day: "numeric" });
+    ? anchor.toLocaleDateString(localeTag(language), { weekday: "long", month: "long", day: "numeric" })
+    : days[0]!.toLocaleDateString(localeTag(language), { month: "long", day: "numeric" }) + " – " + days[days.length - 1]!.toLocaleDateString(localeTag(language), { month: "long", day: "numeric" });
 
-  const botName = (id: string) => state.bots.find((bot) => bot.id === id)?.name ?? "Bot";
+  const botName = (id: string) => state.bots.find((bot) => bot.id === id)?.name ?? t("Bot");
   const targetName = (botId: string, groupId?: string) => {
     const group = groupId ? state.groups.find((item) => item.id === groupId) : undefined;
-    return groupId ? botName(botId) + " · " + (group ? "# " + group.name : "Deleted channel") : botName(botId);
+    return groupId ? botName(botId) + " · " + (group ? "# " + group.name : t("Deleted channel")) : botName(botId);
   };
   const botColor = (id: string) => state.bots.find((bot) => bot.id === id)?.color ?? "green";
 
@@ -546,13 +553,13 @@ export function RoutinesPage() {
     <section className="routines-page">
       <header className="page-head drag-region">
         <div className="page-head-copy no-drag">
-          <div className="page-title"><CalendarDays size={20} /> Tasks &amp; routines</div>
-          <p>Routines start fresh agent tasks on a schedule. Every run is its own conversation.</p>
+          <div className="page-title"><CalendarDays size={20} /> {t("Tasks & routines")}</div>
+          <p>{t("Routines start fresh agent tasks on a schedule. Every run is its own conversation.")}</p>
         </div>
         <div className="page-head-actions no-drag">
           {tab === "routines" && (
             <button type="button" className="btn btn-secondary" onClick={() => setUI({ newRoutineOpen: true, editingRoutineId: null })}>
-              <Plus size={15} /> New routine
+              <Plus size={15} /> {t("New routine")}
             </button>
           )}
         </div>
@@ -561,21 +568,21 @@ export function RoutinesPage() {
       <div className="page-scroll">
         <div className="routines-toolbar">
           <div className="tab-row">
-            <button type="button" className={cn("tab", tab === "routines" && "is-active")} onClick={() => setTab("routines")}><CalendarDays size={14} /> Routines</button>
-            <button type="button" className={cn("tab", tab === "webhooks" && "is-active")} onClick={() => setTab("webhooks")}><Webhook size={14} /> Webhooks</button>
+            <button type="button" className={cn("tab", tab === "routines" && "is-active")} onClick={() => setTab("routines")}><CalendarDays size={14} /> {t("Routines")}</button>
+            <button type="button" className={cn("tab", tab === "webhooks" && "is-active")} onClick={() => setTab("webhooks")}><Webhook size={14} /> {t("Webhooks")}</button>
           </div>
           {tab === "routines" && <div className="toolbar-right">
             <label className="toolbar-select">
-              <select value={botFilter} onChange={(event) => setBotFilter(event.target.value)} aria-label="Filter by bot">
-                <option value="all">All bots</option>
+              <select value={botFilter} onChange={(event) => setBotFilter(event.target.value)} aria-label={t("Filter by bot")}>
+                <option value="all">{t("All bots")}</option>
                 {state.bots.filter((bot) => !bot.archived).map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
               </select>
             </label>
             <Segmented
-              label="Calendar range"
+              label={t("Calendar range")}
               size="sm"
               value={view}
-              options={[{ value: "day", label: "Day" }, { value: "3day", label: "3 days" }, { value: "week", label: "Week" }]}
+              options={[{ value: "day", label: t("Day") }, { value: "3day", label: t("3 days") }, { value: "week", label: t("Week") }]}
               onChange={setView}
             />
           </div>}
@@ -587,14 +594,14 @@ export function RoutinesPage() {
           <>
             <div className="calendar-bar">
               <div className="calendar-nav">
-                <button type="button" className="icon-button" aria-label="Previous" onClick={() => shift(-1)}><ChevronLeft size={16} /></button>
-                <button type="button" className="btn btn-ghost" onClick={() => setAnchor(new Date())}>Today</button>
-                <button type="button" className="icon-button" aria-label="Next" onClick={() => shift(1)}><ChevronRight size={16} /></button>
+                <button type="button" className="icon-button" aria-label={t("Previous")} onClick={() => shift(-1)}><ChevronLeft size={16} /></button>
+                <button type="button" className="btn btn-ghost" onClick={() => setAnchor(new Date())}>{t("Today")}</button>
+                <button type="button" className="icon-button" aria-label={t("Next")} onClick={() => shift(1)}><ChevronRight size={16} /></button>
                 <span className="calendar-label">{label}</span>
               </div>
               <div className="calendar-legend">
-                <span><span className="legend-dot is-on" /> Enabled</span>
-                <span><span className="legend-dot" /> Paused</span>
+                <span><span className="legend-dot is-on" /> {t("Enabled")}</span>
+                <span><span className="legend-dot" /> {t("Paused")}</span>
               </div>
             </div>
 
@@ -602,9 +609,9 @@ export function RoutinesPage() {
               {routines.length === 0 ? (
                 <div className="calendar-empty">
                   <Mascot seed="Grox" size={60} />
-                  <h3>Put your team on a rhythm</h3>
-                  <p>Plan research briefs, daily check-ins, recurring reviews, or one-time work. Every run becomes a separate task with its own result.</p>
-                  <button type="button" className="btn btn-primary" onClick={() => setUI({ newRoutineOpen: true, editingRoutineId: null })}><Plus size={15} /> Create your first routine</button>
+                  <h3>{t("Put your team on a rhythm")}</h3>
+                  <p>{t("Plan research briefs, daily check-ins, recurring reviews, or one-time work. Every run becomes a separate task with its own result.")}</p>
+                  <button type="button" className="btn btn-primary" onClick={() => setUI({ newRoutineOpen: true, editingRoutineId: null })}><Plus size={15} /> {t("Create your first routine")}</button>
                 </div>
               ) : (
                 days.map((day) => {
@@ -615,7 +622,7 @@ export function RoutinesPage() {
                   return (
                     <div key={day.toISOString()} className={cn("calendar-day", today && "is-today")}>
                       <div className="calendar-day-head">
-                        <span>{weekdayShort(day)}</span>
+                        <span>{weekdayShort(day, language)}</span>
                         <span className={cn("calendar-date", today && "is-today")}>{day.getDate()}</span>
                       </div>
                       <div className="calendar-day-body">
@@ -628,14 +635,14 @@ export function RoutinesPage() {
                           >
                             <span className="routine-chip-time">
                               {routine.cadence === "cron"
-                                ? new Date(routine.nextRun).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" })
-                                : routine.cadence === "hourly" ? "Hourly" : timeLabel(routine.timeOfDay)}
+                                ? new Date(routine.nextRun).toLocaleTimeString(localeTag(language), { hour: "numeric", minute: "2-digit" })
+                                : routine.cadence === "hourly" ? t("Hourly") : timeLabel(routine.timeOfDay, language)}
                             </span>
                             <span className="routine-chip-name"><span className="routine-dot" style={{ background: "var(--identity-" + botColor(routine.botId) + ")" }} />{routine.name}</span>
                             <span className="routine-chip-bot">{targetName(routine.botId, routine.groupId)}</span>
                           </button>
                         ))}
-                        {dayRoutines.length === 0 && <span className="calendar-day-empty">No runs</span>}
+                        {dayRoutines.length === 0 && <span className="calendar-day-empty">{t("No runs")}</span>}
                       </div>
                     </div>
                   );
@@ -647,21 +654,21 @@ export function RoutinesPage() {
               <section className="routines-list-card">
                 <div className="list-card-head">
                   <div>
-                    <h3>All routines</h3>
-                    <p>Each schedule sends one prompt to one bot.</p>
+                    <h3>{t("All routines")}</h3>
+                    <p>{t("Each schedule sends one prompt to one bot.")}</p>
                   </div>
                 </div>
                 {routines.length === 0 ? (
-                  <p className="panel-empty-line">No routines yet.</p>
+                  <p className="panel-empty-line">{t("No routines yet.")}</p>
                 ) : routines.map((routine) => (
                   <div className="routine-list-row" key={routine.id}>
                     <span className={cn("routine-dot", routine.enabled && "is-on")} style={routine.enabled ? { background: "var(--identity-" + botColor(routine.botId) + ")" } : undefined} />
                     <button type="button" className="routine-list-main" onClick={() => setUI({ editingRoutineId: routine.id, newRoutineOpen: false })}>
                       <span className="routine-list-title">{routine.name}</span>
-                      <span className="routine-list-sub">{targetName(routine.botId, routine.groupId)} · {scheduleCopy(routine)} · {routine.enabled ? "next " + relative(routine.nextRun) : "Paused"}</span>
+                      <span className="routine-list-sub">{targetName(routine.botId, routine.groupId)} · {scheduleCopy(routine, t, language)} · {routine.enabled ? t("Next run {0}", relative(routine.nextRun, language)) : t("Paused")}</span>
                     </button>
-                    <button type="button" className="icon-button" aria-label={"Run " + routine.name + " now"} title="Run now" onClick={() => void runRoutine(routine.id)}><Play size={14} /></button>
-                    <Switch checked={routine.enabled} label={"Enable " + routine.name} onChange={(enabled) => void updateRoutine(routine.id, { enabled })} />
+                    <button type="button" className="icon-button" aria-label={t("Run {0} now", routine.name)} title={t("Run now")} onClick={() => void runRoutine(routine.id)}><Play size={14} /></button>
+                    <Switch checked={routine.enabled} label={t("Enable ") + routine.name} onChange={(enabled) => void updateRoutine(routine.id, { enabled })} />
                   </div>
                 ))}
               </section>
@@ -669,17 +676,17 @@ export function RoutinesPage() {
               <section className="routines-list-card runs-card">
                 <div className="list-card-head">
                   <div>
-                    <h3>Recent runs</h3>
-                    <p>Each run is a task conversation you can open.</p>
+                    <h3>{t("Recent runs")}</h3>
+                    <p>{t("Each run is a task conversation you can open.")}</p>
                   </div>
-                  <button type="button" className="link-button" onClick={() => setRecentOnly((value) => !value)}>{recentOnly ? "Show more" : "Show less"}</button>
+                  <button type="button" className="link-button" onClick={() => setRecentOnly((value) => !value)}>{recentOnly ? t("Show more") : t("Show less")}</button>
                 </div>
                 {runs.length === 0 ? (
-                  <p className="panel-empty-line">Nothing has run yet.</p>
+                  <p className="panel-empty-line">{t("Nothing has run yet.")}</p>
                 ) : runs.map((run) => {
                   const failed = run.status === "failed";
                   const completed = run.status === "completed";
-                  const status = failed ? "Failed" : completed ? "Completed" : run.status === "running" ? "Running" : "Stopped";
+                  const status = failed ? t("Failed") : completed ? t("Completed") : run.status === "running" ? t("Running") : t("Stopped");
                   const owner = run.groupId
                     ? state.groups.find((group) => group.id === run.groupId)
                     : state.bots.find((bot) => bot.id === run.botId);
@@ -692,7 +699,7 @@ export function RoutinesPage() {
                       {failed ? <XCircle size={15} className="run-icon error" /> : completed ? <CheckCircle2 size={15} className="run-icon ok" /> : <Clock3 size={15} className="run-icon" />}
                       <span className="run-copy">
                         <span className="run-title">{run.title}</span>
-                        <span className="run-sub">{run.summary || targetName(run.botId, run.groupId)} · {shortDate(run.startedAt)}</span>
+                        <span className="run-sub">{run.summary ? t(run.summary) : targetName(run.botId, run.groupId)} · {shortDate(run.startedAt, language)}</span>
                       </span>
                       <span className={cn("run-status", failed && "is-error")}>{status}</span>
                     </button>

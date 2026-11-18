@@ -1,35 +1,21 @@
-# Team packages
+# 团队包
 
-Open a channel’s details and choose **Share team**. The Grox file is for another Grox workspace. The OpenMaus file uses the portable `openmaus.package` format and can be read by OpenMausBot.
+[English](TEAMS.en.md)
 
-| Data | Grox file | OpenMaus file |
-| --- | --- | --- |
-| Bots, personas, channel and shared instructions | Included | Included |
-| Enabled skills and compatible routines | Included | Included |
-| Playbooks | | Included |
-| Starter notes | Main memory | Main memory and topics when selected |
-| Remote MCP connections | | Address and requested header names |
+打开频道详情，选择「分享团队」。Grox 文件适合在 Grox 工作区之间交换。OpenMaus 文件可与 OpenMausBot 交换。
 
-The OpenMaus export includes compatible routines from the channel and its member bots. Turn on **Include starter notes in OpenMaus file** before exporting to include memory and topic files. The export report lists unsupported items and redactions. Chat history, attachments, computer configuration and saved credentials are excluded. Review free text before sharing, especially any custom credential format.
+两种文件可包含助理、角色、频道、共享指令、兼容的技能和定时任务。OpenMaus 文件可携带工作手册、远程 MCP 地址与请求头名称。勾选附带入门说明后可包含记忆和主题。导出会排除会话历史、附件、电脑配置与已保存的凭据。分享前请检查自由文本。
 
-## Import
+## 导入
 
-Open **Settings → Data & privacy → Team packages → Import team**. Choose a Grox JSON file, an OpenMaus v1/v2/v3 team JSON file or a BotMRR v1 Markdown blueprint. Markdown import reads the YAML frontmatter. The prose below it stays in the source file.
+在「设置 → 数据与隐私 → 团队包」选择 Grox、OpenMaus v1/v2/v3 JSON 或 BotMRR v1 Markdown。Markdown 导入读取 YAML 元数据。导入会增加记录，重名会附加序号。助理使用「每次询问」，定时任务暂停，技能及远程 MCP 连接关闭。结果报告会列出跳过的功能和记录。
 
-Imported bots use Ask approval. Skills start disabled, routines start paused, and remote MCP connections start disabled with their requested header names. Set up the connection in **Settings → MCP servers** before enabling it. Channel bulletins become shared instructions. Names that already exist receive a numeric suffix. The import report shows counts and skipped items.
+## 来自 Grok Bot
 
-OpenMaus team JSON and BotMRR imports validate member and routine references before writing state. Supported channel and bot routines include recurring calendar schedules and cron with a named time zone. Hosted computer routines, presets, organization approvals and unsupported schedule types are reported by the importer. Grox generates its own portraits for imported bots.
+在同一设置项展开「从 Grok Bot 迁移」，复制提示词发给源助理。粘贴回复，或选中其导出的文件。同一助理的分卷可合并，重复导入会跳过已迁移的记录。
 
-## Move from Grok Bot
+受支持的任务按原时间表导入并暂停。暂不能映射的任务指令留在记忆主题中。含凭据字段的文本会被拒绝，可识别的内嵌密钥会遮盖。JSON 和 Grok Bot 导出上限为 4 MB，BotMRR Markdown 为 1 MB。
 
-Open **Move from Grok Bot** in the same settings card. Copy the export prompt and send it to the source bot. Paste its reply or select its exported files. Split replies for the same bot are merged. A bot already moved to this workspace is skipped on subsequent imports.
+## 签名
 
-Personas, skills and memory are copied locally. Supported routines retain their schedule and arrive paused. Event routines and unsupported schedules are saved in a memory topic with their instructions so you can rebuild them. Grox records app names and copies supported remote HTTPS MCP addresses into disabled connections. Text with credential fields is refused before installation. Recognizable secrets embedded in text are redacted.
-
-Team JSON and Grok Bot exports may be up to 4 MB. BotMRR Markdown may be up to 1 MB. Imports add records to the current workspace.
-
-## Signatures
-
-The native Grox file uses format `grox.team` version 1 and signs its contents with a local Ed25519 key. Grox verifies signatures on import when present and still accepts older unsigned Grox packages. This detects changes to the signed content. The file’s public key alone cannot establish the sender’s identity.
-
-OpenMaus files use the exchange format read by the upstream app. Grox reports source signatures that it has not verified. Organization libraries, update-in-place publication workflows and managed approval policies require separate services.
+Grox 格式 `grox.team` v1 使用本机 Ed25519 密钥签名。导入验证已有签名，并兼容旧的无签名文件。签名可检测内容变化，文件提供的公钥不足以确认发送者身份。

@@ -38,9 +38,9 @@ func Seed(now time.Time) model.AppState {
 		}},
 	}
 	return model.AppState{
-		Version: 1, Bots: []model.Bot{starter}, Presets: DefaultPresets(now),
+		Version: 2, Bots: []model.Bot{starter}, Presets: DefaultPresets(now),
 		Settings: model.Settings{
-			Theme: "midnight", Language: "en", SidebarWidth: 312,
+			Theme: "midnight", Language: "zh", SidebarWidth: 312,
 			Notifications: true, EngineMode: "auto",
 		},
 		ActiveBotID: starter.ID, ActiveThreadID: starter.Threads[0].ID,

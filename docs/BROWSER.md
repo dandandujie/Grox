@@ -1,21 +1,20 @@
-# Managed browser
+# 受控浏览器
 
-A bot set to **This computer** can use an isolated Chrome or Chromium session during a turn. Grox starts the browser on demand with a temporary profile and disposes it at the end of the turn. Install Chrome or Chromium where the desktop process can find it. The same tools are available through CLI MCP and tool-capable OpenAI-compatible API engines.
+[English](BROWSER.en.md)
 
-| Tool | What it does |
+助理选择「本机」时，可以在任务运行期间操作独立的 Chrome 或 Chromium。Grox 按需创建临时浏览器配置，并在本轮结束后清理。电脑应安装可被桌面进程找到的 Chrome 或 Chromium。
+
+| 工具 | 用途 |
 | --- | --- |
-| `browser_open` | Opens a public HTTP or HTTPS URL and returns visible text and control references. |
-| `browser_read` | Reads the current page and refreshes references to visible links, buttons and text fields. |
-| `browser_click` | Clicks a control from the last inspection. |
-| `browser_type` | Replaces the value of a visible ordinary text field. |
-| `browser_back` | Restores the previous page. |
-| `browser_screenshot` | Captures the viewport as a conversation attachment. Vision-capable models can receive that image in the tool loop. |
+| `browser_open` | 打开公开的 HTTP/HTTPS 地址，返回可见内容与控件引用。 |
+| `browser_read` | 读取当前页面并更新控件引用。 |
+| `browser_click`、`browser_type` | 操作上次读取获得的控件。输入支持普通文本框。 |
+| `browser_back` | 返回上一页。 |
+| `browser_screenshot` | 截取可见区域并附加到会话。支持视觉的模型可以在工具循环中读取图像。 |
 
-Ask mode prompts for each operation. Auto mode reads the current page and asks for navigation, interaction and screenshots. Full mode authorizes browser operations. The bot's tool policy applies in each mode. Control references expire after an inspection or action. Grox also checks the document, target node, label and destination before clicking or typing.
+「每次询问」审批所有浏览器操作。「自动」模式可读取当前页面，导航、交互和截图仍需审批。「完全授权」允许这些操作。每种模式都遵循助理的工具拒绝规则。Grox 会核对页面、控件和目标地址，控件引用在重新读取或操作后失效。
 
-The browser connects to the public web through a turn-scoped proxy. The proxy checks the resolved destination and blocks local, private and link-local addresses. The managed browser uses one top-level page and ordinary HTML text inputs. Personal Chrome sessions, SSH browsers, password and file inputs, downloads and popup targeting are outside this interface. Sites that require a physical gesture or a browser login may need direct user interaction.
-
-The real browser integration test uses its own local website and temporary browser profile.
+代理仅访问公开网络，拒绝本机、私网和链路本地地址。受控浏览器使用一个顶层页面，密码框、文件框、下载、弹窗、个人浏览器资料和 SSH 浏览器超出当前范围。
 
 ```sh
 GROX_TEST_BROWSER=1 node scripts/with-go.mjs go test ./internal/browser -run '^TestManagedBrowserWorkflow$' -count=1

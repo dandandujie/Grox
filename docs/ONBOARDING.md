@@ -1,25 +1,21 @@
-# Getting started
+# 首次使用
 
-On a fresh workspace, Grox opens one empty conversation with Brody. Setup offers models from detected
-CLIs and configured API providers, an engine settings shortcut, and **Try demo** for scripted replies.
-CLI detection checks installation. Sign-in and model access are checked by the first request.
+[English](ONBOARDING.en.md)
 
-- To use an installed CLI, sign in through the CLI, choose a model in setup, and select **Start chatting**.
-- To use a gateway or local model server, open **Engine settings**, enter the base URL and model ID,
-  and select **Use API for all bots**. Store the gateway's key under **Connections** if required.
-- To explore offline, select **Try demo**. The composer and replies identify the demo engine.
+初次启动时，Grox 显示简体中文和 Brody 的空白会话。可在欢迎页或「设置 → 常规 → 语言」切换为 English。
 
-The conversation header shows the current model. If a workspace-wide engine override is active,
-the header shows that override and opens engine settings. **Auto** enables per-bot model selection.
-Reopen setup from **Settings → About → Show welcome again**. Import existing teams from **Data & privacy**.
+## 选择引擎
 
-## Returning to work
+- **试用演示**会使用预设回复。演示不需要账户，也不会真实执行命令或调用第三方服务。
+- **使用 CLI**时，先在终端登录 Grok Build、Claude Code、Codex 或 Gemini，再在 Grox 选择对应模型。能检测到 CLI 表示已安装，首次请求会确认认证与模型访问权限。
+- **通过 API 使用模型**时，在「设置 → 引擎」填写基础地址和模型 ID，点击「所有助理使用此 API」。需要密钥时，前往「设置 → 连接」保存。
 
-Use **Work** to find pending approvals, questions, unread conversations, and failed or running turns.
-Search from the sidebar to find a bot, channel, conversation title, or message. The result opens the
-matching conversation. Drafts and queues stay with their conversation while the current window is open.
+会话上方会显示当前模型。如果工作区设置了全局引擎，会显示该引擎。选择自动模式可按助理使用不同模型。
 
-A rejected send leaves the draft editable. When a turn fails or stops, **Restore request** puts the
-last request and its attachments in the composer. Review them before sending. Queued messages pause
-after a failed or stopped turn and resume when you select **Resume queue**. When Grox reopens after an
-interruption, the conversation records the stop and closes approval or question cards from that turn.
+「设置 → 关于 → 重新显示欢迎页」可再次打开引导。「设置 → 数据与隐私」可导入团队包。
+
+## 找回任务与处理失败
+
+打开「工作台」查看待审批、待回答、未读、运行中和最近会话。侧边栏可按助理、频道、标题或消息搜索。当前窗口打开期间，未发送的草稿和队列跟随各自会话。
+
+请求未能发送时，可继续编辑草稿。运行失败或停止后，可选择「恢复原请求」，核对原来的文字和附件后重新发送。失败或停止会暂停队列，由你选择何时「恢复队列」。应用中断后重新打开时，Grox 会保留记录、标记中断并关闭该轮仍在等待的审批与问题卡片。

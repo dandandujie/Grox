@@ -1,3 +1,5 @@
+import { useT } from "@/i18n";
+import { LanguageSelect } from "@/components/LanguageSelect";
 import { useRef, useState } from "react";
 import { ArrowRight, Plug } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -6,6 +8,7 @@ import { Mascot } from "@/components/Mascot";
 import { EngineModelSelect, preferredModel } from "@/components/EngineModelSelect";
 
 export function Onboarding() {
+  const t = useT();
   const { state, providers, engines, ui, setUI, selectBot, updateBot, patchSettings } = useApp();
   const [selectedId, setSelectedId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -43,33 +46,34 @@ export function Onboarding() {
   };
 
   return (
-    <Modal open={open} onClose={() => void finish("close")} title="Set up Grox" width={480}>
+    <Modal open={open} onClose={() => void finish("close")} title={t("Set up Grox")} width={480}>
       <div className="onboarding">
+        <LanguageSelect />
         <div className="onboarding-hero">
           <Mascot seed={bot?.name || "Grox"} size={60} />
           <div>
-            <h2>{bot ? `Start with ${bot.name}` : "Set up your first agent"}</h2>
-            <p>Choose the engine for your first conversation.</p>
+            <h2>{bot ? t("Start with {0}", bot.name) : t("Set up your first agent")}</h2>
+            <p>{t("Choose the engine for your first conversation.")}</p>
           </div>
         </div>
         {configuredAPI ? (
-          <div className="setup-engine"><Plug size={16} /> {state.settings.apiModel} <span>API configured</span></div>
+          <div className="setup-engine"><Plug size={16} /> {state.settings.apiModel} <span>{t("API configured")}</span></div>
         ) : canSelectModel && selected ? (
           <div className="setup-choice">
             <EngineModelSelect providers={providers} value={selected.id} onChange={setSelectedId} demo={false} disabled={saving} />
-            <p>{selectedCLI ? "CLI installed. Sign in to it if your first message asks for authentication." : "API key configured. The first message checks whether it works."}</p>
+            <p>{selectedCLI ? t("CLI installed. Sign in to it if your first message asks for authentication.") : t("API key configured. The first message checks whether it works.")}</p>
           </div>
         ) : (
-          <div className="setup-engine"><Plug size={16} /> No engine configured</div>
+          <div className="setup-engine"><Plug size={16} /> {t("No engine configured")}</div>
         )}
         <div className="setup-actions">
-          <button type="button" className="btn btn-ghost" disabled={saving} title="Explore with scripted replies" onClick={() => void finish("demo")}>Try demo</button>
+          <button type="button" className="btn btn-ghost" disabled={saving} title={t("Explore with scripted replies")} onClick={() => void finish("demo")}>{t("Try demo")}</button>
           <button type="button" className={configuredAPI || canSelectModel ? "btn btn-secondary" : "btn btn-primary"} disabled={saving} onClick={() => setUI({ settingsOpen: true, settingsSection: "engines" })}>
-            {configuredAPI || canSelectModel ? "Engine settings" : "Connect an engine"}
+            {configuredAPI || canSelectModel ? t("Engine settings") : t("Connect an engine")}
           </button>
           {(configuredAPI || canSelectModel) && (
             <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void finish("real")}>
-              {saving ? "Saving…" : "Start chatting"} <ArrowRight size={14} />
+              {saving ? t("Saving…") : t("Start chatting")} <ArrowRight size={14} />
             </button>
           )}
         </div>

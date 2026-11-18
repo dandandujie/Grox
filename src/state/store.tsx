@@ -1,3 +1,4 @@
+import { I18nProvider, normalizeLanguage, translate, translator } from "@/i18n";
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
@@ -275,6 +276,8 @@ function initialUI(boot: Bootstrap): UIState {
 
 export function AppProvider({ backend, boot, children }: { backend: Backend; boot: Bootstrap; children: ReactNode }) {
   const [state, setState] = useState<AppState>(boot.state);
+  const language = normalizeLanguage(state.settings.language);
+  const t = useMemo(() => translator(language), [language]);
   const [providers, setProviders] = useState(boot.providers);
   const [engines, setEngines] = useState(boot.engines);
   const [secrets, setSecrets] = useState(boot.secrets);
@@ -312,8 +315,8 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
 
   const fail = useCallback((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    toast({ kind: "error", title: "Something went wrong", body: message });
-  }, [toast]);
+    toast({ kind: "error", title: t("Something went wrong"), body: t(message) });
+  }, [toast, t]);
 
   useEffect(() => {
     const unsubscribe = backend.subscribe((event) => {
@@ -346,14 +349,16 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
           const thread = bot?.threads.find((item) => item.id === event.turn!.threadId);
           if (bot && "Notification" in window && Notification.permission === "granted") {
             try {
-              new Notification(bot.name + " finished", { body: thread?.title || "A task is ready.", silent: true });
+              const language = normalizeLanguage(stateRef.current.settings.language);
+              new Notification(translate(language, "{0} finished", bot.name), { body: thread?.title || translate(language, "A task is ready."), silent: true });
             } catch { /* no notification surface in this webview */ }
           }
         }
         return;
       }
       if (event.type === "toast" && event.toast) {
-        toast({ kind: event.toast.kind as ToastItem["kind"], title: event.toast.title, body: event.toast.body });
+        const language = normalizeLanguage(stateRef.current.settings.language);
+        toast({ kind: event.toast.kind as ToastItem["kind"], title: translate(language, event.toast.title), body: event.toast.body ? translate(language, event.toast.body) : undefined });
       }
     });
     return unsubscribe;
@@ -514,8 +519,8 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   }, [activeBot, activeGroup, backend, fail, setUI]);
 
   const send = useCallback(async (text: string, attachments: Attachment[] = []) => {
-    if (!activeThread || (!activeBot && !activeGroup)) return { accepted: false, error: "Open a conversation first." } as const;
-    if (!text.trim() && attachments.length === 0) return { accepted: false, error: "Write a message or attach a file." } as const;
+    if (!activeThread || (!activeBot && !activeGroup)) return { accepted: false, error: t("Open a conversation first.") } as const;
+    if (!text.trim() && attachments.length === 0) return { accepted: false, error: t("Write a message or attach a file.") } as const;
     try {
       if (activeGroup) {
         if (attachments.length > 0) await backend.sendGroupWithAttachments(activeGroup.id, activeThread.id, text, attachments);
@@ -529,14 +534,14 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       fail(error);
       return { accepted: false, error: error instanceof Error ? error.message : String(error) } as const;
     }
-  }, [activeBot, activeGroup, activeThread, backend, fail]);
+  }, [activeBot, activeGroup, activeThread, backend, fail, t]);
 
   const uploadAttachment = useCallback(async (file: File) => {
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error("The file could not be read"));
+        reader.onerror = () => reject(new Error(t("The file could not be read")));
         reader.readAsDataURL(file);
       });
       return await backend.saveAttachment(file.name, file.type || "application/octet-stream", dataUrl);
@@ -544,7 +549,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       fail(error);
       return null;
     }
-  }, [backend, fail]);
+  }, [backend, fail, t]);
 
   const stop = useCallback(() => {
     if (!activeThread) return;
@@ -585,13 +590,13 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
         activeThreadId: group.threads[0]?.id ?? "",
       }));
       setUI({ activeGroupId: group.id, activeBotId: "", activeThreadId: group.threads[0]?.id ?? "", newChannelOpen: false, view: "chat" });
-      toast({ kind: "success", title: group.name + " is open", body: "Mention a bot with @Name, or let the lead answer." });
+      toast({ kind: "success", title: group.name + t(" is open"), body: t("Mention a bot with @Name, or let the lead answer.") });
       return group;
     } catch (error) {
       fail(error);
       return null;
     }
-  }, [backend, fail, toast, setUI]);
+  }, [backend, fail, toast, setUI, t]);
 
   const updateGroup = useCallback(async (groupId: string, patch: GroupPatch) => {
     setState((previous) => ({
@@ -626,11 +631,11 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
           : [...previous.bots, bot],
       }));
       setUI({ activeBotId: bot.id, activeThreadId: bot.threads[0]?.id ?? "", contextMenu: null });
-      toast({ kind: "success", title: "Duplicated " + bot.name });
+      toast({ kind: "success", title: t("Duplicated ") + bot.name });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast, setUI]);
+  }, [backend, fail, toast, setUI, t]);
 
   const requestConfirm = useCallback((request: ConfirmRequest) => setConfirm(request), []);
   const closeConfirm = useCallback(() => setConfirm(null), []);
@@ -639,9 +644,9 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     const group = state.groups.find((item) => item.id === groupId);
     if (!group) return;
     requestConfirm({
-      title: "Delete " + group.name + "?",
-      body: "This channel and every message in it will be removed. The bots and their direct chats stay.",
-      confirmLabel: "Delete channel",
+      title: t("Delete ") + group.name + "?",
+      body: t("This channel and every message in it will be removed. The bots and their direct chats stay."),
+      confirmLabel: t("Delete channel"),
       danger: true,
       onConfirm: () => {
         void backend.deleteGroup(groupId).then(() => {
@@ -651,31 +656,31 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
             activeGroupId: previous.activeGroupId === groupId ? "" : previous.activeGroupId,
           }));
           setUI({ activeGroupId: "", activeThreadId: "", contextMenu: null });
-          toast({ kind: "info", title: group.name + " was deleted" });
+          toast({ kind: "info", title: group.name + t(" was deleted") });
         }).catch(fail);
         setConfirm(null);
       },
     });
-  }, [backend, fail, requestConfirm, setConfirm, setUI, state.groups, toast]);
+  }, [backend, fail, requestConfirm, setConfirm, setUI, state.groups, toast, t]);
 
   const deleteBot = useCallback((botId: string) => {
     const bot = state.bots.find((item) => item.id === botId);
     if (!bot) return;
     requestConfirm({
-      title: "Delete " + bot.name + "?",
-      body: "Every conversation with this bot, including its tasks, will be removed. This cannot be undone.",
-      confirmLabel: "Delete bot",
+      title: t("Delete ") + bot.name + "?",
+      body: t("Every conversation with this bot, including its tasks, will be removed. This cannot be undone."),
+      confirmLabel: t("Delete bot"),
       danger: true,
       onConfirm: () => {
         void backend.deleteBot(botId).then(() => {
           setState((previous) => ({ ...previous, bots: previous.bots.filter((item) => item.id !== botId) }));
-          toast({ kind: "info", title: bot.name + " was deleted" });
+          toast({ kind: "info", title: bot.name + t(" was deleted") });
         }).catch(fail);
         setConfirm(null);
         setUI({ contextMenu: null });
       },
     });
-  }, [backend, fail, requestConfirm, state.bots, toast, setUI]);
+  }, [backend, fail, requestConfirm, state.bots, toast, setUI, t]);
 
   const renameThread = useCallback(async (threadId: string, title: string) => {
     try {
@@ -706,9 +711,9 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     if (activeGroup) {
       const groupThread = activeGroup.threads.find((item) => item.id === threadId);
       requestConfirm({
-        title: "Delete this conversation?",
-        body: groupThread?.title ? '"' + groupThread.title + '" and its transcript will be removed.' : "This transcript will be removed.",
-        confirmLabel: "Delete",
+        title: t("Delete this conversation?"),
+        body: groupThread?.title ? '"' + groupThread.title + t("\" and its transcript will be removed.") : t("This transcript will be removed."),
+        confirmLabel: t("Delete"),
         danger: true,
         onConfirm: () => {
           void backend.deleteGroupThread(activeGroup.id, threadId).then(() => {
@@ -731,9 +736,9 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     if (!activeBot) return;
     const thread = activeBot.threads.find((item) => item.id === threadId);
     requestConfirm({
-      title: "Delete this conversation?",
-      body: thread?.title ? '"' + thread.title + '" and its transcript will be removed.' : "This transcript will be removed.",
-      confirmLabel: "Delete",
+      title: t("Delete this conversation?"),
+      body: thread?.title ? '"' + thread.title + t("\" and its transcript will be removed.") : t("This transcript will be removed."),
+      confirmLabel: t("Delete"),
       danger: true,
       onConfirm: () => {
         void backend.deleteThread(activeBot.id, threadId).then(() => {
@@ -752,7 +757,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
         setConfirm(null);
       },
     });
-  }, [activeBot, activeGroup, backend, fail, requestConfirm, setConfirm, setUI, ui.activeThreadId]);
+  }, [activeBot, activeGroup, backend, fail, requestConfirm, setConfirm, setUI, ui.activeThreadId, t]);
 
   const markUnread = useCallback(async (botId: string, threadId: string) => {
     setState((previous) => ({
@@ -771,11 +776,11 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   const revealWorkingFolder = useCallback(async (botId: string) => {
     try {
       const path = await backend.revealWorkingFolder(botId);
-      toast({ kind: "success", title: "Opened the working folder", body: path });
+      toast({ kind: "success", title: t("Opened the working folder"), body: path });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const decide = useCallback(async (messageId: string, decision: string) => {
     if (!activeThread) return;
@@ -801,46 +806,47 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     try {
       const link = await backend.connectComposioApp(appId);
       if (link.url) {
-        toast({ kind: "info", title: "Finish connecting in your browser", body: "Authorize the app, then press Refresh connections." });
+        toast({ kind: "info", title: t("Finish connecting in your browser"), body: t("Authorize the app, then press Refresh connections.") });
       } else {
-        toast({ kind: "info", title: "Connection started", body: "Finish the OAuth flow, then refresh." });
+        toast({ kind: "info", title: t("Connection started"), body: t("Finish the OAuth flow, then refresh.") });
       }
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const disconnectApp = useCallback(async (appId: string) => {
     try {
       await backend.disconnectComposioApp(appId);
-      toast({ kind: "info", title: "Disconnected" });
+      toast({ kind: "info", title: t("Disconnected") });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const refreshApps = useCallback(async () => {
     try {
       const count = await backend.refreshComposioConnections();
-      toast({ kind: "success", title: count + " connected app" + (count === 1 ? "" : "s"), body: "The connection list is up to date." });
+      toast({ kind: "success", title: t(count === 1 ? "{0} connected app" : "{0} connected apps", count), body: t("The connection list is up to date.") });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const setPhoneEnabled = useCallback(async (enabled: boolean) => {
     try {
       const info = await backend.setPhoneEnabled(enabled);
       setPhone(info);
-      toast({ kind: enabled ? "success" : "info", title: enabled ? "Phone link is live" : "Phone link is off", body: enabled ? "Open the address on a phone on the same Wi-Fi." : undefined });
+      toast({ kind: enabled ? "success" : "info", title: enabled ? t("Phone link is live") : t("Phone link is off"), body: enabled ? t("Open the address on a phone on the same Wi-Fi.") : undefined });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const patchSettings = useCallback(async (patch: Partial<Settings>) => {
     try {
-      await backend.updateSettings({ ...stateRef.current.settings, ...patch });
+      // Language is written only by its selector. A pending settings edit can carry an older snapshot.
+      await backend.updateSettings({ ...stateRef.current.settings, ...patch, language: patch.language ?? "" });
       return true;
     } catch (error) {
       fail(error);
@@ -869,13 +875,13 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       setProviders(fresh.providers);
       setEngines(fresh.engines);
       setSecrets(fresh.secrets);
-      toast({ kind: "success", title: "Key saved", body: "The provider fleet reloaded." });
+      toast({ kind: "success", title: t("Key saved"), body: t("The provider fleet reloaded.") });
       return true;
     } catch (error) {
       fail(error);
       return false;
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const clearSecret = useCallback(async (name: string) => {
     try {
@@ -885,11 +891,11 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       setProviders(fresh.providers);
       setEngines(fresh.engines);
       setSecrets(fresh.secrets);
-      toast({ kind: "info", title: "Key cleared" });
+      toast({ kind: "info", title: t("Key cleared") });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const setConnection = useCallback(async (appId: string, connected: boolean) => {
     try {
@@ -901,11 +907,11 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
           [appId]: { id: appId, connected, account: entry.account ?? "", connectedAt: new Date().toISOString() },
         },
       }));
-      toast({ kind: "success", title: connected ? entry.name + " connected" : entry.name + " disconnected", body: connected ? "Bots can use it in their next task." : undefined });
+      toast({ kind: "success", title: t(connected ? "{0} connected" : "{0} disconnected", entry.name), body: connected ? t("Bots can use it in their next task.") : undefined });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const createRoutine = useCallback(async (input: RoutineInput) => {
     try {
@@ -913,13 +919,13 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       setState((previous) => previous.routines.some((item) => item.id === routine.id)
         ? previous
         : { ...previous, routines: [...previous.routines, routine] });
-      toast({ kind: "success", title: "Routine created" });
+      toast({ kind: "success", title: t("Routine created") });
       return routine;
     } catch (error) {
       fail(error);
       return null;
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const updateRoutine = useCallback(async (id: string, patch: RoutinePatch) => {
     try {
@@ -936,11 +942,11 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     try {
       await backend.deleteRoutine(id);
       setState((previous) => ({ ...previous, routines: previous.routines.filter((item) => item.id !== id) }));
-      toast({ kind: "info", title: "Routine deleted" });
+      toast({ kind: "info", title: t("Routine deleted") });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const runRoutine = useCallback(async (id: string) => {
     const routine = state.routines.find((item) => item.id === id);
@@ -955,26 +961,26 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
         newRoutineOpen: false,
         editingRoutineId: null,
       });
-      toast({ kind: "success", title: routine?.name ? routine.name + " is running" : "Routine is running" });
+      toast({ kind: "success", title: routine?.name ? routine.name + t(" is running") : t("Routine is running") });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, state.routines, toast, setUI]);
+  }, [backend, fail, state.routines, toast, setUI, t]);
 
   const exportWorkspace = useCallback(async () => {
     try {
       const path = await backend.exportWorkspace();
-      toast({ kind: "success", title: "Workspace exported", body: path });
+      toast({ kind: "success", title: t("Workspace exported"), body: path });
     } catch (error) {
       fail(error);
     }
-  }, [backend, fail, toast]);
+  }, [backend, fail, toast, t]);
 
   const resetWorkspace = useCallback(() => {
     requestConfirm({
-      title: "Reset this workspace?",
-      body: "This removes bots, conversations and routines and starts a fresh workspace. API keys are kept.",
-      confirmLabel: "Reset everything",
+      title: t("Reset this workspace?"),
+      body: t("This removes bots, conversations and routines and starts a fresh workspace. API keys are kept."),
+      confirmLabel: t("Reset everything"),
       danger: true,
       onConfirm: () => {
         void backend.resetWorkspace().then(() => {
@@ -982,7 +988,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
         }).catch(fail);
       },
     });
-  }, [backend, fail, requestConfirm]);
+  }, [backend, fail, requestConfirm, t]);
 
   const revealDataFolder = useCallback(() => {
     void backend.revealDataFolder().catch(fail);
@@ -997,7 +1003,11 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     setConnection, createRoutine, updateRoutine, deleteRoutine, runRoutine, exportWorkspace, resetWorkspace, revealDataFolder,
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      <I18nProvider language={language}>{children}</I18nProvider>
+    </AppContext.Provider>
+  );
 }
 
 export function useApp(): AppContextValue {

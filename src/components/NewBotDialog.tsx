@@ -1,3 +1,5 @@
+import { localizePreset } from "@/lib/presets";
+import { useT } from "@/i18n";
 import { useEffect, useState } from "react";
 import { Plus, Sparkles } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -7,6 +9,7 @@ import type { Preset } from "@/lib/bridge";
 import { EngineModelSelect, preferredModel } from "@/components/EngineModelSelect";
 
 export function NewBotDialog() {
+  const t = useT();
   const { ui, setUI, createBot, providers, state } = useApp();
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
@@ -31,7 +34,7 @@ export function NewBotDialog() {
     setError("");
   }, [ui.newBotOpen]);
 
-  const presets: Preset[] = state.presets ?? [];
+  const presets = (state.presets ?? []).map((preset) => localizePreset(preset, t));
   const applyPreset = (preset: Preset) => {
     setTitle(preset.title);
     setDescription(preset.description);
@@ -42,7 +45,7 @@ export function NewBotDialog() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
-      setError("Give the bot a name.");
+      setError(t("Give the bot a name."));
       return;
     }
     setBusy(true);
@@ -52,50 +55,50 @@ export function NewBotDialog() {
   };
 
   return (
-    <Modal open={ui.newBotOpen} onClose={() => setUI({ newBotOpen: false })} title="New bot" width={600} className="new-bot-modal">
+    <Modal open={ui.newBotOpen} onClose={() => setUI({ newBotOpen: false })} title={t("New bot")} width={600} className="new-bot-modal">
       <form className="new-bot" onSubmit={submit}>
         <div className="new-bot-hero">
-          <Mascot seed={name || "New bot"} size={78} />
+          <Mascot seed={name || t("New bot")} size={78} />
         </div>
 
         <div className="preset-row">
-          <span className="preset-label"><Sparkles size={13} /> Start from</span>
+          <span className="preset-label"><Sparkles size={13} /> {t("Start from")}</span>
           {presets.map((preset) => (
             <button type="button" key={preset.id} className="preset-chip" onClick={() => applyPreset(preset)} title={preset.description}>
               {preset.name}
             </button>
           ))}
-          {presets.length === 0 && <span className="preset-empty">Save a bot as a preset from its profile.</span>}
+          {presets.length === 0 && <span className="preset-empty">{t("Save a bot as a preset from its profile.")}</span>}
         </div>
 
         <label className="panel-field">
-          <span>Name</span>
+          <span>{t("Name")}</span>
           <input autoFocus value={name} onChange={(event) => { setName(event.target.value); setError(""); }} placeholder="Onyx" />
         </label>
         <div className="form-two">
           <label className="panel-field">
-            <span>Role</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Personal assistant" />
+            <span>{t("Role")}</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("Personal assistant")} />
           </label>
           <label className="panel-field">
-            <span>Department</span>
+            <span>{t("Department")}</span>
             <input value={department} onChange={(event) => setDepartment(event.target.value)} placeholder="General" />
           </label>
         </div>
         <EngineModelSelect providers={providers} value={modelId} onChange={setModelId} />
         <label className="panel-field">
-          <span>What it does</span>
-          <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short description for the sidebar" />
+          <span>{t("What it does")}</span>
+          <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t("A short description for the sidebar")} />
         </label>
         <label className="panel-field">
-          <span>Instructions <span className="field-optional">optional</span></span>
-          <textarea rows={4} value={soul} onChange={(event) => setSoul(event.target.value)} placeholder="How should this bot think and speak? It can learn the rest." />
+          <span>{t("Instructions")} <span className="field-optional">{t("Optional")}</span></span>
+          <textarea rows={4} value={soul} onChange={(event) => setSoul(event.target.value)} placeholder={t("How should this bot think and speak? It can learn the rest.")} />
         </label>
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => setUI({ newBotOpen: false })}>Cancel</button>
+          <button type="button" className="btn btn-ghost" onClick={() => setUI({ newBotOpen: false })}>{t("Cancel")}</button>
           <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>
-            {busy ? "Creating…" : <><Plus size={15} /> Create bot</>}
+            {busy ? t("Creating…") : <><Plus size={15} /> {t("Create bot")}</>}
           </button>
         </div>
       </form>

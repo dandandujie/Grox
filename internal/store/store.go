@@ -169,8 +169,12 @@ func (s *Store) SecretStatus() model.SecretStatus {
 // Normalize repairs a freshly loaded document and fills defaults.
 func (s *Store) Normalize() {
 	st := &s.State
-	if st.Version == 0 {
-		st.Version = 1
+	if st.Version < 2 {
+		// Version 1 wrote English by default and had no language selector.
+		st.Version = 2
+		if st.Settings.Language == "en" {
+			st.Settings.Language = "zh"
+		}
 	}
 	if st.Connections == nil {
 		st.Connections = map[string]model.Connection{}
@@ -232,8 +236,8 @@ func (s *Store) Normalize() {
 	if st.Settings.Theme == "" {
 		st.Settings.Theme = "midnight"
 	}
-	if st.Settings.Language == "" {
-		st.Settings.Language = "en"
+	if st.Settings.Language != "en" && st.Settings.Language != "zh" {
+		st.Settings.Language = "zh"
 	}
 	if st.Settings.SidebarWidth < 240 || st.Settings.SidebarWidth > 480 {
 		st.Settings.SidebarWidth = 312
@@ -385,7 +389,11 @@ func (s *Store) Normalize() {
 // Reset replaces the workspace with a fresh seed. The caller keeps the
 // returned state; secrets are left alone.
 func (s *Store) Reset(now time.Time) error {
+	language := s.State.Settings.Language
 	s.State = Seed(now)
+	if language == "en" {
+		s.State.Settings.Language = language
+	}
 	if err := s.SaveState(); err != nil {
 		return err
 	}

@@ -1,3 +1,4 @@
+import type { Translate } from "@/i18n";
 import type { AppState, Thread } from "@/lib/bridge";
 
 export type Conversation = {
@@ -25,4 +26,10 @@ export function conversationStatus(thread: Thread) {
   const unfinished = unfinishedReply(thread);
   if (unfinished) return unfinished.error ? "Failed" : "Stopped";
   return thread.unread > 0 ? "Unread" : "";
+}
+
+export function threadTitle(thread: Thread, t: Translate): string {
+  const title = thread.title;
+  if (title === "New conversation" || title === "New task") return t(title);
+  return title || t("New conversation");
 }

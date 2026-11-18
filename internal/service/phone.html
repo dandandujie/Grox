@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
@@ -80,16 +80,16 @@
   <header>
     <span class="mark">G</span>
     <strong>Grox</strong>
-    <span class="sub"><span id="status-dot" class="dot"></span><span id="status">On this Mac</span></span>
+    <span class="sub"><span id="status-dot" class="dot"></span><span id="status">在本机</span></span>
   </header>
   <div class="picker">
-    <select id="owner" aria-label="Bot or channel"></select>
-    <select id="thread" aria-label="Conversation"></select>
+    <select id="owner" aria-label="助理或频道"></select>
+    <select id="thread" aria-label="会话"></select>
   </div>
   <main id="messages" class="messages"></main>
   <form id="composer" class="composer">
-    <textarea id="text" rows="1" placeholder="Message" aria-label="Message"></textarea>
-    <button id="send" type="submit" aria-label="Send">↑</button>
+    <textarea id="text" rows="1" placeholder="消息" aria-label="消息"></textarea>
+    <button id="send" type="submit" aria-label="发送">↑</button>
   </form>
   <div id="toast" class="toast"></div>
   <script>
@@ -110,6 +110,40 @@
       var sendEl = document.getElementById("send");
       var toastEl = document.getElementById("toast");
       var toastTimer = 0;
+      var connectionStatus = "On this Mac";
+      var zh = {
+        "On this Mac": "在本机",
+        "Bot or channel": "助理或频道",
+        "Conversation": "会话",
+        "Message": "消息",
+        "Send": "发送",
+        "New conversation": "新会话",
+        "New task": "新建任务",
+        "Message {0}": "发消息给 {0}",
+        "No messages yet. Start the conversation.": "暂无消息。发送一条消息开始会话。",
+        "Open Grox on your Mac to create a bot or channel.": "请在桌面版 Grox 中创建助理或频道。",
+        "Waiting for approval in Grox on your Mac.": "请在桌面版 Grox 中审批。",
+        "A question is waiting in Grox on your Mac.": "请在桌面版 Grox 中回答。",
+        "Connected": "已连接",
+        "Reconnecting…": "正在重新连接…",
+        "Could not reach Grox. Keep the app open on the same Wi-Fi.": "无法连接 Grox。请让桌面应用保持运行并连接同一 Wi-Fi。"
+      };
+      function t(key, value) {
+        var message = state && state.settings && state.settings.language === "en" ? key : zh[key] || key;
+        return value === undefined ? message : message.replace("{0}", function () { return value; });
+      }
+      function setConnectionStatus(value) {
+        connectionStatus = value;
+        statusEl.textContent = t(value);
+      }
+      function renderLanguage() {
+        document.documentElement.lang = state && state.settings && state.settings.language === "en" ? "en" : "zh-CN";
+        ownerEl.setAttribute("aria-label", t("Bot or channel"));
+        threadEl.setAttribute("aria-label", t("Conversation"));
+        textEl.setAttribute("aria-label", t("Message"));
+        sendEl.setAttribute("aria-label", t("Send"));
+        statusEl.textContent = t(connectionStatus);
+      }
 
       function api(path) { return base + path + "?token=" + encodeURIComponent(token); }
       function showToast(text) {
@@ -134,7 +168,7 @@
         return text;
       }
       function fmtTime(value) {
-        try { return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+        try { return new Date(value).toLocaleTimeString(document.documentElement.lang, { hour: "numeric", minute: "2-digit" }); }
         catch (e) { return ""; }
       }
       function owners() {
@@ -183,11 +217,11 @@
         (entry ? entry.threads : []).slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); }).forEach(function (item) {
           var option = document.createElement("option");
           option.value = item.id;
-          option.textContent = item.title || "New conversation";
+          option.textContent = !item.title || item.title === "New conversation" || item.title === "New task" ? t(item.title || "New conversation") : item.title;
           threadEl.appendChild(option);
         });
         threadEl.value = active ? active.id : "";
-        textEl.placeholder = entry ? "Message " + entry.name : "Message";
+        textEl.placeholder = entry ? t("Message {0}", entry.name) : t("Message");
       }
       function renderMessages() {
         var entry = currentOwner();
@@ -196,7 +230,7 @@
         if (!active || !active.messages || active.messages.length === 0) {
           var empty = document.createElement("div");
           empty.className = "empty";
-          empty.textContent = entry ? "No messages yet. Start the conversation." : "Open Grox on your Mac to create a bot or channel.";
+          empty.textContent = t(entry ? "No messages yet. Start the conversation." : "Open Grox on your Mac to create a bot or channel.");
           messagesEl.appendChild(empty);
           return;
         }
@@ -223,7 +257,7 @@
           if (message.kind === "approval" || message.kind === "options") {
             var note = document.createElement("div");
             note.className = "note";
-            note.textContent = message.kind === "approval" ? "Waiting for approval in Grox on your Mac." : "A question is waiting in Grox on your Mac.";
+            note.textContent = t(message.kind === "approval" ? "Waiting for approval in Grox on your Mac." : "A question is waiting in Grox on your Mac.");
             row.appendChild(note);
           }
           if (message.text || message.pending) {
@@ -237,6 +271,7 @@
         requestAnimationFrame(function () { messagesEl.scrollTop = messagesEl.scrollHeight; });
       }
       function render() {
+        renderLanguage();
         renderPicker();
         renderMessages();
       }
@@ -267,13 +302,13 @@
             localStorage.setItem("grox.phone.owner", owner);
             localStorage.setItem("grox.phone.thread", active.id);
           }
-          statusEl.textContent = "Connected";
+          setConnectionStatus("Connected");
           dotEl.classList.remove("off");
           render();
         } catch (error) {
-          statusEl.textContent = "Reconnecting…";
+          setConnectionStatus("Reconnecting…");
           dotEl.classList.add("off");
-          showToast("Could not reach Grox. Keep the app open on the same Wi-Fi.");
+          showToast(t("Could not reach Grox. Keep the app open on the same Wi-Fi."));
         }
       }
       ownerEl.addEventListener("change", function () {
@@ -353,7 +388,7 @@
           } catch (error) { /* ignore malformed event */ }
         };
         eventSource.onerror = function () {
-          statusEl.textContent = "Reconnecting…";
+          setConnectionStatus("Reconnecting…");
           dotEl.classList.add("off");
         };
       }

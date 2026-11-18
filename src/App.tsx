@@ -1,3 +1,4 @@
+import { localeTag, useLanguage, useT } from "@/i18n";
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { createBackend, type Backend, type Bootstrap } from "@/lib/bridge";
@@ -23,6 +24,11 @@ import { Mascot } from "@/components/Mascot";
 import { cn } from "@/lib/cn";
 
 function Shell() {
+  const language = useLanguage();
+
+  useEffect(() => {
+    document.documentElement.lang = localeTag(language);
+  }, [language]);
   const {
     state, ui, setUI, activeBot, activeGroup, selectBot, newTask,
   } = useApp();
@@ -132,6 +138,7 @@ function Shell() {
 }
 
 function Loading() {
+  const t = useT();
   return (
     <div className="boot-screen">
       <div className="boot-mark">
@@ -139,19 +146,20 @@ function Loading() {
       </div>
       <GroxLogo size={30} />
       <h1>Grox</h1>
-      <p>Opening your workspace</p>
+      <p>{t("Opening your workspace")}</p>
       <span className="boot-spinner" />
     </div>
   );
 }
 
 function BootError({ message, retry }: { message: string; retry: () => void }) {
+  const t = useT();
   return (
     <div className="boot-screen">
       <Mascot seed="Grox error" size={74} />
-      <h1>Grox could not open</h1>
+      <h1>{t("Grox could not open")}</h1>
       <p className="boot-error">{message}</p>
-      <button type="button" className="btn btn-secondary" onClick={retry}><RefreshCw size={14} /> Try again</button>
+      <button type="button" className="btn btn-secondary" onClick={retry}><RefreshCw size={14} /> {t("Try again")}</button>
     </div>
   );
 }

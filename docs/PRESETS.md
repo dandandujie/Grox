@@ -1,43 +1,7 @@
-# New bot presets
+# 助理预设
 
-Presets are persona-only starting points for New bot. They are stored in the workspace, not hardcoded in the
-dialog.
+[English](PRESETS.en.md)
 
-## What a preset carries
+预设保存名称、角色、简介、指令与强调色。模型、工作目录、审批、密钥、对话和定时任务由新助理单独配置。
 
-- name
-- role/title
-- description
-- standing instructions
-- accent colour
-It does not carry a model, approval level, working folder, computer, connected apps, skills, memory or
-credentials.
-
-## Defaults
-
-A first-run workspace seeds four presets: Research, Inbox chief, Code review and Operations. Existing
-workspaces with no presets field get the same defaults on load; a deliberately empty list stays empty.
-
-## Create and manage
-
-- Open a bot profile and choose Save as preset.
-- Settings -> General -> New bot presets lists them and can delete one.
-- New bot shows the saved presets in Start from. Selecting one fills the role, description and instructions,
-  and proposes the preset name if the name field is empty.
-
-Preset names are unique; a duplicate gets a numeric suffix. Deleting a preset never changes an existing bot.
-
-## API
-
-- ListPresets
-- CreatePreset(input)
-- UpdatePreset(id, patch)
-- DeletePreset(id)
-
-## Files
-
-- internal/service/presets.go
-- internal/store/seed.go
-- src/components/NewBotDialog.tsx
-- src/components/BotPanel.tsx
-- src/components/SettingsModal.tsx
+Grox 提供调研、收件箱、代码审查和运营等预设。在助理资料中可选择「保存为预设」，然后在「新建助理 → 从预设开始」加载。从「设置 → 常规」删除预设只会移除新建时的选项。

@@ -1,22 +1,19 @@
-# Agent computer tools
+# 电脑工具
 
-Grox keeps one computer selection per bot. Choose **This computer** or configure an SSH host in the bot's **Computer** panel. On SSH hosts, verify the server's host key and add it to `~/.ssh/known_hosts` before connecting.
+[English](COMPUTER.en.md)
 
-The Grox MCP gateway exposes these tools to CLI agents. Tool-capable OpenAI-compatible models receive the same functions.
+在助理的「电脑」面板中选择本机或 SSH 主机。配置 SSH 前请核对主机公钥并加入 `~/.ssh/known_hosts`。Grox 通过每轮 MCP 网关或兼容 API 的工具循环提供以下操作：
 
-| Tool | What it does |
+| 工具 | 用途 |
 | --- | --- |
-| `computer_info` | Reports the selected machine and working folder. |
-| `computer_list` | Lists a folder inside that working folder. |
-| `computer_read` | Returns bounded text or an image. |
-| `computer_run` | Runs a shell command on the selected machine and returns output and exit status. |
-| `computer_screenshot` | Captures a PNG and attaches it to the current conversation. |
-| `attach_file` | Copies a file from the working folder into the conversation. |
+| `computer_info` | 查看当前电脑和工作目录。 |
+| `computer_list`、`computer_read` | 列出目录、读取有大小限制的文本或图像。 |
+| `computer_run` | 在所选电脑上运行命令，返回输出及退出状态。 |
+| `computer_screenshot` | 截图并保存为当前会话的附件。 |
+| `attach_file` | 将工作目录中的文件附加到会话。 |
 
-**Ask** shows an approval card before file, terminal or screen access. **Auto** can list and read from a configured working folder. Shell commands, screen captures and file sharing still ask. **Full** authorizes these operations for the bot. Per-bot tool deny rules apply in all modes. **Always allow** remembers the exact operation for the rest of the current turn.
+「每次询问」在文件、命令和屏幕操作前弹出审批。「自动」可列出和读取已配置工作目录中的文件，运行命令、截图和分享文件仍需审批。「完全授权」允许这些操作，各模式均遵循助理的工具拒绝规则。对电脑工具选择「始终允许」会记住当前轮中的这项操作。
 
-The card displays the selected machine, operation and working folder. Grox checks that the target and active turn still match before acting. The working folder bounds file tools. Shell commands run with the selected account's permissions, starting in that folder. A CLI's own built-in tools use its execution environment. To operate the selected SSH host, the agent uses the Grox tools listed above.
+文件工具受工作目录约束。Shell 命令从工作目录开始，以所选账户的权限运行。CLI 自带工具使用自己的运行环境。屏幕截图依赖本机系统权限或 SSH 主机上的桌面和截图程序。
 
-Screen capture depends on desktop permissions on macOS and the installed capture utility on Linux or SSH. SSH desktop capture requires an active, accessible display. Computer panels and tool calls share the same local and SSH adapters.
-
-Open **Conversation files** in a chat header to search files shared across the bot or channel's conversations. The file stays in the original conversation and links back to its thread.
+选择会话顶部的「会话文件」，可以查找该助理或频道分享过的文件并跳回原会话。

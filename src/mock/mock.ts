@@ -909,7 +909,7 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   async updateSettings(settings: Settings): Promise<Settings> {
-    this.state.settings = { ...this.state.settings, ...settings };
+    this.state.settings = { ...this.state.settings, ...settings, language: settings.language || this.state.settings.language };
     this.emitState();
     return clone(this.state.settings);
   }

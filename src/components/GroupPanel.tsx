@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useEffect, useState } from "react";
 import { ChevronLeft, Download, Hash, MessagesSquare, Plus, Trash2, Users, X } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -7,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
 
 export function GroupPanel() {
+  const t = useT();
   const { activeGroup, state, setUI, updateGroup, deleteGroup, newTask, backend, toast } = useApp();
   const [name, setName] = useState(activeGroup?.name ?? "");
   const [description, setDescription] = useState(activeGroup?.description ?? "");
@@ -78,9 +80,9 @@ export function GroupPanel() {
       anchor.remove();
       URL.revokeObjectURL(url);
       setExportNotes(outcome.warnings ?? []);
-      toast({ kind: "success", title: "Team package exported" });
+      toast({ kind: "success", title: t("Team package exported") });
     } catch (cause) {
-      toast({ kind: "error", title: "Could not export the team", body: cause instanceof Error ? cause.message : "Try again." });
+      toast({ kind: "error", title: t("Could not export the team"), body: cause instanceof Error ? cause.message : t("Try again.") });
     } finally {
       setExporting(false);
     }
@@ -90,13 +92,13 @@ export function GroupPanel() {
     <aside className="side-panel group-panel">
       <header className="side-panel-head drag-region">
         <div className="no-drag">
-          <IconButton label="Back" size={30} onClick={() => setUI({ panel: null })}>
+          <IconButton label={t("Back")} size={30} onClick={() => setUI({ panel: null })}>
             <ChevronLeft size={18} />
           </IconButton>
         </div>
-        <h2>Channel</h2>
+        <h2>{t("Channel")}</h2>
         <div className="no-drag">
-          <IconButton label="Close" size={30} onClick={() => setUI({ panel: null })}>
+          <IconButton label={t("Close")} size={30} onClick={() => setUI({ panel: null })}>
             <X size={17} />
           </IconButton>
         </div>
@@ -112,20 +114,20 @@ export function GroupPanel() {
             <Mascot seed={activeGroup.name} title={activeGroup.name} size={58} />
           </div>
           <div className="group-stats">
-            <span><Users size={13} /> {members.length} bots</span>
-            <span><MessagesSquare size={13} /> {messages} messages</span>
+            <span><Users size={13} /> {t("{0} bots", members.length)}</span>
+            <span><MessagesSquare size={13} /> {t("{0} messages", messages)}</span>
           </div>
         </section>
 
         <section className="group-section">
-          <div className="group-section-title"><Download size={13} /> Share team</div>
+          <div className="group-section-title"><Download size={13} /> {t("Share team")}</div>
           <div className="data-row">
-            <span className="data-hint">Include starter notes in OpenMaus file</span>
-            <Switch checked={includeMemory} label="Include starter notes in OpenMaus file" onChange={setIncludeMemory} disabled={exporting} />
+            <span className="data-hint">{t("Include starter notes in OpenMaus file")}</span>
+            <Switch checked={includeMemory} label={t("Include starter notes in OpenMaus file")} onChange={setIncludeMemory} disabled={exporting} />
           </div>
           <div className="data-row">
-            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => void exportTeam("openmaus")}>Export OpenMaus file</button>
-            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => void exportTeam("grox")}>Export Grox file</button>
+            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => void exportTeam("openmaus")}>{t("Export OpenMaus file")}</button>
+            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => void exportTeam("grox")}>{t("Export Grox file")}</button>
           </div>
           {exportNotes.length > 0 && (
             <ul className="about-note" role="status">{exportNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>
@@ -133,25 +135,25 @@ export function GroupPanel() {
         </section>
 
         <section className="group-section">
-          <div className="group-section-title"><Hash size={13} /> Channel details</div>
+          <div className="group-section-title"><Hash size={13} /> {t("Channel details")}</div>
           <label className="panel-field">
-            <span>Name</span>
+            <span>{t("Name")}</span>
             <input value={name} onChange={(event) => setName(event.target.value)} onBlur={saveIdentity} placeholder="launch-room" />
           </label>
           <label className="panel-field">
-            <span>About</span>
-            <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} onBlur={saveIdentity} placeholder="What happens here?" />
+            <span>{t("About")}</span>
+            <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} onBlur={saveIdentity} placeholder={t("What happens here?")} />
           </label>
           <label className="panel-field">
-            <span>Shared instructions</span>
+            <span>{t("Shared instructions")}</span>
             <textarea rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} onBlur={() => {
               if (instructions.trim() !== (activeGroup.instructions ?? "")) {
                 void updateGroup(activeGroup.id, { instructions: instructions.trim() });
               }
             }} />
           </label>
-          <div className="avatar-section-label">Color</div>
-          <div className="color-grid" role="group" aria-label="Channel color">
+          <div className="avatar-section-label">{t("Color")}</div>
+          <div className="color-grid" role="group" aria-label={t("Channel color")}>
             {Object.keys(MAUS_COLORS).map((color) => (
               <button
                 key={color}
@@ -168,7 +170,7 @@ export function GroupPanel() {
         </section>
 
         <section className="group-section">
-          <div className="group-section-title"><Users size={13} /> Members</div>
+          <div className="group-section-title"><Users size={13} /> {t("Members")}</div>
           <div className="group-member-list">
             {bots.map((bot) => {
               const checked = memberIds.includes(bot.id);
@@ -181,7 +183,7 @@ export function GroupPanel() {
                   </button>
                   {checked && (
                     <button type="button" className={cn("group-lead-pill", leadId === bot.id && "is-lead")} onClick={() => setLeadId(bot.id)}>
-                      {leadId === bot.id ? "Lead" : "Lead?"}
+                      {leadId === bot.id ? t("Lead") : t("Lead?")}
                     </button>
                   )}
                 </div>
@@ -189,33 +191,33 @@ export function GroupPanel() {
             })}
           </div>
           <button type="button" className="btn btn-secondary group-save" onClick={saveRoster} disabled={memberIds.length === 0}>
-            Save roster
+            {t("Save roster")}
           </button>
         </section>
 
         <section className="group-section">
-          <div className="group-section-title">Conversations</div>
+          <div className="group-section-title">{t("Conversations")}</div>
           <button type="button" className="btn btn-secondary group-new-thread" onClick={() => { newTask(); setUI({ panel: null }); }}>
-            <Plus size={14} /> New conversation
+            <Plus size={14} /> {t("New conversation")}
           </button>
           {threads.slice(0, 5).map((thread) => (
             <div key={thread.id} className="group-thread-row">
               <span>{thread.title}</span>
-              <span>{thread.messages.length} msgs</span>
+              <span>{t("{0} messages", thread.messages.length)}</span>
             </div>
           ))}
         </section>
 
         <section className="group-section group-danger">
           <button type="button" className="btn btn-danger" onClick={() => deleteGroup(activeGroup.id)}>
-            <Trash2 size={14} /> Delete channel
+            <Trash2 size={14} /> {t("Delete channel")}
           </button>
-          <p>Messages are removed. The bots and their direct conversations stay.</p>
+          <p>{t("Messages are removed. The bots and their direct conversations stay.")}</p>
         </section>
       </div>
 
       <div className="side-panel-tabs">
-        <button type="button" className="is-active">Channel</button>
+        <button type="button" className="is-active">{t("Channel")}</button>
       </div>
     </aside>
   );

@@ -1,32 +1,7 @@
-# Token usage
+# 用量统计
 
-Grox records token accounting when the selected engine reports it. This is currently the
-OpenAI-compatible API engine.
+[English](USAGE.en.md)
 
-## What is recorded
+引擎报告 Token 数时，回复底部显示输入、输出和合计。兼容 OpenAI 的 API 会累计同一轮的工具调用用量。Claude Code 与 Grok CLI 在结果事件提供用量时也会显示。Codex 和 Gemini 当前没有稳定的用量展示。
 
-Each finished bot message can carry:
-
-    usage: { inputTokens, outputTokens, totalTokens, source }
-
-The footer shows a small `N tok` label with an input/output tooltip. If Settings -> Engines -> Token pricing
-has non-zero USD prices per one million tokens, the footer also shows a six-decimal cost. Grox ships no
-provider price table and never invents a cost when pricing is zero.
-
-## Provider behavior
-
-Grox requests `stream_options.include_usage` and reads the final `usage` object. Providers that omit it, or
-that reject the stream option, simply produce no usage label. Usage is accumulated across API tool rounds.
-
-## CLI engines
-
-Claude Code and Grok Build result events can carry input_tokens/output_tokens; those are read when present.
-Codex CLI and Gemini CLI do not expose a stable usage shape in this port, so their messages stay unlabelled.
-This is explicit rather than showing a fabricated number.
-
-## Files
-
-- internal/agent/agent.go - TokenUsage / UsageSink
-- internal/agent/api.go and api_tools.go - stream parsing
-- internal/service/turns.go - attaches usage to the final message
-- src/components/Message.tsx - footer label
+可在「设置 → 引擎 → Token 计价」填写每百万 Token 的输入和输出美元价格。Grox 根据已填价格估算成本。价格为零时仅显示用量，服务未报告用量时不显示这一栏。

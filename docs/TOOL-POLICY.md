@@ -1,43 +1,9 @@
-# Tool policy
+# 工具策略
 
-Each bot can limit the tools Grox exposes through its per-turn MCP gateway and its API function loop.
+[English](TOOL-POLICY.en.md)
 
-## Fields
+在助理资料中配置 Grox 向该助理提供的工具。允许和拒绝列表支持不区分大小写的名称，使用 `*` 匹配多个工具。每行填写一个，也可用英文逗号分隔。
 
-- Allow: optional patterns. Empty means every tool is allowed.
-- Deny: optional patterns. Deny always wins, even when allow matches.
+允许列表留空表示允许所有工具。拒绝列表优先。例如通过拒绝 `GITHUB_DELETE_*` 排除这组操作。工具策略作用于 Grox 的每轮 MCP 网关与 API 工具循环，包括电脑、浏览器、Composio、记忆和提问工具。
 
-Patterns are case-insensitive and support * as a wildcard. Examples:
-
-    GITHUB_*
-    SLACK_*
-    ask_user
-    memory_*
-    GITHUB_DELETE_*
-
-## Where it applies
-
-- MCP tools/list and tools/call for the per-turn Grox gateway: ask_user, memory_update, memory_tidy,
-  memory_forget and Composio tools.
-- API Auto/Full tool registration and execution.
-- CLI Ask still passes through the existing PreToolUse / PermissionRequest hooks; the policy is an
-  additional filter, not a replacement for approval.
-
-## Where it does not apply
-
-- Remote HTTP or stdio MCP servers are configured directly in a temporary CLI config and are governed by
-  that CLI. Grox cannot filter their tool calls through this policy.
-- CLI built-in shell/file tools are also governed by the CLI's own permission mode and hooks.
-- Imported team packages do not carry the policy; a new bot starts empty (allow all).
-
-## Defaults
-
-Both lists are empty on a new bot, so every gateway/API tool is allowed. An empty Allow with a populated
-Deny is a deny-list. A populated Allow with an empty Deny is an allow-list.
-
-## Files
-
-- internal/service/tool_policy.go - pattern matching
-- internal/service/chat.go - API filtering and execution guard
-- internal/service/tool_gateway.go - MCP list/call filtering
-- src/components/BotPanel.tsx - per-bot editor
+CLI 自带工具和直接配置给 CLI 的外部 MCP 服务器仍由各 CLI 处理。CLI 审批也按其运行配置生效。

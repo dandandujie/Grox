@@ -1,3 +1,5 @@
+import { threadTitle } from "@/lib/conversations";
+import { useLanguage, useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDown, Check, ChevronDown, FolderOpen, Loader2, MessagesSquare, Monitor, Phone, PanelRight,
@@ -18,6 +20,7 @@ function DaySeparator({ label }: { label: string }) {
 }
 
 function EmptyConversation() {
+  const t = useT();
   const { activeBot, activeGroup, activeThread } = useApp();
   const name = activeGroup ? "# " + activeGroup.name : activeBot?.name;
   if (!name) return null;
@@ -25,15 +28,17 @@ function EmptyConversation() {
   return (
     <div className="empty-conversation">
       <Mascot seed={name} avatarUrl={activeBot?.avatarUrl} size={64} />
-      <h2>{task ? "New task" : name}</h2>
+      <h2>{task ? t("New task") : name}</h2>
       <p>{activeGroup?.description || (activeGroup
-        ? "Message the channel or mention a bot by name."
-        : task ? "Describe what you want done and what the result should include." : activeBot?.description || "What would you like help with?")}</p>
+        ? t("Message the channel or mention a bot by name.")
+        : task ? t("Describe what you want done and what the result should include.") : activeBot?.description || t("What would you like help with?"))}</p>
     </div>
   );
 }
 
 function ThreadPopover() {
+  const t = useT();
+  const language = useLanguage();
   const { activeBot, activeGroup, activeThread, ui, setUI, openThread, openGroupThread, newTask, deleteThread, renameThread } = useApp();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -62,11 +67,11 @@ function ThreadPopover() {
   if ((!activeBot && !activeGroup) || !ui.threadMenuOpen) return null;
   const threads = [...(activeGroup ? activeGroup.threads : activeBot?.threads ?? [])].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   return (
-    <div className="thread-popover" role="dialog" aria-label="Conversations">
+    <div className="thread-popover" role="dialog" aria-label={t("Conversations")}>
       <div className="thread-popover-head">
-        <span>Conversations</span>
+        <span>{t("Conversations")}</span>
         <button type="button" className="thread-new" onClick={() => { setUI({ threadMenuOpen: false }); newTask(); }}>
-          <Plus size={14} /> New task
+          <Plus size={14} /> {t("New task")}
         </button>
       </div>
       <div className="thread-list">
@@ -96,9 +101,9 @@ function ThreadPopover() {
                   else if (activeBot) openThread(activeBot.id, thread.id);
                   setUI({ threadMenuOpen: false });
                 }}>
-                  <span className="thread-title">{thread.title}</span>
+                  <span className="thread-title">{threadTitle(thread, t)}</span>
                   <span className="thread-meta">
-                    {thread.kind === "task" ? "Task" : thread.kind === "group" ? "Channel" : "Chat"} · {sidebarTime(thread.updatedAt)}
+                    {thread.kind === "task" ? t("Task") : thread.kind === "group" ? t("Channel") : t("Chat")} · {sidebarTime(thread.updatedAt, language)}
                     {thread.unread > 0 && <span className="thread-unread">{thread.unread}</span>}
                   </span>
                 </button>
@@ -106,8 +111,8 @@ function ThreadPopover() {
               <button
                 type="button"
                 className="thread-action"
-                title="Rename"
-                aria-label="Rename conversation"
+                title={t("Rename")}
+                aria-label={t("Rename conversation")}
                 onClick={() => { setEditing(thread.id); setDraft(thread.title); }}
               >
                 <Pencil size={13} />
@@ -115,8 +120,8 @@ function ThreadPopover() {
               <button
                 type="button"
                 className="thread-action danger"
-                title="Delete"
-                aria-label="Delete conversation"
+                title={t("Delete")}
+                aria-label={t("Delete conversation")}
                 onClick={() => deleteThread(thread.id)}
               >
                 <Trash2 size={13} />
@@ -126,12 +131,14 @@ function ThreadPopover() {
           );
         })}
       </div>
-      <div className="thread-popover-foot">{activeGroup ? "Every channel keeps its own conversation. Tasks start a fresh one." : "Every bot keeps its own threads. Tasks start a fresh one."}</div>
+      <div className="thread-popover-foot">{activeGroup ? t("Every channel keeps its own conversation. Tasks start a fresh one.") : t("Every bot keeps its own threads. Tasks start a fresh one.")}</div>
     </div>
   );
 }
 
 export function ChatView({ visible }: { visible: boolean }) {
+  const t = useT();
+  const language = useLanguage();
   const {
     activeBot, activeGroup, activeThread, state, ui, setUI, decide, answer, newTask, toast,
   } = useApp();
@@ -184,7 +191,7 @@ export function ChatView({ visible }: { visible: boolean }) {
     for (const message of messages) {
       const key = dayKey(message.createdAt);
       if (key !== lastDay) {
-        nodes.push(<DaySeparator key={"day-" + key + message.id} label={dayLabel(message.createdAt)} />);
+        nodes.push(<DaySeparator key={"day-" + key + message.id} label={dayLabel(message.createdAt, language)} />);
         lastDay = key;
       }
       const sender = activeGroup && message.senderId
@@ -204,17 +211,17 @@ export function ChatView({ visible }: { visible: boolean }) {
       );
     }
     return nodes;
-  }, [messages, activeGroup, activeBot, lead, state.bots, decide, answer]);
+  }, [messages, activeGroup, activeBot, lead, state.bots, decide, answer, language]);
 
   if (!activeBot && !activeGroup) {
     return (
       <section className="chat-view empty-workspace" hidden={!visible}>
         <div className="empty-conversation">
           <Mascot seed="Grox" size={76} />
-          <h2>No bots yet</h2>
-          <p>Create your first bot and give it a job. It will get its own conversations and model.</p>
+          <h2>{t("No bots yet")}</h2>
+          <p>{t("Create your first bot and give it a job. It will get its own conversations and model.")}</p>
           <button type="button" className="btn btn-primary" onClick={() => setUI({ newBotOpen: true })}>
-            <Plus size={15} /> Create a bot
+            <Plus size={15} /> {t("Create a bot")}
           </button>
         </div>
       </section>
@@ -240,35 +247,35 @@ export function ChatView({ visible }: { visible: boolean }) {
           <button
             type="button"
             className="chat-title"
-            aria-label="Conversations"
+            aria-label={t("Conversations")}
             aria-expanded={ui.threadMenuOpen}
-            title={activeThread?.title || "Conversations"}
+            title={activeThread ? threadTitle(activeThread, t) : t("Conversations")}
             onClick={() => setUI({ threadMenuOpen: !ui.threadMenuOpen })}
           >
             <span className="chat-context">
               <span className="chat-owner">{activeGroup ? "# " + activeGroup.name : activeBot?.name}</span>
-              <span className="chat-thread-title">{activeThread?.title || "Conversations"}</span>
+              <span className="chat-thread-title">{activeThread ? threadTitle(activeThread, t) : t("Conversations")}</span>
             </span>
             <ChevronDown size={14} aria-hidden="true" />
           </button>
         </div>
         <div className="chat-head-actions no-drag">
           <button type="button" className="head-task" onClick={newTask}>
-            <Plus size={14} /> Task
+            <Plus size={14} /> {t("Task")}
           </button>
           {lead && <ModelPicker bot={lead} />}
-          <IconButton label="Call" active={ui.callOpen} onClick={() => setUI({ callOpen: true, callMuted: false })}>
+          <IconButton label={t("Call")} active={ui.callOpen} onClick={() => setUI({ callOpen: true, callMuted: false })}>
             <Phone size={17} />
           </IconButton>
           {!activeGroup && (
-            <IconButton label="Computer" active={ui.panel === "computer"} onClick={() => setUI({ panel: ui.panel === "computer" ? null : "computer" })}>
+            <IconButton label={t("Computer")} active={ui.panel === "computer"} onClick={() => setUI({ panel: ui.panel === "computer" ? null : "computer" })}>
               <Monitor size={17} />
             </IconButton>
           )}
-          <IconButton label="Conversation files" active={ui.panel === "artifacts"} onClick={() => setUI({ panel: ui.panel === "artifacts" ? null : "artifacts" })}>
+          <IconButton label={t("Conversation files")} active={ui.panel === "artifacts"} onClick={() => setUI({ panel: ui.panel === "artifacts" ? null : "artifacts" })}>
             <FolderOpen size={17} />
           </IconButton>
-          <IconButton label={activeGroup ? "Channel details" : "Agent profile"} active={ui.panel === "profile"} onClick={() => setUI({ panel: ui.panel === "profile" ? null : "profile" })}>
+          <IconButton label={activeGroup ? t("Channel details") : t("Agent profile")} active={ui.panel === "profile"} onClick={() => setUI({ panel: ui.panel === "profile" ? null : "profile" })}>
             <PanelRight size={17} />
           </IconButton>
         </div>
@@ -283,12 +290,12 @@ export function ChatView({ visible }: { visible: boolean }) {
           ) : (
             <>
               {rendered}
-              {activeThread?.busy && <WorkingRow botName={activeGroup ? (lead?.name ?? activeGroup.name) : (activeBot?.name ?? "Bot")} status={activeThread.status ?? "Working"} />}
+              {activeThread?.busy && <WorkingRow botName={activeGroup ? (lead?.name ?? activeGroup.name) : (activeBot?.name ?? t("Bot"))} status={activeThread.status ?? t("Working")} />}
             </>
           )}
         </div>
         {!nearBottom && (
-          <button type="button" className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest">
+          <button type="button" className="jump-latest" onClick={jumpToLatest} aria-label={t("Jump to latest")}>
             <ArrowDown size={15} />
           </button>
         )}

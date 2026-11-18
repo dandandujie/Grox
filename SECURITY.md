@@ -1,102 +1,20 @@
-# Security
+# 安全说明
 
-## Scope
+[English](SECURITY.en.md)
 
-Grox runs local agent CLIs with the current user's permissions and stores the workspace as local files.
-The main security boundaries are:
+## 报告漏洞
 
-- the webview page cannot read arbitrary files or call providers directly;
-- API keys are stored in a 0600 file and never sent back to the page;
-- Markdown is rendered without raw HTML;
-- approval modes are passed to each CLI, and the demo engine asks in-app;
-- attachments are copied into the workspace and served to the page by id, not by arbitrary path;
-- the local Computer panel only resolves paths under the bot's working folder (or home) and the terminal
-  is explicitly typed by the person;
-- the phone companion is a LAN-only HTTP page protected by a random token in the URL;
-- the SSH computer reads a key path but never copies the key into the workspace, and verifies the host
-  against ~/.ssh/known_hosts when that file exists;
-- Composio OAuth links and live tool calls are explicit actions; a tool runs only when the person presses
-  Run tool;
-- the app does not include telemetry, a remote updater, or a hosted relay.
+请联系仓库维护者，或使用 GitHub 私密安全公告。请说明受影响的版本、平台、复现条件、影响，以及问题是否涉及模型密钥、本机文件或审批边界。
 
-Grox is **not** a sandbox. A CLI started in Full mode can do anything the current user can do. Treat a bot
-with Full access as you would treat a shell with your account.
+## 本机数据
 
-## Reporting a vulnerability
+- 工作区使用 JSON 保存。密钥文件权限为 `0600`，由操作系统账户与磁盘加密保护。导出工作区不含已保存的密钥，可能包含对话。
+- 页面通过受控绑定读取附件和工作区。CLI 以当前账户的权限运行，完全授权模式具有该账户的操作能力。
+- 只启用信任的技能、工作手册和本地 MCP 命令。模型回复和网页内容以数据处理，Markdown 不执行原始 HTML。
 
-Please do not open a public issue for a vulnerability. Email the maintainer listed in the repository's
-profile, or use GitHub's private security advisory flow on the repository. Include:
+## 连接及工具
 
-- affected version and platform,
-- reproduction steps,
-- the impact you believe it has,
-- whether a provider key, a local file, or the approval boundary is involved.
-
-You can expect an initial acknowledgement within a few days. This is a small project; please be patient.
-
-## Data at rest
-
-The workspace (state.json) is plain JSON. The secrets file is 0600, but it is not encrypted by Grox. Rely
-on full-disk encryption and operating-system account security. Backups and exports may contain transcripts;
-export deliberately omits secrets.
-
-Attachments live in the attachments/ directory with 0600 files. The phone token lives in state.json; anyone
-who obtains the token and can reach the Mac's LAN port can read and send conversations. Turn the phone
-companion off when it is not in use, and do not expose port 4870 to the public internet.
-
-## Remote computer
-
-An SSH computer is a powerful boundary. Commands and file reads run on the remote host with the SSH user's
-permissions. The remote root is an absolute path; Grox rejects paths that escape it, quotes command
-arguments, and applies a deadline. If ~/.ssh/known_hosts is absent, the SSH client uses trust-on-first-use;
-add the host key to known_hosts for a stricter check. The private key is read from the path you provide and
-is never uploaded or written into Grox's workspace.
-
-## Composio
-
-A Composio project key is stored in the 0600 secrets file. OAuth happens on Composio's hosted page; Grox
-receives the redirect URL and opens the system browser. Connected-account status is only shown as connected
-when Composio reports ACTIVE. The live tool runner sends the arguments the person entered to Composio; treat
-that as a real third-party action, not a preview. No local fallback fakes a tool response.
-
-## Local computer
-
-Screen capture, folder browsing, and the terminal are person-driven surfaces. The terminal runs with the
-current user's permissions and is not a sandbox. The agent does not get an unattended terminal through this
-panel, but code or a CLI that the person already approved can still act within its own permission mode.
-Screen capture may require macOS Screen Recording permission; microphone use requires Microphone permission.
-The phone page cannot open the Computer panel or approval cards.
-
-## CLI tool gate and MCP gateway
-
-In Ask mode Grox starts a loopback HTTP server, mints a random per-turn token, and installs a provider hook:
-Claude Code PermissionRequest, Grok PreToolUse HTTP, Codex PreToolUse command, or Gemini BeforeTool command.
-The hook carries tool name/input to Grox; Grox appends an approval card and keeps the request open until
-the person chooses Allow/Always/Deny. Codex and Gemini hooks run a tiny temporary curl script with the
-per-turn URL; they are not given a general command execution endpoint. The server binds 127.0.0.1 only and
-fails closed on timeout or app close.
-
-The same loopback server exposes a tokenized streamable-HTTP MCP endpoint for that turn. It lists cached
-Composio tools and executes tool calls through Composio. The CLI's Ask hook sees the MCP tool call and gates
-it; in Auto/Full the provider's policy applies. This is a real MCP server, not a local fake tool result.
-
-The Ask modes are intentionally adjusted so the hook is the gate: Grok runs auto, Codex runs
-workspace-write, and Gemini runs yolo with the hook installed. If a CLI rejects the injected config, its
-mode still applies; review the CLI's own logs before relying on the gate.
-
-## Prompt injection and untrusted content
-
-Agent replies, web content, files, and tool output are untrusted data. Grox renders them as Markdown and
-does not execute HTML. A real CLI may act on prompt-injected content when its permission mode allows it;
-that is exactly why the default is Ask and why Full is explicit.
-
-## Known limitations
-
-- Ask-mode CLI tool prompts are brokered through per-turn loopback hooks. If a CLI rejects its injected
-  hook config, the provider mode still applies.
-- The phone companion uses plain HTTP on the local network; it is not a hardened remote-access service.
-- Composio OAuth, the manual live tool runner, per-turn MCP tools for CLI engines, and automatic tools
-  for Auto/Full API bots are implemented. Ask API bots never receive tools.
-- Hosted cloud provisioning, cloud sync, organization billing, and a native mobile app are not implemented.
-- The demo engine is local and does no network or file work, but its approval cards are scripted.
-- The browser preview uses an in-memory mock; do not put real secrets into it.
+- 默认审批模式为「每次询问」。支持的 CLI 每轮使用本机回环钩子。请求超时或应用关闭时结束等待。若 CLI 拒绝注入配置，实际权限取决于该 CLI 的运行模式。
+- SSH 连接需验证主机密钥，私钥按你提供的路径读取。屏幕采集取决于系统权限和远端显示会话。
+- 手机伴侣在局域网内使用 HTTP，访问链接带有随机令牌。同网段中持有链接的人可读取和发送消息。用完后可在「设置 → 手机」关闭。
+- Composio 授权和工具请求由第三方服务处理。使用真实账号或模型前，可先用内置演示熟悉操作。

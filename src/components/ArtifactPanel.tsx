@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useMemo, useState } from "react";
 import { ArrowUpRight, FileText, Search, X } from "lucide-react";
 import { formatBytes } from "@/components/Attachments";
@@ -5,6 +6,7 @@ import { IconButton } from "@/components/ui";
 import { useApp } from "@/state/store";
 
 export function ArtifactPanel() {
+  const t = useT();
   const { activeBot, activeGroup, backend, openThread, openGroupThread, setUI, toast } = useApp();
   const [query, setQuery] = useState("");
   const threads = activeGroup?.threads ?? activeBot?.threads;
@@ -25,29 +27,29 @@ export function ArtifactPanel() {
     <aside className="side-panel">
       <header className="side-panel-head drag-region">
         <span />
-        <h2>Conversation files</h2>
+        <h2>{t("Conversation files")}</h2>
         <div className="no-drag">
-          <IconButton label="Close" size={30} onClick={() => setUI({ panel: null })}><X size={17} /></IconButton>
+          <IconButton label={t("Close")} size={30} onClick={() => setUI({ panel: null })}><X size={17} /></IconButton>
         </div>
       </header>
       <div className="panel-body artifact-panel">
         {files.length > 0 && (
           <label className="artifact-search panel-field">
             <Search size={15} aria-hidden="true" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search conversation files" placeholder="Search files" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label={t("Search conversation files")} placeholder={t("Search files")} />
           </label>
         )}
-        {shown.length === 0 && <p className="panel-note">{files.length ? "No matching files." : "Files shared in these conversations appear here."}</p>}
+        {shown.length === 0 && <p className="panel-note">{files.length ? t("No matching files.") : t("Files shared in these conversations appear here.")}</p>}
         {shown.map(({ file, thread, role, messageId }) => (
           <article className="artifact-row" key={messageId + ":" + file.id}>
             <button type="button" className="attachment-file" title={file.name}
               onClick={() => void backend.openAttachment(file.id).catch((error: unknown) =>
-                toast({ kind: "error", title: "Could not open file", body: String(error) }),
+                toast({ kind: "error", title: t("Could not open file"), body: String(error) }),
               )}>
               <span className="attachment-file-icon"><FileText size={16} /></span>
               <span className="attachment-file-copy">
                 <span className="attachment-file-name">{file.name}</span>
-                <span className="attachment-file-size">{formatBytes(file.size)} · {role === "bot" ? "Agent" : "You"}</span>
+                <span className="attachment-file-size">{formatBytes(file.size)} · {role === "bot" ? t("Agent") : t("You")}</span>
               </span>
             </button>
             <button type="button" className="btn btn-ghost artifact-thread" title={thread.title} onClick={() => {

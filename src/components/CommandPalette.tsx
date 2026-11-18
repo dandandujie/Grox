@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CalendarDays, Clock3, Command, Keyboard, MessageSquarePlus, Palette, Plug, Plus, Search,
@@ -17,6 +18,7 @@ interface Item {
 }
 
 export function CommandPalette() {
+  const t = useT();
   const {
     ui, setUI, state, selectBot, newTask, patchSettings, exportWorkspace,
   } = useApp();
@@ -38,30 +40,30 @@ export function CommandPalette() {
       .map((bot) => ({
         id: "bot-" + bot.id,
         label: bot.name,
-        sub: bot.title || "Bot",
+        sub: bot.title || t("Bot"),
         icon: <Mascot seed={bot.name} size={22} />,
-        section: "Bots",
+        section: t("Bots"),
         run: () => { selectBot(bot.id); setUI({ paletteOpen: false }); },
       }));
     const actions: Item[] = [
-      { id: "new-bot", label: "New bot", sub: "Create a new contact", icon: <Plus size={16} />, section: "Actions", run: () => setUI({ paletteOpen: false, newBotOpen: true }) },
-      { id: "new-task", label: "New task", sub: "Start a fresh conversation", icon: <MessageSquarePlus size={16} />, section: "Actions", run: () => { setUI({ paletteOpen: false }); newTask(); } },
-      { id: "profile", label: "Open agent profile", sub: "Avatar, instructions, approvals", icon: <PanelRight size={16} />, section: "Actions", run: () => setUI({ paletteOpen: false, panel: "profile" }) },
-      { id: "work", label: "Work", sub: "Pending actions and recent conversations", icon: <Clock3 size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, view: "work", panel: null }) },
-      { id: "routines", label: "Tasks & routines", sub: "Schedule a recurring task", icon: <CalendarDays size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, view: "routines", panel: null }) },
-      { id: "apps", label: "Connected apps", sub: "Marketplace of tools", icon: <Plug size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, view: "apps", panel: null }) },
-      { id: "settings", label: "Settings", sub: "General, engines, keys", icon: <Settings size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, settingsOpen: true, settingsSection: "general" }) },
-      { id: "theme", label: "Switch appearance", sub: "Cycle Midnight, Daylight, Atelier, Foundry", icon: <Palette size={16} />, section: "Actions", run: () => {
+      { id: "new-bot", label: t("New bot"), sub: t("Create a new contact"), icon: <Plus size={16} />, section: t("Actions"), run: () => setUI({ paletteOpen: false, newBotOpen: true }) },
+      { id: "new-task", label: t("New task"), sub: t("Start a fresh conversation"), icon: <MessageSquarePlus size={16} />, section: t("Actions"), run: () => { setUI({ paletteOpen: false }); newTask(); } },
+      { id: "profile", label: t("Open agent profile"), sub: t("Avatar, instructions, approvals"), icon: <PanelRight size={16} />, section: t("Actions"), run: () => setUI({ paletteOpen: false, panel: "profile" }) },
+      { id: "work", label: t("Work"), sub: t("Pending actions and recent conversations"), icon: <Clock3 size={16} />, section: t("Navigate"), run: () => setUI({ paletteOpen: false, view: "work", panel: null }) },
+      { id: "routines", label: t("Tasks & routines"), sub: t("Schedule a recurring task"), icon: <CalendarDays size={16} />, section: t("Navigate"), run: () => setUI({ paletteOpen: false, view: "routines", panel: null }) },
+      { id: "apps", label: t("Connected apps"), sub: t("Marketplace of tools"), icon: <Plug size={16} />, section: t("Navigate"), run: () => setUI({ paletteOpen: false, view: "apps", panel: null }) },
+      { id: "settings", label: t("Settings"), sub: t("General, engines, keys"), icon: <Settings size={16} />, section: t("Navigate"), run: () => setUI({ paletteOpen: false, settingsOpen: true, settingsSection: "general" }) },
+      { id: "theme", label: t("Switch appearance"), sub: t("Cycle Midnight, Daylight, Atelier, Foundry"), icon: <Palette size={16} />, section: t("Actions"), run: () => {
         const order = ["midnight", "daylight", "atelier", "foundry"];
         const next = order[(order.indexOf(state.settings.theme) + 1) % order.length]!;
         void patchSettings({ theme: next });
         setUI({ paletteOpen: false });
       } },
-      { id: "shortcuts", label: "Keyboard shortcuts", icon: <Keyboard size={16} />, section: "Help", run: () => setUI({ paletteOpen: false, shortcutsOpen: true }) },
-      { id: "export", label: "Export workspace", sub: "A readable JSON copy", icon: <Download size={16} />, section: "Actions", run: () => { setUI({ paletteOpen: false }); void exportWorkspace(); } },
+      { id: "shortcuts", label: t("Keyboard shortcuts"), icon: <Keyboard size={16} />, section: t("Help"), run: () => setUI({ paletteOpen: false, shortcutsOpen: true }) },
+      { id: "export", label: t("Export workspace"), sub: t("A readable JSON copy"), icon: <Download size={16} />, section: t("Actions"), run: () => { setUI({ paletteOpen: false }); void exportWorkspace(); } },
     ];
     return [...bots, ...actions];
-  }, [state.bots, state.settings.theme, selectBot, newTask, patchSettings, exportWorkspace, setUI]);
+  }, [state.bots, state.settings.theme, selectBot, newTask, patchSettings, exportWorkspace, setUI, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -101,21 +103,21 @@ export function CommandPalette() {
   let section = "";
   return (
     <div className="modal-layer palette-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setUI({ paletteOpen: false }); }}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div className="palette" role="dialog" aria-modal="true" aria-label={t("Command palette")}>
         <div className="palette-search">
           <Search size={17} />
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => { setQuery(event.target.value); setIndex(0); }}
-            placeholder="Search bots and actions…"
-            aria-label="Search commands"
+            placeholder={t("Search bots and actions…")}
+            aria-label={t("Search commands")}
             spellCheck={false}
           />
           <span className="keycap">esc</span>
         </div>
         <div className="palette-results">
-          {filtered.length === 0 && <div className="palette-empty">No command matches “{query}”.</div>}
+          {filtered.length === 0 && <div className="palette-empty">{t("No command matches “{0}”.", query)}</div>}
           {filtered.map((item, itemIndex) => {
             const showSection = item.section !== section;
             section = item.section;
@@ -139,9 +141,9 @@ export function CommandPalette() {
           })}
         </div>
         <div className="palette-foot">
-          <span><span className="keycap">↑</span><span className="keycap">↓</span> navigate</span>
-          <span><span className="keycap">↵</span> open</span>
-          <span className="palette-brand"><Sparkles size={12} /> Grox commands</span>
+          <span><span className="keycap">↑</span><span className="keycap">↓</span> {t("navigate")}</span>
+          <span><span className="keycap">↵</span> {t("open")}</span>
+          <span className="palette-brand"><Sparkles size={12} /> {t("Grox commands")}</span>
         </div>
       </div>
     </div>

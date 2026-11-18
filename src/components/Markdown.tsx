@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -5,6 +6,7 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 function CodeBlock({ children, className }: { children?: ReactNode; className?: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const text = extractText(children);
   return (
@@ -13,7 +15,7 @@ function CodeBlock({ children, className }: { children?: ReactNode; className?: 
         <span>{languageOf(className)}</span>
         <button
           type="button"
-          aria-label="Copy code"
+          aria-label={t("Copy code")}
           onClick={() => {
             void navigator.clipboard?.writeText(text).then(() => {
               setCopied(true);
@@ -22,7 +24,7 @@ function CodeBlock({ children, className }: { children?: ReactNode; className?: 
           }}
         >
           {copied ? <Check size={13} /> : <Copy size={13} />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("Copied") : t("Copy")}
         </button>
       </div>
       <pre>{children}</pre>

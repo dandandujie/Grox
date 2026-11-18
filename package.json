@@ -2,7 +2,7 @@
   "name": "grox",
   "private": true,
   "type": "module",
-  "description": "A local-first personal agent workspace for the desktop.",
+  "description": "本地优先的桌面个人助理工作区",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.6"

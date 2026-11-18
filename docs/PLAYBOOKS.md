@@ -1,35 +1,7 @@
-# Playbooks
+# 工作手册
 
-A playbook is process guidance attached to one bot. It is selected by trigger words in the new message and
-included in that turn's prompt; it does not grant tools, connected apps or permissions.
+[English](PLAYBOOKS.en.md)
 
-## Storage
+在助理侧栏的「工作手册」中保存可复用的工作步骤。为手册填写名称、触发词和 Markdown 正文。消息命中触发词时，Grox 会在当前轮注入至多三份匹配手册，原有工具和审批权限继续生效。
 
-Each playbook is a Markdown file under `playbooks/<botId>/<slug>.md` with frontmatter:
-
-    ---
-    name: Launch checklist
-    triggers: launch, release, ship
-    ---
-
-    Instructions...
-
-Files are 0600 and are not part of a team package yet.
-
-## Selection
-
-- Triggers are comma-separated, case-insensitive and normalized to words.
-- A trigger matches when the normalized new message contains it.
-- At most 3 playbooks are selected; the rendered instructions are capped at 24 KB.
-- Selected playbooks appear in a `<installed_playbooks>` block for CLI Compose and API system prompts.
-- The block explicitly says it grants no tools or authority.
-
-## UI
-
-Bot panel -> Playbooks: create, edit and delete. A playbook editor needs a name, at least one trigger and
-instructions.
-
-## Not ported
-
-- Package-authored playbooks and playbook review screens.
-- The actual OpenMausBot selection algorithm uses package metadata; this port uses local files and triggers.
+工作手册属于单个助理，在本地保存。可随时编辑或删除，也可以通过受支持的 OpenMaus 团队文件分享。

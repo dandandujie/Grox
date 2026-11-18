@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { useEffect, useState } from "react";
 import { FileText, Loader2, X } from "lucide-react";
 import type { Attachment } from "@/lib/bridge";
@@ -36,6 +37,7 @@ function useAttachmentData(attachment: Attachment): string | null {
 }
 
 function ImageAttachment({ attachment, removable, onRemove }: { attachment: Attachment; removable?: boolean; onRemove?: () => void }) {
+  const t = useT();
   const { backend } = useApp();
   const data = useAttachmentData(attachment);
   if (!data && attachment.kind === "image" && attachment.size > 12 * 1024 * 1024) {
@@ -44,10 +46,10 @@ function ImageAttachment({ attachment, removable, onRemove }: { attachment: Atta
   return (
     <div className="attachment-image-wrap">
       <button type="button" className="attachment-image" onClick={() => void backend.openAttachment(attachment.id)} title={attachment.name}>
-        {data ? <img src={data} alt={attachment.name} /> : <span className="attachment-image-loading"><Loader2 size={15} className="spin" /> Loading preview</span>}
+        {data ? <img src={data} alt={attachment.name} /> : <span className="attachment-image-loading"><Loader2 size={15} className="spin" /> {t("Loading preview")}</span>}
       </button>
       {removable && (
-        <button type="button" className="attachment-remove" aria-label={"Remove " + attachment.name} onClick={onRemove}>
+        <button type="button" className="attachment-remove" aria-label={t("Remove ") + attachment.name} onClick={onRemove}>
           <X size={12} />
         </button>
       )}
@@ -56,6 +58,7 @@ function ImageAttachment({ attachment, removable, onRemove }: { attachment: Atta
 }
 
 function FileAttachment({ attachment, removable, onRemove }: { attachment: Attachment; removable?: boolean; onRemove?: () => void }) {
+  const t = useT();
   const { backend } = useApp();
   return (
     <div className="attachment-file-wrap">
@@ -67,7 +70,7 @@ function FileAttachment({ attachment, removable, onRemove }: { attachment: Attac
         </span>
       </button>
       {removable && (
-        <button type="button" className="attachment-remove" aria-label={"Remove " + attachment.name} onClick={onRemove}>
+        <button type="button" className="attachment-remove" aria-label={t("Remove ") + attachment.name} onClick={onRemove}>
           <X size={12} />
         </button>
       )}

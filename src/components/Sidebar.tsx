@@ -1,3 +1,4 @@
+import { useLanguage, useT, type Translate } from "@/i18n";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -10,7 +11,7 @@ import { Mascot } from "@/components/Mascot";
 import { cn } from "@/lib/cn";
 import { initials, sidebarTime, truncate } from "@/lib/format";
 import { IconButton } from "@/components/ui";
-import { conversations } from "@/lib/conversations";
+import { conversations, threadTitle } from "@/lib/conversations";
 
 function latestThreadOf(bot: Bot): Thread | undefined {
   return [...bot.threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
@@ -20,15 +21,15 @@ function latestGroupThreadOf(group: Group): Thread | undefined {
   return [...group.threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
 }
 
-function groupPreview(group: Group): string {
+function groupPreview(group: Group, t: Translate): string {
   const thread = latestGroupThreadOf(group);
-  if (!thread) return "Start a conversation";
-  if (thread.busy) return thread.status ? thread.status + "…" : "Working…";
+  if (!thread) return t("Start a conversation");
+  if (thread.busy) return thread.status ? t(thread.status) + "…" : t("Working…");
   const pending = [...(thread.messages ?? [])].reverse().find((message) => message.status === "pending");
-  if (pending?.kind === "approval") return "Waiting for your approval";
-  if (pending?.kind === "options") return "Waiting for your answer";
+  if (pending?.kind === "approval") return t("Waiting for your approval");
+  if (pending?.kind === "options") return t("Waiting for your answer");
   const last = [...(thread.messages ?? [])].reverse().find((message) => message.text.trim());
-  return last ? truncate(cleanPreview(last.text), 48) : "Start a conversation";
+  return last ? truncate(cleanPreview(last.text), 48) : t("Start a conversation");
 }
 
 function cleanPreview(text: string): string {
@@ -40,15 +41,15 @@ function cleanPreview(text: string): string {
     .trim();
 }
 
-function botPreview(bot: Bot): string {
+function botPreview(bot: Bot, t: Translate): string {
   const thread = latestThreadOf(bot);
-  if (!thread) return "Start a conversation";
-  if (thread.busy) return thread.status ? thread.status + "…" : "Working…";
+  if (!thread) return t("Start a conversation");
+  if (thread.busy) return thread.status ? t(thread.status) + "…" : t("Working…");
   const pending = [...(thread.messages ?? [])].reverse().find((message) => message.status === "pending");
-  if (pending?.kind === "approval") return "Waiting for your approval";
-  if (pending?.kind === "options") return "Waiting for your answer";
+  if (pending?.kind === "approval") return t("Waiting for your approval");
+  if (pending?.kind === "options") return t("Waiting for your answer");
   const last = [...(thread.messages ?? [])].reverse().find((message) => message.text.trim() || message.kind === "notice");
-  if (!last) return "Start a conversation";
+  if (!last) return t("Start a conversation");
   return truncate(cleanPreview(last.text), 48);
 }
 
@@ -66,6 +67,8 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 export function Sidebar() {
+  const t = useT();
+  const language = useLanguage();
   const {
     state, activeBot, activeGroup, activeThread, ui, setUI, selectBot, selectGroup, openThread, openGroupThread, updateBot, duplicateBot, deleteBot,
     backend, toast, patchSettings, markUnread,
@@ -117,9 +120,9 @@ export function Sidebar() {
     const term = query.toLowerCase();
     return conversations(state).flatMap((item) => {
       const message = term.length >= 2 ? [...(item.thread.messages ?? [])].reverse().find((entry) => !entry.pending && entry.text.toLowerCase().includes(term)) : undefined;
-      return message || item.thread.title.toLowerCase().includes(term) ? [{ ...item, text: message?.text ?? "" }] : [];
+      return message || (item.thread.title.toLowerCase().includes(term) || threadTitle(item.thread, t).toLowerCase().includes(term)) ? [{ ...item, text: message?.text ?? "" }] : [];
     }).slice(0, 12);
-  }, [state, query]);
+  }, [state, query, t]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -176,7 +179,7 @@ export function Sidebar() {
     <aside className="sidebar" style={{ width: ui.sidebarWidth }} data-sidebar-root>
       <div className="sidebar-top drag-region">
         <div className="sidebar-top-actions no-drag">
-          <IconButton label="New bot (⌘N)" onClick={() => setUI({ newBotOpen: true })} size={30}>
+          <IconButton label={t("New bot (⌘N)")} onClick={() => setUI({ newBotOpen: true })} size={30}>
             <Plus size={18} />
           </IconButton>
         </div>
@@ -193,12 +196,12 @@ export function Sidebar() {
             onKeyDown={(event) => {
               if (event.key === "Escape") setUI({ sidebarSearch: "" });
             }}
-            placeholder="Search"
-            aria-label="Search bots, channels and conversations"
+            placeholder={t("Search")}
+            aria-label={t("Search bots, channels and conversations")}
             spellCheck={false}
           />
           {query && (
-            <button type="button" className="search-clear" onClick={() => setUI({ sidebarSearch: "" })} aria-label="Clear search">
+            <button type="button" className="search-clear" onClick={() => setUI({ sidebarSearch: "" })} aria-label={t("Clear search")}>
               ×
             </button>
           )}
@@ -207,7 +210,7 @@ export function Sidebar() {
 
       {!query && <div className="sidebar-work">
         <button type="button" className={cn("sidebar-nav-row", ui.view === "work" && "is-active")} aria-current={ui.view === "work" ? "page" : undefined} onClick={() => setUI({ view: "work", panel: null, mobileSidebarOpen: false })}>
-          <Clock3 size={17} aria-hidden="true" /> <span>Work</span>
+          <Clock3 size={17} aria-hidden="true" /> <span>{t("Work")}</span>
         </button>
       </div>}
 
@@ -216,16 +219,16 @@ export function Sidebar() {
           <div className="search-results">
             {channelMatches.length > 0 && (
               <>
-                <div className="sidebar-section-label">Channels</div>
+                <div className="sidebar-section-label">{t("Channels")}</div>
                 {channelMatches.map((group) => (
                   <button type="button" key={group.id} className="search-result" onClick={() => { selectGroup(group.id); setUI({ sidebarSearch: "" }); }}>
                     <span className="search-channel-icon">#</span>
-                    <span className="search-result-body"><span className="search-result-title"><Highlight text={group.name} query={query} /></span><span className="search-result-sub">{group.memberIds.length} bots</span></span>
+                    <span className="search-result-body"><span className="search-result-title"><Highlight text={group.name} query={query} /></span><span className="search-result-sub">{t("{0} bots", group.memberIds.length)}</span></span>
                   </button>
                 ))}
               </>
             )}
-            {botMatches.length > 0 && <div className="sidebar-section-label">Bots</div>}
+            {botMatches.length > 0 && <div className="sidebar-section-label">{t("Bots")}</div>}
             {botMatches.map((bot) => (
               <button
                 type="button"
@@ -239,12 +242,12 @@ export function Sidebar() {
                 <Mascot seed={bot.name} size={28} />
                 <span className="search-result-body">
                   <span className="search-result-title"><Highlight text={bot.name} query={query} /></span>
-                  <span className="search-result-sub">{bot.title || "Bot"}</span>
+                  <span className="search-result-sub">{t(bot.title || "Bot")}</span>
                 </span>
               </button>
             ))}
-            {conversationMatches.length > 0 && <div className="sidebar-section-label messages-label">Conversations</div>}
-            {botMatches.length + channelMatches.length + conversationMatches.length === 0 && <div className="search-empty">No results for “{query}”.</div>}
+            {conversationMatches.length > 0 && <div className="sidebar-section-label messages-label">{t("Conversations")}</div>}
+            {botMatches.length + channelMatches.length + conversationMatches.length === 0 && <div className="search-empty">{t("No results for “{0}”.", query)}</div>}
             {conversationMatches.map((result) => (
               <button
                 type="button"
@@ -259,13 +262,13 @@ export function Sidebar() {
                 <Mascot seed={result.owner.name} size={24} />
                 <span className="search-result-body">
                   <span className="search-result-title">
-                    <Highlight text={result.thread.title} query={query} />
+                    <Highlight text={threadTitle(result.thread, t)} query={query} />
                   </span>
                   <span className="search-result-sub search-result-text">
                     {result.owner.name}{result.text && <> · <Highlight text={truncate(cleanPreview(result.text), 120)} query={query} /></>}
                   </span>
                 </span>
-                <span className="search-result-time">{sidebarTime(result.thread.updatedAt)}</span>
+                <span className="search-result-time">{sidebarTime(result.thread.updatedAt, language)}</span>
               </button>
             ))}
           </div>
@@ -274,8 +277,8 @@ export function Sidebar() {
             {!query && state.groups.length > 0 && (
               <>
                 <div className="sidebar-section-label channels-label">
-                  <span>Channels</span>
-                  <button type="button" className="section-add" aria-label="New channel" onClick={() => setUI({ newChannelOpen: true })}>
+                  <span>{t("Channels")}</span>
+                  <button type="button" className="section-add" aria-label={t("New channel")} onClick={() => setUI({ newChannelOpen: true })}>
                     <Plus size={13} />
                   </button>
                 </div>
@@ -296,24 +299,24 @@ export function Sidebar() {
                         <span className="bot-row-top">
                           <span className="bot-name"># {group.name}</span>
                           {group.unread > 0 ? <span className="unread-dot" aria-label={group.unread + " unread"} /> : (
-                            <span className="bot-time">{sidebarTime(thread?.updatedAt ?? group.updatedAt)}</span>
+                            <span className="bot-time">{sidebarTime(thread?.updatedAt ?? group.updatedAt, language)}</span>
                           )}
                         </span>
                         <span className={cn("bot-preview", thread?.busy && "is-working")}>
                           {thread?.busy && <span className="working-pip" aria-hidden="true" />}
-                          {groupPreview(group)}
+                          {groupPreview(group, t)}
                         </span>
                       </span>
                     </button>
                   );
                 })}
-                <div className="sidebar-section-label bots-label">Bots</div>
+                <div className="sidebar-section-label bots-label">{t("Bots")}</div>
               </>
             )}
             {departmentGroups.map(([department, departmentBots]) => (
-              <Fragment key={department}>
-                {departmentGroups.length > 1 && <div className="sidebar-department-label">{department}</div>}
-                {departmentBots.length === 0 && <div className="sidebar-empty-dept">No bots yet</div>}
+              <Fragment key={department === "General" ? t("General") : department}>
+                {departmentGroups.length > 1 && <div className="sidebar-department-label">{department === "General" ? t("General") : department}</div>}
+                {departmentBots.length === 0 && <div className="sidebar-empty-dept">{t("No bots yet")}</div>}
                 {departmentBots.map((bot) => {
               const thread = latestThreadOf(bot);
               const selected = activeBot?.id === bot.id && ui.view === "chat";
@@ -345,12 +348,12 @@ export function Sidebar() {
                     <span className="bot-row-top">
                       <span className="bot-name">{bot.name}</span>
                       {unread > 0 ? <span className="unread-dot" aria-label={unread + " unread"} /> : (
-                        <span className="bot-time">{sidebarTime(thread?.updatedAt ?? bot.lastActiveAt)}</span>
+                        <span className="bot-time">{sidebarTime(thread?.updatedAt ?? bot.lastActiveAt, language)}</span>
                       )}
                     </span>
                     <span className={cn("bot-preview", thread?.busy && "is-working")}>
                       {thread?.busy && <span className="working-pip" aria-hidden="true" />}
-                      {botPreview(bot)}
+                      {botPreview(bot, t)}
                     </span>
                   </span>
                   <span className="bot-row-actions no-drag">
@@ -369,13 +372,13 @@ export function Sidebar() {
             ))}
             {hiddenCount > 0 && (
               <button type="button" className="hidden-toggle" onClick={() => setShowHidden((value) => !value)}>
-                <EyeOff size={12} /> {showHidden ? "Hide hidden bots" : hiddenCount + " hidden bot" + (hiddenCount === 1 ? "" : "s")}
+                <EyeOff size={12} /> {showHidden ? t("Hide hidden bots") : t(hiddenCount === 1 ? "{0} hidden bot" : "{0} hidden bots", hiddenCount)}
               </button>
             )}
             {visible.length === 0 && (
               <div className="sidebar-empty">
-                <p>No bots yet.</p>
-                <button type="button" onClick={() => setUI({ newBotOpen: true })}><Plus size={14} /> Create a bot</button>
+                <p>{t("No bots yet.")}</p>
+                <button type="button" onClick={() => setUI({ newBotOpen: true })}><Plus size={14} /> {t("Create a bot")}</button>
               </div>
             )}
           </div>
@@ -389,7 +392,7 @@ export function Sidebar() {
           onClick={() => setUI({ view: "routines", settingsOpen: false, panel: null })}
         >
           <CalendarDays size={17} aria-hidden="true" />
-          <span>Tasks &amp; routines</span>
+          <span>{t("Tasks & routines")}</span>
         </button>
         <button
           type="button"
@@ -397,16 +400,16 @@ export function Sidebar() {
           onClick={() => setUI({ view: "apps", settingsOpen: false, panel: null })}
         >
           <Plug size={17} aria-hidden="true" />
-          <span>Connected apps</span>
+          <span>{t("Connected apps")}</span>
           {state.connections && Object.values(state.connections).filter((connection) => connection.connected).length > 0 && (
             <span className="nav-count">{Object.values(state.connections).filter((connection) => connection.connected).length}</span>
           )}
         </button>
         <div className="sidebar-person">
-          <div className="person-avatar">{initials("You")}</div>
-          <span className="person-name">You</span>
+          <div className="person-avatar">{initials(t("You"))}</div>
+          <span className="person-name">{t("You")}</span>
           {totalUnread > 0 && <span className="person-unread">{totalUnread}</span>}
-          <IconButton label="Settings (⌘,)" size={30} onClick={() => setUI({ settingsOpen: true, settingsSection: "general" })}>
+          <IconButton label={t("Settings (⌘,)")} size={30} onClick={() => setUI({ settingsOpen: true, settingsSection: "general" })}>
             <Settings size={17} />
           </IconButton>
         </div>
@@ -423,7 +426,7 @@ export function Sidebar() {
         >
           <button type="button" role="menuitem" onClick={() => { void updateBot(menu.bot.id, { pinned: !menu.bot.pinned }); setMenu(null); }}>
             {menu.bot.pinned ? <PinOff size={16} /> : <Pin size={16} />}
-            {menu.bot.pinned ? "Unpin" : "Pin"}
+            {menu.bot.pinned ? t("Unpin") : t("Pin")}
           </button>
           <button type="button" role="menuitem" onClick={() => {
             const thread = latestThreadOf(menu.bot);
@@ -433,7 +436,7 @@ export function Sidebar() {
             setMenu(null);
           }}>
             {latestThreadOf(menu.bot)?.unread ? <Check size={16} /> : <Bell size={16} />}
-            {latestThreadOf(menu.bot)?.unread ? "Mark as read" : "Mark as unread"}
+            {latestThreadOf(menu.bot)?.unread ? t("Mark as read") : t("Mark as unread")}
           </button>
           <button type="button" role="menuitem" onClick={() => {
             const thread = latestThreadOf(menu.bot);
@@ -441,25 +444,25 @@ export function Sidebar() {
             setUI({ panel: "profile", settingsOpen: false, view: "chat", activeBotId: menu.bot.id });
             setMenu(null);
           }}>
-            <Pencil size={16} /> Edit profile
+            <Pencil size={16} /> {t("Edit profile")}
           </button>
           <button type="button" role="menuitem" onClick={() => { void duplicateBot(menu.bot.id); setMenu(null); }}>
-            <Copy size={16} /> Duplicate
+            <Copy size={16} /> {t("Duplicate")}
           </button>
           <button type="button" role="menuitem" onClick={() => {
             const id = latestThreadOf(menu.bot)?.id ?? menu.bot.id;
             void navigator.clipboard?.writeText(id);
-            toast({ kind: "info", title: "Conversation ID copied" });
+            toast({ kind: "info", title: t("Conversation ID copied") });
             setMenu(null);
           }}>
-            <Copy size={16} /> Copy conversation ID
+            <Copy size={16} /> {t("Copy conversation ID")}
           </button>
           <div className="context-separator" />
           <button type="button" role="menuitem" onClick={() => { void updateBot(menu.bot.id, { hidden: !menu.bot.hidden }); setMenu(null); }}>
-            <EyeOff size={16} /> {menu.bot.hidden ? "Show in sidebar" : "Hide from sidebar"}
+            <EyeOff size={16} /> {menu.bot.hidden ? t("Show in sidebar") : t("Hide from sidebar")}
           </button>
           <button type="button" role="menuitem" className="danger" onClick={() => { deleteBot(menu.bot.id); setMenu(null); }}>
-            <Trash2 size={16} /> Delete
+            <Trash2 size={16} /> {t("Delete")}
           </button>
         </div>,
         document.body,

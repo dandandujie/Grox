@@ -1,35 +1,18 @@
-# Routines
+# 定时任务
 
-Routines run a bot on a schedule and record a run in Activity. A routine can target a bot's own tasks or a channel. A channel routine fixes both the channel and its responding bot. The bot must still be a channel member when the routine starts. **Run now** opens the resulting thread.
+[English](ROUTINES.en.md)
 
-Daily, weekday, weekly and hourly schedules use the local clock. **Cron** accepts five fields and an optional IANA time zone, such as `0 10 * * 1` in `UTC`. The calendar shows the next computed occurrence.
+打开「定时任务」创建按时运行的工作。任务可以在私聊中运行，也可以指定频道和频道内的一位助理。选择「立即运行」或点击运行记录可打开结果。
 
-## Continuous routines
+## 调度
 
-A routine can opt into **Keep one thread**. The first run creates a task thread, and later runs append to the
-same thread. If that thread is still busy, a new run is refused instead of overlapping. A fresh task thread
-remains the default when continuity is off.
+- 支持每天、工作日、每周、每小时，以及带可选 IANA 时区的五段 Cron。日历显示计算出的下一次执行时间。
+- 默认每次新建任务会话。启用「沿用会话」后，后续执行接在同一会话中。该会话尚在运行时不会重叠执行。
+- 助理忙时可选择跳过或稍后重试。每个定时任务最多保留一次待执行。
+- 连续失败时，启用中的任务从 15 分钟开始延迟重试，逐次加倍，最多 4 小时。成功后清零。中断后重启会标记旧运行已停止。
 
-The Grox v1 team format omits continuity and checks. OpenMaus import and export preserve continuity, channel targets and supported schedules. Imported routines start paused.
+## 依赖与导入
 
-## Busy and failure behavior
+启用「仅在有新结果时运行」后，Grox 检查其他定时任务自上次检查以来的完成记录。有结果时才运行，并将摘要附到提示词。「立即运行」始终执行。
 
-While the bot is busy, **Skip this run** advances to the next scheduled time; **Retry shortly** marks the
-routine queued and runs it once when the bot becomes free. Only one queued occurrence is kept per routine.
-When a run fails, the next retry backs off from 15 minutes, doubles per consecutive failure and caps at four
-hours for enabled routines. A completed run resets the counter. A failed real engine stays failed in Activity.
-When Grox closes mid-run, reopening marks it stopped. Future scheduled runs use the persisted schedule.
-
-## Runs check
-
-A routine can opt into **Only when there is news**. On a scheduled tick, Grox looks for other routines' runs
-finished after the last check. If none finished, it updates the check time and starts no turn and no run. If
-some finished, their title/status/summary lines are appended to the routine prompt. Manual Run now always runs.
-
-The runs check reads local run history. Mail and calendar checks, proactive brief delivery and full catch-up
-remain open.
-
-## Proactive routines
-
-The full proactive watch (mail/calendar checks, brief, meeting prep, inbox triage, read-and-draft) requires
-connected apps and hosted helpers; it is not implemented.
+导入的定时任务初始暂停。OpenMaus 交换文件可保存受支持的会话连续性、频道目标和时间表。

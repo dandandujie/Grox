@@ -10,10 +10,11 @@ import (
 )
 
 // runDemo produces a useful, deterministic reply without a network or an
-// account. It is also the safety net when a CLI is missing or signed out.
+// account.
 func runDemo(ctx context.Context, req Request, sink Sink) (string, error) {
 	prompt := strings.TrimSpace(req.UserText)
 	lower := strings.ToLower(prompt)
+	chinese := req.Language == "zh"
 	mode := approvalMode(req.Bot.Approval)
 
 	sink.Status("Thinking")
@@ -33,12 +34,18 @@ func runDemo(ctx context.Context, req Request, sink Sink) (string, error) {
 			}
 			sink.Activity(model.Activity{Label: "Command finished", Detail: "exit 0", Status: model.StatusOK, StartedAt: time.Now()})
 			answer := resultForCommand(req.Bot, command)
+			if chinese {
+				answer = demoCommandResultZh(command)
+			}
 			if err := streamText(ctx, sink, answer); err != nil {
 				return "", err
 			}
 			return answer, nil
 		}
 		answer := "Understood — I stopped before running anything. Nothing was changed, and I left the work where it was.\n\nIf you want, tell me a narrower scope and I will bring back a fresh approval card."
+		if chinese {
+			answer = "已取消演示操作，没有执行命令。"
+		}
 		if err := streamText(ctx, sink, answer); err != nil {
 			return "", err
 		}
@@ -46,6 +53,9 @@ func runDemo(ctx context.Context, req Request, sink Sink) (string, error) {
 	}
 	if strings.HasPrefix(prompt, "My answer:") || strings.HasPrefix(prompt, "[choice]") {
 		answer := chooseReply(req.Bot, prompt)
+		if chinese {
+			answer = demoChoiceReplyZh(prompt)
+		}
 		if err := streamText(ctx, sink, answer); err != nil {
 			return "", err
 		}
@@ -53,20 +63,33 @@ func runDemo(ctx context.Context, req Request, sink Sink) (string, error) {
 	}
 
 	// A risky action surfaces a real approval card when the bot is set to Ask.
-	if wantsCommand(lower) {
-		command := commandFor(lower)
+	intent := lower
+	if chinese {
+		intent = demoIntentZh(lower)
+	}
+	if wantsCommand(intent) {
+		command := commandFor(intent)
 		preface := fmt.Sprintf("I can do that, but it changes something outside this chat. Here is the smallest command that gets it done:\n\n**%s**", command)
+		if chinese {
+			preface = fmt.Sprintf("下面用这条示例命令演示审批流程，不会实际执行：\n\n**%s**", command)
+		}
 		if err := streamText(ctx, sink, preface); err != nil {
 			return "", err
 		}
 		if mode == "ask" {
 			sink.Status("Waiting for you")
-			sink.Approval(model.Approval{
-				Title:   approvalTitle(lower),
+			approval := model.Approval{
+				Title:   approvalTitle(intent),
 				Command: command,
 				Reason:  "The demo engine only asks when a step would touch your files, inbox, or a remote service.",
 				Risk:    "You can approve once or allow this bot to decide next time",
-			})
+			}
+			if chinese {
+				approval.Title = "批准此演示操作？"
+				approval.Reason = "此卡片用于演示命令审批。"
+				approval.Risk = "选择允许一次、始终允许或拒绝。"
+			}
+			sink.Approval(approval)
 			return preface, nil
 		}
 		sink.Status("Running")
@@ -75,6 +98,9 @@ func runDemo(ctx context.Context, req Request, sink Sink) (string, error) {
 		}
 		sink.Activity(model.Activity{Label: "Command finished", Detail: "exit 0", Status: model.StatusOK, StartedAt: time.Now()})
 		answer := "Done. " + resultForCommand(req.Bot, command)
+		if chinese {
+			answer = demoCommandResultZh(command)
+		}
 		if err := streamText(ctx, sink, answer); err != nil {
 			return "", err
 		}
@@ -82,18 +108,26 @@ func runDemo(ctx context.Context, req Request, sink Sink) (string, error) {
 	}
 
 	// A decision question renders the option card people know from the app.
-	if wantsOptions(lower) {
+	if wantsOptions(intent) {
 		preface := optionPreface(req.Bot)
+		question, options := optionQuestion(req.Bot), optionsFor(req.Bot)
+		if chinese {
+			preface = "先选一个最重要的约束，我会据此给出下一步。"
+			question, options = "你想优先保证什么？", demoOptionsZh()
+		}
 		if err := streamText(ctx, sink, preface); err != nil {
 			return "", err
 		}
 		sink.Status("Waiting for you")
-		sink.Options(optionQuestion(req.Bot), optionsFor(req.Bot))
+		sink.Options(question, options)
 		return preface, nil
 	}
 
 	answer := composeDemoReply(req, lower)
-	if strings.Contains(lower, "search") || strings.Contains(lower, "latest") || strings.Contains(lower, "research") {
+	if chinese {
+		answer = composeDemoReplyZh(req, intent)
+	}
+	if strings.Contains(intent, "search") || strings.Contains(intent, "latest") || strings.Contains(intent, "research") {
 		sink.Status("Researching")
 		sink.Activity(model.Activity{Label: "Building a search plan", Detail: "Checking the demo engine's knowledge", Status: model.StatusOK, StartedAt: time.Now()})
 	}
@@ -302,8 +336,8 @@ func composeDemoReply(req Request, lower string) string {
 
 func compactAsk(s string) string {
 	s = strings.TrimSpace(s)
-	if len(s) > 180 {
-		s = s[:177] + "…"
+	if r := []rune(s); len(r) > 180 {
+		s = string(r[:177]) + "…"
 	}
 	if s == "" {
 		return "the task"
@@ -315,5 +349,6 @@ func capitalized(s string) string {
 	if s == "" {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	r := []rune(s)
+	return strings.ToUpper(string(r[:1])) + string(r[1:])
 }

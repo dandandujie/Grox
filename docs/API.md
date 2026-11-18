@@ -1,52 +1,16 @@
-# Local automation API
+# 本地自动化 API
 
-Grox can expose a small loopback HTTP API for local scripts and CI. It is off by default and exists only
-on 127.0.0.1; it is not a hosted service or a public relay.
+[English](API.en.md)
 
-## Enable
+「设置 → 自动化」可启用 JSON API。默认关闭，仅监听 `127.0.0.1`。启用或重新生成令牌后，界面只展示一次新令牌。所有 `/v1` 请求都需要 `Authorization: Bearer <token>`。
 
-Settings -> Automation -> Enable the loopback API. Grox generates a bearer token and shows it once.
-When enabled, the token is stored in secrets.json under api:token. Rotate token replaces it and invalidates
-the previous value. GetAPIInfo never returns an existing token.
+| 路径 | 用途 |
+| --- | --- |
+| `GET /health` | 返回服务标识。 |
+| `GET /v1/state`、`/v1/bots`、`/v1/groups`、`/v1/routines` | 查询工作区、助理、频道与定时任务。 |
+| `GET /v1/events` | 订阅工作区、消息和任务事件。 |
+| `POST /v1/bots/{botID}/threads/{threadID}/messages` | 提交 `{"text":"…"}` 启动私聊任务。 |
+| `POST /v1/groups/{groupID}/threads/{threadID}/messages` | 启动频道任务。 |
+| `POST /v1/routines/{routineID}/run` | 立即运行定时任务。 |
 
-Every /v1 request needs:
-
-    Authorization: Bearer <token>
-
-/health is public and returns only service identity.
-
-## Endpoints
-
-- GET /v1/state - the current AppState snapshot.
-- GET /v1/bots - the bot roster.
-- GET /v1/events - authenticated server-sent events. The first event is ready; later frames use the same
-  message/delta/turn/state event names as the desktop. A comment heartbeat is sent every 15 seconds.
-- GET /v1/groups and GET /v1/routines - channel and routine inventories.
-- POST /v1/groups/{groupID}/threads/{threadID}/messages, approvals/{messageID} and answers/{messageID} -
-  the same group send/approval/answer paths as the UI.
-- POST /v1/routines/{routineID}/run - run a routine now and return 202 with the SendResult.
-- POST /v1/bots/{botID}/threads/{threadID}/messages with {"text":"..."}.
-  Starts a turn and returns the SendResult with 202.
-- POST /v1/bots/{botID}/threads/{threadID}/approvals/{messageID} with
-  {"decision":"allow"} or {"decision":"deny"}.
-- POST /v1/bots/{botID}/threads/{threadID}/answers/{messageID} with {"answer":"..."}.
-
-Example:
-
-    curl -H "Authorization: Bearer $GROX_API_TOKEN" http://127.0.0.1:PORT/v1/state
-    curl -X POST -H "Authorization: Bearer $GROX_API_TOKEN" -H 'Content-Type: application/json' \
-      -d '{"text":"summarize the inbox"}' \
-      http://127.0.0.1:PORT/v1/bots/BOT/threads/THREAD/messages
-
-## Boundaries
-
-- No CORS browser surface, no SSE stream, no groups/routines endpoints and no remote bind.
-- The API uses the same service methods and approval/waiter paths as the desktop UI.
-- Payloads are capped at 64 KB. A turn still runs asynchronously after the 202 response.
-- Hosted orchestration, cloud computers and a public API remain unported.
-
-## Files
-
-- internal/service/api_server.go
-- internal/model/types.go - Settings.APIEnabled, APIInfo
-- src/components/SettingsModal.tsx - Automation section
+私聊与频道线程同样提供 `approvals/{messageID}`、`answers/{messageID}`。批准或拒绝提交 `{"decision":"allow"}` 或 `{"decision":"deny"}`，回答提交 `{"answer":"…"}`。任务端点返回 HTTP 202 后异步执行。请求体上限 64 KB，使用与桌面相同的服务方法。

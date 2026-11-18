@@ -109,3 +109,20 @@ func TestAnthropicResultUsage(t *testing.T) {
 		t.Fatalf("text=%q usage=%+v", text.String(), sink.usage)
 	}
 }
+
+func TestChineseDemoRepliesAndApproval(t *testing.T) {
+	req := demoRequest(model.Bot{Name: "Brody", Approval: model.ApprovalAsk}, "帮我规划本周计划")
+	req.Language = "zh"
+	plan := &fakeSink{}
+	if _, err := runDemo(context.Background(), req, plan); err != nil || !strings.Contains(plan.text.String(), "本周目标") || !strings.Contains(plan.text.String(), req.UserText) {
+		t.Fatalf("plan = %q, error = %v", plan.text.String(), err)
+	}
+	req.UserText = "执行命令"
+	command := &fakeSink{}
+	if _, err := runDemo(context.Background(), req, command); err != nil {
+		t.Fatal(err)
+	}
+	if command.approval == nil || command.approval.Title != "批准此演示操作？" || !strings.Contains(command.text.String(), "不会实际执行") {
+		t.Fatalf("approval = %+v, reply = %q", command.approval, command.text.String())
+	}
+}
