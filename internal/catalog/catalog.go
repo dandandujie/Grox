@@ -4,7 +4,6 @@ package catalog
 
 import (
 	"context"
-	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -120,18 +119,18 @@ func Engines(ctx context.Context) []model.EngineInfo {
 		go func(i int, p probe) {
 			defer wg.Done()
 			info := model.EngineInfo{ProviderID: p.provider, Command: p.command, Status: "missing"}
-			path, err := exec.LookPath(p.command)
-			if err != nil {
+			cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			cmd := CLICommand(cctx, p.command, p.args...)
+			if cmd.Err != nil {
 				info.Detail = "Not installed"
 				results[i] = info
 				return
 			}
-			info.Command = path
+			info.Command = cmd.Path
 			info.Status = "ready"
 			info.Detail = "Installed"
-			cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			out, err := exec.CommandContext(cctx, path, p.args...).CombinedOutput()
+			out, err := cmd.CombinedOutput()
 			if err == nil {
 				version := firstLine(string(out))
 				version = strings.TrimSpace(strings.TrimPrefix(version, "Version:"))

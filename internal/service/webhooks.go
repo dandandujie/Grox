@@ -316,6 +316,7 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	botID := bot.ID
+	before := s.snapshotLocked()
 	now := time.Now()
 	thread := model.Thread{
 		ID: newID("thread"), BotID: botID, Title: "Webhook: " + hook.Name + " · " + now.Format("Jan 2 15:04"),
@@ -340,12 +341,9 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if len(s.st.State.WebhookDeliveries) > 50 {
 		s.st.State.WebhookDeliveries = s.st.State.WebhookDeliveries[len(s.st.State.WebhookDeliveries)-50:]
 	}
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
+	err = s.admitTurnLocked(before, bot, nil, &bot.Threads[0], text, nil, "", false)
 	s.mu.Unlock()
-
-	if err := s.startTurn(botID, thread.ID, text, "", ""); err != nil {
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("{\"error\":\"could not start the turn\"}\n"))
 		return

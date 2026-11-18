@@ -27,14 +27,20 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/dandandujie/grox/internal/agent"
 	"github.com/dandandujie/grox/internal/model"
+	"github.com/dandandujie/grox/internal/store"
 )
 
 func newTestService(t *testing.T) (*Service, string, chan model.Event) {
 	t.Helper()
 	dir := t.TempDir()
+	fixture := store.Store{Dir: dir, State: exampleWorkspace(time.Now())}
+	if err := fixture.SaveState(); err != nil {
+		t.Fatal(err)
+	}
 	events := make(chan model.Event, 8192)
 	svc, err := New(dir, func(ev model.Event) { events <- ev })
 	if err != nil {
@@ -603,6 +609,14 @@ func TestRemoteSSHComputer(t *testing.T) {
 		}
 	}()
 	addr := listener.Addr().(*net.TCPAddr)
+	home, _ := os.UserHomeDir()
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	trusted := knownhosts.Line([]string{addr.String()}, signer.PublicKey())
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "known_hosts"), []byte(trusted+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	svc, _, _ := newTestService(t)
 	bot, err := svc.CreateBot(model.CreateBotInput{Name: "Remote", ModelID: "grox-demo"})
 	if err != nil {
@@ -633,6 +647,12 @@ func TestRemoteSSHComputer(t *testing.T) {
 	result, err := svc.RunComputerCommand(bot.ID, "printf hello")
 	if err != nil || result.Stdout != "hello" {
 		t.Fatalf("result = %+v, %v", result, err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "known_hosts"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TestRemoteComputer(bot.ID); err == nil || !strings.Contains(err.Error(), "key is unknown") {
+		t.Fatalf("untrusted SSH host was accepted: %v", err)
 	}
 }
 
@@ -1174,7 +1194,7 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 	if strings.Contains(string(state), "secret-token") || strings.Contains(string(state), "header-value") {
 		t.Fatal("MCP secret leaked into AppState")
 	}
-	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth(context.Background(), "")
 	svc.mu.Lock()
 	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
@@ -1197,7 +1217,7 @@ func TestMCPServerRegistryKeepsTokenOutOfState(t *testing.T) {
 	if _, err := svc.UpdateMCPServer(server.ID, model.MCPServerPatch{Token: new(string)}); err != nil {
 		t.Fatal(err)
 	}
-	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth(context.Background(), "")
 	svc.mu.Lock()
 	configs = svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
@@ -2034,7 +2054,7 @@ func TestMCPServerOAuthClientCredentials(t *testing.T) {
 	if !server.OAuthConfigured || server.OAuthTokenURL != tokenServer.URL {
 		t.Fatalf("oauth server = %+v", server)
 	}
-	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth(context.Background(), "")
 	svc.mu.Lock()
 	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
@@ -2069,7 +2089,7 @@ func TestMCPServerOAuthRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth(context.Background(), "")
 	svc.mu.Lock()
 	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
@@ -2121,11 +2141,12 @@ func TestMCPServerOAuthAuthorizationCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	body, readErr := io.ReadAll(response.Body)
 	_ = response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("callback = %d", response.StatusCode)
+	if readErr != nil || response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Grox is connected") {
+		t.Fatalf("callback = %d, body = %q, read error = %v", response.StatusCode, body, readErr)
 	}
-	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth(context.Background(), "")
 	svc.mu.Lock()
 	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
@@ -2243,7 +2264,7 @@ func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
 		t.Fatal(err)
 	}
 	routine, err := svc.CreateRoutine(model.RoutineInput{
-		BotID: bot.ID, Name: "Checked routine", Prompt: "Report the new run.", Cadence: "daily", TimeOfDay: "09:00", Checks: []string{"runs"},
+		BotID: bot.ID, Name: "Checked routine", Prompt: "Report the new run.", Cadence: "daily", TimeOfDay: "09:00", Checks: []string{"runs"}, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2252,6 +2273,7 @@ func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
 	for index := range svc.st.State.Routines {
 		if svc.st.State.Routines[index].ID == routine.ID {
 			svc.st.State.Routines[index].LastCheckAt = time.Now().Add(-time.Hour)
+			svc.st.State.Routines[index].NextRun = time.Now().Add(-time.Minute)
 		}
 	}
 	before := len(bot.Threads)
@@ -2266,6 +2288,7 @@ func TestRoutineRunsCheckSkipsQuietTicks(t *testing.T) {
 		after++
 		_ = thread
 	}
+	svc.findRoutineLocked(routine.ID).NextRun = time.Now().Add(-time.Minute)
 	svc.st.State.Runs = append(svc.st.State.Runs, model.Run{
 		ID: "run-other", RoutineID: "other", BotID: bot.ID, Title: "Other run", Status: "completed",
 		StartedAt: time.Now(), FinishedAt: time.Now().Add(10 * time.Second),
@@ -2340,8 +2363,8 @@ func TestMCPOAuthPrefetchFeedsTurnConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.prefetchMCPOAuth()
-	svc.prefetchMCPOAuth()
+	svc.prefetchMCPOAuth(context.Background(), "")
+	svc.prefetchMCPOAuth(context.Background(), "")
 	svc.mu.Lock()
 	configs := svc.mcpConfigsForTurn("")
 	svc.mu.Unlock()
@@ -2369,7 +2392,7 @@ func TestTurnPanicIsRecovered(t *testing.T) {
 		panic("boom")
 	}
 	defer func() { runAgent = previous }()
-	svc.runTurn(context.Background(), bot.ID+"|"+thread.ID, req, agent.Selection{}, "")
+	svc.runTurn(context.Background(), bot.ID+"|"+thread.ID, nil, req, agent.Selection{}, "")
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 	current := svc.findBotLocked(bot.ID)

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +11,59 @@ import (
 
 	"github.com/dandandujie/grox/internal/model"
 )
+
+func readGeminiSettings(path string, settings map[string]any) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// Gemini's settings loader accepts JSON with C-style comments. Replace
+	// comments with whitespace while keeping slashes inside strings intact.
+	inString := false
+	for i := 0; i < len(data); i++ {
+		switch data[i] {
+		case '"':
+			inString = !inString
+		case '\\':
+			if inString {
+				i++
+			}
+		case '/':
+			if inString || i+1 == len(data) {
+				continue
+			}
+			if data[i+1] == '/' {
+				for i < len(data) && data[i] != '\n' {
+					data[i] = ' '
+					i++
+				}
+			} else if data[i+1] == '*' {
+				data[i], data[i+1] = ' ', ' '
+				i += 2
+				for i+1 < len(data) && (data[i] != '*' || data[i+1] != '/') {
+					data[i] = ' '
+					i++
+				}
+				if i+1 >= len(data) {
+					return fmt.Errorf("unterminated block comment")
+				}
+				data[i], data[i+1] = ' ', ' '
+				i++
+			}
+		}
+	}
+	parsed := settings
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	if parsed == nil {
+		return fmt.Errorf("settings must be a JSON object")
+	}
+	return nil
+}
 
 func tomlString(value string) string {
 	return strconv.Quote(value)
@@ -127,7 +182,16 @@ func prepareGrokHome(mcpURL, hookURL string, servers ...model.MCPServerConfig) (
 		}
 	}
 	if hookURL != "" {
-		config += "\n[[hooks.PreToolUse]]\nmatcher = \"*\"\nhooks = [{ type = \"http\", url = " + tomlString(hookURL+"?style=grok") + ", timeout = 300 }]\n"
+		script, scriptCleanup, err := makeToolHookScript(hookURL, "grok")
+		if err != nil {
+			cleanup()
+			return "", func() {}, err
+		}
+		config += "\n[[hooks.PreToolUse]]\nmatcher = \"*\"\nhooks = [{ type = \"command\", command = " + tomlString(toolHookCommand(script)) + ", timeout = 300 }]\n"
+		cleanup = func() {
+			scriptCleanup()
+			_ = os.RemoveAll(home)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
 		cleanup()
@@ -161,7 +225,7 @@ func prepareCodexHome(mcpURL, hookScript string, servers ...model.MCPServerConfi
 		}
 	}
 	if hookScript != "" {
-		config += "\n[[hooks.PreToolUse]]\nmatcher = \"*\"\nhooks = [{ type = \"command\", command = " + tomlString(hookScript) + ", timeout = 300 }]\n"
+		config += "\n[[hooks.PreToolUse]]\nmatcher = \"*\"\nhooks = [{ type = \"command\", command = " + tomlString(toolHookCommand(hookScript)) + ", timeout = 300 }]\n"
 	}
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
 		cleanup()

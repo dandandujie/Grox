@@ -58,6 +58,10 @@ func (s *Service) SaveAttachment(name, mimeType, dataBase64 string) (model.Attac
 	if err != nil {
 		return model.Attachment{}, fmt.Errorf("the file could not be decoded")
 	}
+	return s.saveAttachmentBytes(name, mimeType, data)
+}
+
+func (s *Service) saveAttachmentBytes(name, mimeType string, data []byte) (model.Attachment, error) {
 	if len(data) == 0 {
 		return model.Attachment{}, fmt.Errorf("the file is empty")
 	}
@@ -89,7 +93,7 @@ func (s *Service) SaveAttachment(name, mimeType, dataBase64 string) (model.Attac
 }
 
 func (s *Service) attachmentByID(id string) (string, model.Attachment, error) {
-	if !strings.HasPrefix(id, "att-") || strings.ContainsAny(id, "/\\") {
+	if !strings.HasPrefix(id, "att-") || strings.ContainsAny(id, "/\\[]*?") {
 		return "", model.Attachment{}, fmt.Errorf("attachment not found")
 	}
 	matches, err := filepath.Glob(filepath.Join(s.attachmentsDir(), id+"-*"))
@@ -97,8 +101,8 @@ func (s *Service) attachmentByID(id string) (string, model.Attachment, error) {
 		return "", model.Attachment{}, fmt.Errorf("attachment not found")
 	}
 	path := matches[0]
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
 		return "", model.Attachment{}, fmt.Errorf("attachment not found")
 	}
 	name := strings.TrimPrefix(filepath.Base(path), id+"-")
@@ -110,7 +114,7 @@ func (s *Service) attachmentByID(id string) (string, model.Attachment, error) {
 	if strings.HasPrefix(mimeType, "image/") {
 		kind = "image"
 	}
-	return path, model.Attachment{ID: id, Name: name, Mime: mimeType, Kind: kind, Size: info.Size()}, nil
+	return path, model.Attachment{ID: id, Name: name, Mime: mimeType, Kind: kind, Size: info.Size(), CreatedAt: info.ModTime()}, nil
 }
 
 // ReadAttachment returns a base64 payload for the page to render a preview.
@@ -147,13 +151,16 @@ func (s *Service) OpenAttachment(id string) error {
 	return cmd.Start()
 }
 
-func (s *Service) validateAttachments(list []model.Attachment) error {
-	for _, a := range list {
-		if _, _, err := s.attachmentByID(a.ID); err != nil {
-			return fmt.Errorf("an attached file is missing")
+func (s *Service) savedAttachments(list []model.Attachment) ([]model.Attachment, error) {
+	var saved []model.Attachment
+	for _, item := range list {
+		_, attachment, err := s.attachmentByID(item.ID)
+		if err != nil {
+			return nil, fmt.Errorf("an attached file is missing")
 		}
+		saved = append(saved, attachment)
 	}
-	return nil
+	return saved, nil
 }
 
 func (s *Service) attachmentContext(list []model.Attachment) string {

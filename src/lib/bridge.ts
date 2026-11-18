@@ -2,7 +2,7 @@ import type {
   AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CommandResult, ComposioLink, ComposioTool, CreateBotInput, CreateGroupInput,
   Event as AppEvent, FilePreview, FolderListing, Group, GroupPatch, PhoneInfo,
   APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Routine, RoutineInput, RoutinePatch,
-  SecretStatus, SendResult, Settings, Skill, Thread, TeamImportResult, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
+  SecretStatus, SendResult, Settings, Skill, Thread, TeamImportResult, OpenMausExport, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 
 export interface Backend {
@@ -71,6 +71,7 @@ export interface Backend {
   setAPIEnabled(enabled: boolean): Promise<APIInfo>;
   rotateAPIToken(): Promise<APIInfo>;
   exportTeam(groupId: string): Promise<string>;
+  exportOpenMausTeam(groupId: string, includeMemory: boolean): Promise<OpenMausExport>;
   importTeam(raw: string): Promise<TeamImportResult>;
   listMCPServers(): Promise<MCPServer[]>;
   createMCPServer(input: MCPServerInput): Promise<MCPServer>;
@@ -108,7 +109,7 @@ export type {
   Activity, AppEntry, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput, Approval,
   CommandResult, ComposioLink, ComposioTool, Connection, CreateGroupInput, EngineInfo, FilePreview, FolderListing, Group, GroupPatch, Message, Model, Option, Provider, Routine,
   APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, PhoneInfo, Preset, PresetInput, PresetPatch, RoutineInput,
-  RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult,
+  RoutinePatch, Run, SecretStatus, SendResult, Settings, Skill, Thread, Toast, Turn, TeamImportResult, OpenMausExport,
   Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/mygo";
 export type { Event as AppEvent } from "@/mygo";

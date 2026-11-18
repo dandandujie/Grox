@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -73,15 +74,18 @@ type Request struct {
 	APIModel     string
 	APIKey       string
 	CLIAvailable map[string]bool
-	// ExtraContext is appended to the CLI prompt or sent as a system note by
-	// the API engine. It carries attachment paths and other local context.
+	// ExtraContext is local context appended to the CLI prompt.
 	ExtraContext string
+	// LoadAPIAttachments reads files explicitly attached to this API turn.
+	LoadAPIAttachments func(context.Context) ([]APIAttachment, error)
 	// GroupID is set when this turn answers in a shared channel.
 	GroupID string
 	// Tools are optional function tools for an API turn.
 	Tools []Tool
 	// ExecuteTool runs a tool call. It may be nil when tools are absent.
 	ExecuteTool ToolExecutor
+	// TakeAPIToolImages drains visual output produced by this round's tools.
+	TakeAPIToolImages func() []APIAttachment
 	// PermissionHookURL is the local Claude Code PermissionRequest hook.
 	PermissionHookURL string
 	// MCPURL is a per-turn streamable-HTTP MCP endpoint for connected tools.
@@ -102,6 +106,14 @@ type Request struct {
 	Env map[string]string
 }
 
+// APIAttachment contains a supported image or validated UTF-8 text.
+// Text attachments have an empty ImageMIME.
+type APIAttachment struct {
+	Name      string
+	Data      []byte
+	ImageMIME string
+}
+
 // Result is a finished turn.
 type Result struct {
 	Engine string
@@ -110,34 +122,56 @@ type Result struct {
 
 // Selection says which engine a turn will use, and why.
 type Selection struct {
-	Kind   string // demo, cli, api
+	Kind   string // demo, cli, api, unavailable
 	Engine string
 	Note   string
 }
 
-// Select chooses an engine for a request. The app always has the demo engine
-// to fall back on, so a missing login never leaves a bot silent.
+// ProviderForEngineMode resolves the provider IDs used by the model catalog
+// and installed CLI map from the explicit engine choices in Settings.
+func ProviderForEngineMode(mode string) string {
+	switch mode {
+	case "grok", "claude":
+		return mode
+	case "codex":
+		return "openai"
+	case "gemini":
+		return "google"
+	default:
+		return ""
+	}
+}
+
+// Select chooses the requested engine or explains why it cannot run.
 func Select(req Request) Selection {
 	provider := req.Model.Provider
 	mode := req.EngineMode
 	if mode == "" {
 		mode = "auto"
 	}
-	if mode == "demo" || provider == "local" || req.Model.ID == "grox-demo" {
+	if mode == "demo" {
 		return Selection{Kind: "demo", Engine: "Grox Demo"}
 	}
 	if mode == "api" {
-		if strings.TrimSpace(req.APIBaseURL) != "" {
-			return Selection{Kind: "api", Engine: "OpenAI-compatible API"}
+		if strings.TrimSpace(req.APIBaseURL) == "" {
+			return Selection{Kind: "unavailable", Note: "Add a base URL in Settings → Engines to use an API engine."}
 		}
-		return Selection{Kind: "demo", Engine: "Grox Demo", Note: "Add a base URL in Settings → Engines to use an API engine."}
+		if strings.TrimSpace(req.APIModel) == "" && (provider == "local" || req.Model.ID == "") {
+			return Selection{Kind: "unavailable", Note: "Add an API model ID in Settings → Engines for this bot."}
+		}
+		return Selection{Kind: "api", Engine: "OpenAI-compatible API"}
 	}
-	if mode != "auto" {
-		// Explicit CLI choice.
-		if req.CLIAvailable[mode] {
-			return Selection{Kind: "cli", Engine: cliName(mode)}
+	if explicit := ProviderForEngineMode(mode); explicit != "" {
+		if req.CLIAvailable[explicit] {
+			return Selection{Kind: "cli", Engine: cliName(explicit)}
 		}
-		return Selection{Kind: "demo", Engine: "Grox Demo", Note: cliName(mode) + " is not installed. Add it in Settings → Engines; this reply comes from the demo engine."}
+		return Selection{Kind: "unavailable", Note: cliName(explicit) + " is unavailable. Check Settings → Engines."}
+	}
+	if req.Model.ID == "grox-demo" {
+		return Selection{Kind: "demo", Engine: "Grox Demo"}
+	}
+	if provider == "local" || provider == "" {
+		return Selection{Kind: "unavailable", Note: "Choose an available model for this bot."}
 	}
 	if req.CLIAvailable[provider] {
 		return Selection{Kind: "cli", Engine: cliName(provider)}
@@ -145,7 +179,7 @@ func Select(req Request) Selection {
 	if (provider == "grok" || provider == "openai") && strings.TrimSpace(req.APIBaseURL) != "" {
 		return Selection{Kind: "api", Engine: cliName(provider) + " API"}
 	}
-	return Selection{Kind: "demo", Engine: "Grox Demo", Note: cliName(provider) + " is not connected, so this reply comes from the built-in demo. Run the CLI login or add an API key in Settings → Engines."}
+	return Selection{Kind: "unavailable", Note: cliName(provider) + " is unavailable. Check Settings → Engines or choose another model."}
 }
 
 func cliName(provider string) string {
@@ -174,9 +208,11 @@ func Run(ctx context.Context, sel Selection, req Request, sink Sink) (Result, er
 	case "api":
 		text, err := runAPI(ctx, req, sink)
 		return Result{Engine: sel.Engine, Text: text}, err
-	default:
+	case "demo":
 		text, err := runDemo(ctx, req, sink)
 		return Result{Engine: sel.Engine, Text: text}, err
+	default:
+		return Result{}, errors.New(sel.Note)
 	}
 }
 

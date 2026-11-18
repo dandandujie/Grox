@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Bell, CalendarDays, Check, ChevronRight, Copy, EyeOff, MessageSquarePlus, MoreHorizontal,
+  Bell, CalendarDays, Check, ChevronRight, Clock3, Copy, EyeOff, MessageSquarePlus, MoreHorizontal,
   Pencil, Pin, PinOff, Plug, Plus, Search, Settings, Trash2, Users,
 } from "lucide-react";
 import { useApp, botUnread } from "@/state/store";
@@ -10,6 +10,7 @@ import { Mascot } from "@/components/Mascot";
 import { cn } from "@/lib/cn";
 import { initials, sidebarTime, truncate } from "@/lib/format";
 import { IconButton } from "@/components/ui";
+import { conversations } from "@/lib/conversations";
 
 function latestThreadOf(bot: Bot): Thread | undefined {
   return [...bot.threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
@@ -23,10 +24,10 @@ function groupPreview(group: Group): string {
   const thread = latestGroupThreadOf(group);
   if (!thread) return "Start a conversation";
   if (thread.busy) return thread.status ? thread.status + "…" : "Working…";
-  const pending = [...thread.messages].reverse().find((message) => message.status === "pending");
+  const pending = [...(thread.messages ?? [])].reverse().find((message) => message.status === "pending");
   if (pending?.kind === "approval") return "Waiting for your approval";
   if (pending?.kind === "options") return "Waiting for your answer";
-  const last = [...thread.messages].reverse().find((message) => message.text.trim());
+  const last = [...(thread.messages ?? [])].reverse().find((message) => message.text.trim());
   return last ? truncate(cleanPreview(last.text), 48) : "Start a conversation";
 }
 
@@ -43,10 +44,10 @@ function botPreview(bot: Bot): string {
   const thread = latestThreadOf(bot);
   if (!thread) return "Start a conversation";
   if (thread.busy) return thread.status ? thread.status + "…" : "Working…";
-  const pending = [...thread.messages].reverse().find((message) => message.status === "pending");
+  const pending = [...(thread.messages ?? [])].reverse().find((message) => message.status === "pending");
   if (pending?.kind === "approval") return "Waiting for your approval";
   if (pending?.kind === "options") return "Waiting for your answer";
-  const last = [...thread.messages].reverse().find((message) => message.text.trim() || message.kind === "notice");
+  const last = [...(thread.messages ?? [])].reverse().find((message) => message.text.trim() || message.kind === "notice");
   if (!last) return "Start a conversation";
   return truncate(cleanPreview(last.text), 48);
 }
@@ -66,7 +67,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 export function Sidebar() {
   const {
-    state, activeBot, activeGroup, activeThread, ui, setUI, selectBot, selectGroup, openThread, updateBot, duplicateBot, deleteBot,
+    state, activeBot, activeGroup, activeThread, ui, setUI, selectBot, selectGroup, openThread, openGroupThread, updateBot, duplicateBot, deleteBot,
     backend, toast, patchSettings, markUnread,
   } = useApp();
   const [menu, setMenu] = useState<{ bot: Bot; x: number; y: number } | null>(null);
@@ -109,22 +110,16 @@ export function Sidebar() {
       [bot.name, bot.title, bot.description].some((value) => value.toLowerCase().includes(q)),
     );
   }, [visible, query]);
+  const channelMatches = query ? state.groups.filter((group) => group.name.toLowerCase().includes(query.toLowerCase())) : [];
 
-  const messageMatches = useMemo(() => {
-    if (query.length < 2) return [];
-    const q = query.toLowerCase();
-    const results: { bot: Bot; thread: Thread; text: string; at: string }[] = [];
-    for (const bot of visible) {
-      for (const thread of bot.threads) {
-        for (const message of thread.messages) {
-          if (!message.text || message.pending) continue;
-          if (!message.text.toLowerCase().includes(q)) continue;
-          results.push({ bot, thread, text: message.text, at: message.createdAt });
-        }
-      }
-    }
-    return results.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 12);
-  }, [visible, query]);
+  const conversationMatches = useMemo(() => {
+    if (!query) return [];
+    const term = query.toLowerCase();
+    return conversations(state).flatMap((item) => {
+      const message = term.length >= 2 ? [...(item.thread.messages ?? [])].reverse().find((entry) => !entry.pending && entry.text.toLowerCase().includes(term)) : undefined;
+      return message || item.thread.title.toLowerCase().includes(term) ? [{ ...item, text: message?.text ?? "" }] : [];
+    }).slice(0, 12);
+  }, [state, query]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -199,7 +194,7 @@ export function Sidebar() {
               if (event.key === "Escape") setUI({ sidebarSearch: "" });
             }}
             placeholder="Search"
-            aria-label="Search bots and messages"
+            aria-label="Search bots, channels and conversations"
             spellCheck={false}
           />
           {query && (
@@ -210,13 +205,19 @@ export function Sidebar() {
         </div>
       </div>
 
+      {!query && <div className="sidebar-work">
+        <button type="button" className={cn("sidebar-nav-row", ui.view === "work" && "is-active")} aria-current={ui.view === "work" ? "page" : undefined} onClick={() => setUI({ view: "work", panel: null, mobileSidebarOpen: false })}>
+          <Clock3 size={17} aria-hidden="true" /> <span>Work</span>
+        </button>
+      </div>}
+
       <div className="sidebar-scroll">
         {query ? (
           <div className="search-results">
-            {state.groups.filter((group) => group.name.toLowerCase().includes(query.toLowerCase())).length > 0 && (
+            {channelMatches.length > 0 && (
               <>
                 <div className="sidebar-section-label">Channels</div>
-                {state.groups.filter((group) => group.name.toLowerCase().includes(query.toLowerCase())).map((group) => (
+                {channelMatches.map((group) => (
                   <button type="button" key={group.id} className="search-result" onClick={() => { selectGroup(group.id); setUI({ sidebarSearch: "" }); }}>
                     <span className="search-channel-icon">#</span>
                     <span className="search-result-body"><span className="search-result-title"><Highlight text={group.name} query={query} /></span><span className="search-result-sub">{group.memberIds.length} bots</span></span>
@@ -224,8 +225,7 @@ export function Sidebar() {
                 ))}
               </>
             )}
-            <div className="sidebar-section-label">Bots</div>
-            {botMatches.length === 0 && <div className="search-empty">No bots match “{query}”.</div>}
+            {botMatches.length > 0 && <div className="sidebar-section-label">Bots</div>}
             {botMatches.map((bot) => (
               <button
                 type="button"
@@ -243,28 +243,29 @@ export function Sidebar() {
                 </span>
               </button>
             ))}
-            <div className="sidebar-section-label messages-label">Messages</div>
-            {messageMatches.length === 0 && <div className="search-empty">No messages match “{query}”.</div>}
-            {messageMatches.map((result, index) => (
+            {conversationMatches.length > 0 && <div className="sidebar-section-label messages-label">Conversations</div>}
+            {botMatches.length + channelMatches.length + conversationMatches.length === 0 && <div className="search-empty">No results for “{query}”.</div>}
+            {conversationMatches.map((result) => (
               <button
                 type="button"
-                key={result.thread.id + result.at + index}
+                key={result.owner.id + "/" + result.thread.id}
                 className="search-result message-result"
                 onClick={() => {
-                  openThread(result.bot.id, result.thread.id);
+                  if (result.owner.kind === "group") openGroupThread(result.owner.id, result.thread.id);
+                  else openThread(result.owner.id, result.thread.id);
                   setUI({ sidebarSearch: "" });
                 }}
               >
-                <Mascot seed={result.bot.name} size={24} />
+                <Mascot seed={result.owner.name} size={24} />
                 <span className="search-result-body">
                   <span className="search-result-title">
-                    {result.bot.name} <span className="search-result-thread">· {result.thread.title}</span>
+                    <Highlight text={result.thread.title} query={query} />
                   </span>
                   <span className="search-result-sub search-result-text">
-                    <Highlight text={truncate(cleanPreview(result.text), 120)} query={query} />
+                    {result.owner.name}{result.text && <> · <Highlight text={truncate(cleanPreview(result.text), 120)} query={query} /></>}
                   </span>
                 </span>
-                <span className="search-result-time">{sidebarTime(result.at)}</span>
+                <span className="search-result-time">{sidebarTime(result.thread.updatedAt)}</span>
               </button>
             ))}
           </div>

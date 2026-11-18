@@ -110,6 +110,7 @@ type Bot struct {
 	Pinned         bool       `json:"pinned"`
 	Hidden         bool       `json:"hidden"`
 	Archived       bool       `json:"archived"`
+	GrokImportKey  string     `json:"grokImportKey,omitempty"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
 	LastActiveAt   time.Time  `json:"lastActiveAt"`
@@ -298,11 +299,12 @@ type TeamPackage struct {
 }
 
 type PackageGroup struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Color       string   `json:"color"`
-	LeadKey     string   `json:"leadKey"`
-	MemberKeys  []string `json:"memberKeys"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Instructions string   `json:"instructions,omitempty"`
+	Color        string   `json:"color"`
+	LeadKey      string   `json:"leadKey"`
+	MemberKeys   []string `json:"memberKeys"`
 }
 
 type PackageBot struct {
@@ -327,23 +329,39 @@ type PackageSkill struct {
 }
 
 type PackageRoutine struct {
-	BotKey    string `json:"botKey,omitempty"`
-	Name      string `json:"name"`
-	Prompt    string `json:"prompt"`
-	Cadence   string `json:"cadence"`
-	TimeOfDay string `json:"timeOfDay"`
-	Weekday   int    `json:"weekday"`
-	Enabled   bool   `json:"enabled"`
+	BotKey         string   `json:"botKey,omitempty"`
+	Name           string   `json:"name"`
+	Prompt         string   `json:"prompt"`
+	Cadence        string   `json:"cadence"`
+	TimeOfDay      string   `json:"timeOfDay"`
+	Weekday        int      `json:"weekday"`
+	Enabled        bool     `json:"enabled"`
+	Channel        bool     `json:"channel,omitempty"`
+	CronExpression string   `json:"cronExpression,omitempty"`
+	TimeZone       string   `json:"timeZone,omitempty"`
+	Continuity     bool     `json:"continuity,omitempty"`
+	Overlap        string   `json:"overlap,omitempty"`
+	Checks         []string `json:"checks,omitempty"`
 }
 
 // TeamImportResult is the additive import receipt.
 type TeamImportResult struct {
-	Bots     int    `json:"bots"`
-	Groups   int    `json:"groups"`
-	Routines int    `json:"routines"`
-	Skills   int    `json:"skills"`
-	Memories int    `json:"memories"`
-	Name     string `json:"name"`
+	Bots        int      `json:"bots"`
+	Groups      int      `json:"groups"`
+	Routines    int      `json:"routines"`
+	Skills      int      `json:"skills"`
+	Memories    int      `json:"memories"`
+	Name        string   `json:"name"`
+	Playbooks   int      `json:"playbooks,omitempty"`
+	Connections int      `json:"connections,omitempty"`
+	Warnings    []string `json:"warnings,omitempty"`
+}
+
+// OpenMausExport is an interoperable team file and its export report.
+type OpenMausExport struct {
+	Document string   `json:"document"`
+	Filename string   `json:"filename"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // MCPOAuthStart is an authorization-code URL the person opens in a browser.
@@ -363,6 +381,7 @@ type MCPServer struct {
 	Enabled               bool      `json:"enabled"`
 	AuthConfigured        bool      `json:"authConfigured"`
 	HeaderNames           []string  `json:"headerNames,omitempty"`
+	RequiredHeaders       []string  `json:"requiredHeaders,omitempty"`
 	OAuthTokenURL         string    `json:"oauthTokenUrl,omitempty"`
 	OAuthAuthorizationURL string    `json:"oauthAuthorizationUrl,omitempty"`
 	OAuthConfigured       bool      `json:"oauthConfigured,omitempty"`
@@ -507,17 +526,18 @@ type Activity struct {
 // Group is a channel: a shared conversation with a roster of bots. The lead
 // answers by default; @mentions route a message to another member.
 type Group struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Color       string    `json:"color"`
-	MemberIDs   []string  `json:"memberIds"`
-	LeadID      string    `json:"leadId"`
-	Pinned      bool      `json:"pinned"`
-	Unread      int       `json:"unread"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	Threads     []Thread  `json:"threads"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Instructions string    `json:"instructions,omitempty"`
+	Color        string    `json:"color"`
+	MemberIDs    []string  `json:"memberIds"`
+	LeadID       string    `json:"leadId"`
+	Pinned       bool      `json:"pinned"`
+	Unread       int       `json:"unread"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	Threads      []Thread  `json:"threads"`
 }
 
 // FileEntry is one item in a bot's local working folder.
@@ -579,11 +599,14 @@ type ComposioTool struct {
 type Routine struct {
 	ID                  string    `json:"id"`
 	BotID               string    `json:"botId"`
+	GroupID             string    `json:"groupId,omitempty"`
 	Name                string    `json:"name"`
 	Prompt              string    `json:"prompt"`
 	Cadence             string    `json:"cadence"`
 	TimeOfDay           string    `json:"timeOfDay"`
 	Weekday             int       `json:"weekday"`
+	CronExpression      string    `json:"cronExpression,omitempty"`
+	TimeZone            string    `json:"timeZone,omitempty"`
 	Enabled             bool      `json:"enabled"`
 	NextRun             time.Time `json:"nextRun"`
 	LastRun             time.Time `json:"lastRun,omitempty"`
@@ -604,6 +627,7 @@ type Run struct {
 	ID         string    `json:"id"`
 	RoutineID  string    `json:"routineId"`
 	BotID      string    `json:"botId"`
+	GroupID    string    `json:"groupId,omitempty"`
 	ThreadID   string    `json:"threadId"`
 	Title      string    `json:"title"`
 	Status     string    `json:"status"`
@@ -809,29 +833,36 @@ type BotPatch struct {
 
 // RoutineInput is the New routine form.
 type RoutineInput struct {
-	BotID      string   `json:"botId"`
-	Name       string   `json:"name"`
-	Prompt     string   `json:"prompt"`
-	Cadence    string   `json:"cadence"`
-	TimeOfDay  string   `json:"timeOfDay"`
-	Weekday    int      `json:"weekday"`
-	Continuity bool     `json:"continuity,omitempty"`
-	Checks     []string `json:"checks,omitempty"`
-	Overlap    string   `json:"overlap,omitempty"`
-	Enabled    bool     `json:"enabled"`
+	BotID          string   `json:"botId"`
+	GroupID        string   `json:"groupId,omitempty"`
+	Name           string   `json:"name"`
+	Prompt         string   `json:"prompt"`
+	Cadence        string   `json:"cadence"`
+	TimeOfDay      string   `json:"timeOfDay"`
+	Weekday        int      `json:"weekday"`
+	CronExpression string   `json:"cronExpression,omitempty"`
+	TimeZone       string   `json:"timeZone,omitempty"`
+	Continuity     bool     `json:"continuity,omitempty"`
+	Checks         []string `json:"checks,omitempty"`
+	Overlap        string   `json:"overlap,omitempty"`
+	Enabled        bool     `json:"enabled"`
 }
 
 // RoutinePatch edits only the fields it sets.
 type RoutinePatch struct {
-	Name       *string   `json:"name,omitempty"`
-	Prompt     *string   `json:"prompt,omitempty"`
-	Cadence    *string   `json:"cadence,omitempty"`
-	TimeOfDay  *string   `json:"timeOfDay,omitempty"`
-	Weekday    *int      `json:"weekday,omitempty"`
-	Continuity *bool     `json:"continuity,omitempty"`
-	Checks     *[]string `json:"checks,omitempty"`
-	Overlap    *string   `json:"overlap,omitempty"`
-	Enabled    *bool     `json:"enabled,omitempty"`
+	BotID          *string   `json:"botId,omitempty"`
+	GroupID        *string   `json:"groupId,omitempty"`
+	Name           *string   `json:"name,omitempty"`
+	Prompt         *string   `json:"prompt,omitempty"`
+	Cadence        *string   `json:"cadence,omitempty"`
+	TimeOfDay      *string   `json:"timeOfDay,omitempty"`
+	Weekday        *int      `json:"weekday,omitempty"`
+	CronExpression *string   `json:"cronExpression,omitempty"`
+	TimeZone       *string   `json:"timeZone,omitempty"`
+	Continuity     *bool     `json:"continuity,omitempty"`
+	Checks         *[]string `json:"checks,omitempty"`
+	Overlap        *string   `json:"overlap,omitempty"`
+	Enabled        *bool     `json:"enabled,omitempty"`
 }
 
 // SendResult points at the user message and the bot reply it started.
@@ -853,10 +884,11 @@ type CreateGroupInput struct {
 
 // GroupPatch edits only the fields it sets.
 type GroupPatch struct {
-	Name        *string   `json:"name,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Color       *string   `json:"color,omitempty"`
-	MemberIDs   *[]string `json:"memberIds,omitempty"`
-	LeadID      *string   `json:"leadId,omitempty"`
-	Pinned      *bool     `json:"pinned,omitempty"`
+	Name         *string   `json:"name,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	Instructions *string   `json:"instructions,omitempty"`
+	Color        *string   `json:"color,omitempty"`
+	MemberIDs    *[]string `json:"memberIds,omitempty"`
+	LeadID       *string   `json:"leadId,omitempty"`
+	Pinned       *bool     `json:"pinned,omitempty"`
 }

@@ -6,13 +6,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata"
+
+	"github.com/robfig/cron/v3"
 
 	"github.com/dandandujie/grox/internal/model"
 )
 
 // Next returns the first run strictly after now for the routine's cadence.
-// Unknown cadences fall back to daily at the routine's time.
+// An invalid or impossible cron schedule has no next run.
 func Next(r model.Routine, now time.Time) time.Time {
+	if r.Cadence == "cron" {
+		parsed, location, err := parseCron(r, now.Location())
+		if err != nil {
+			return time.Time{}
+		}
+		return parsed.Next(now.In(location))
+	}
 	hour, minute := parseClock(r.TimeOfDay)
 	loc := now.Location()
 	var t time.Time
@@ -50,6 +60,39 @@ func Next(r model.Routine, now time.Time) time.Time {
 	return t
 }
 
+// Validate rejects invalid cron schedules without changing legacy cadences.
+func Validate(r model.Routine, now time.Time) error {
+	if r.Cadence != "cron" {
+		return nil
+	}
+	parsed, location, err := parseCron(r, now.Location())
+	if err != nil {
+		return err
+	}
+	if parsed.Next(now.In(location)).IsZero() {
+		return fmt.Errorf("the cron schedule has no upcoming occurrence")
+	}
+	return nil
+}
+
+func parseCron(r model.Routine, location *time.Location) (cron.Schedule, *time.Location, error) {
+	expression := strings.TrimSpace(r.CronExpression)
+	if len(expression) > 256 || len(strings.Fields(expression)) != 5 {
+		return nil, nil, fmt.Errorf("enter five cron fields: minute, hour, day, month, and weekday")
+	}
+	parsed, err := cron.ParseStandard(expression)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid cron expression: %w", err)
+	}
+	if zone := strings.TrimSpace(r.TimeZone); zone != "" {
+		location, err = time.LoadLocation(zone)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unknown time zone %q", zone)
+		}
+	}
+	return parsed, location, nil
+}
+
 func parseClock(value string) (int, int) {
 	parts := strings.SplitN(strings.TrimSpace(value), ":", 2)
 	if len(parts) != 2 {
@@ -75,6 +118,11 @@ func Clock(value string) string {
 // Label is the human sentence used in the routines list.
 func Label(r model.Routine) string {
 	switch r.Cadence {
+	case "cron":
+		if r.TimeZone == "" {
+			return "Cron · " + r.CronExpression
+		}
+		return "Cron · " + r.CronExpression + " · " + r.TimeZone
 	case "hourly":
 		return "Every hour"
 	case "weekdays":

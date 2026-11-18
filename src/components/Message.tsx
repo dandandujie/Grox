@@ -72,9 +72,9 @@ function ApprovalCard({ message, onDecide }: { message: Message; onDecide: (deci
   const approval = message.approval;
   if (!approval) return null;
   const pending = message.status === "pending";
-  const decision = message.status === "denied" ? "Denied" : message.status === "always" ? "Always allowed" : "Allowed";
+  const decision = message.status === "expired" ? "Expired" : message.status === "denied" ? "Denied" : message.status === "always" ? "Always allowed" : "Allowed";
   if (!pending) {
-    const denied = message.status === "denied";
+    const denied = message.status === "denied" || message.status === "expired";
     return (
       <div className={cn("decision-card settled", denied && "is-denied")}>
         <div className="decision-head">
@@ -120,7 +120,7 @@ function OptionsCard({ message, onAnswer }: { message: Message; onAnswer: (answe
           <div className="options-title">{message.text || "Which way should we go?"}</div>
           <div className="options-sub">Pick whatever is closest; we can always expand from there.</div>
         </div>
-        {!pending && <span className="settled-pill"><Check size={12} /> Answered</span>}
+        {!pending && <span className="settled-pill">{message.status === "answered" ? <><Check size={12} /> Answered</> : "Closed"}</span>}
       </div>
       <div className="options-list">
         {options.map((option, index) => (
@@ -197,14 +197,12 @@ export function MessageItem({ message, bot, showSender, onDecide, onAnswer }: {
         <ActivityChips message={message} />
         {(message.text || message.pending || (message.attachments?.length ?? 0) > 0) && (
           <div className={cn("bubble", user ? "bubble-user" : "bubble-bot", message.error && "is-error", message.pending && "is-pending")}>
-            {user ? (
-              <>
-                {message.text && <div className="plain-text">{message.text}</div>}
-                <AttachmentGallery attachments={message.attachments ?? []} />
-              </>
-            ) : message.text ? (
-              <Markdown>{message.text}</Markdown>
-            ) : (
+            {message.text && (user
+              ? <div className="plain-text">{message.text}</div>
+              : <Markdown>{message.text}</Markdown>
+            )}
+            <AttachmentGallery attachments={message.attachments ?? []} />
+            {message.pending && !message.text && (
               <span className="typing-dots" aria-label="Typing"><i /><i /><i /></span>
             )}
             {message.pending && message.text && <span className="typing-caret" aria-hidden="true" />}

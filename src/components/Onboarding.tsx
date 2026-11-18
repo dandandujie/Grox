@@ -1,40 +1,77 @@
-import { ArrowRight, Bot, Plug, ShieldCheck } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowRight, Plug } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Modal } from "@/components/ui";
-import { GroxLogo } from "@/components/Icons";
 import { Mascot } from "@/components/Mascot";
+import { EngineModelSelect, preferredModel } from "@/components/EngineModelSelect";
 
 export function Onboarding() {
-  const { state, ui, setUI, patchSettings } = useApp();
+  const { state, providers, engines, ui, setUI, selectBot, updateBot, patchSettings } = useApp();
+  const [selectedId, setSelectedId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
+  const bot = state.bots.find((item) => item.id === state.activeBotId && !item.hidden && !item.archived)
+    ?? state.bots.find((item) => !item.hidden && !item.archived);
   const open = !state.settings.onboarded && !ui.newBotOpen && !ui.settingsOpen && !ui.newChannelOpen;
+  const models = providers.flatMap((provider) => provider.models).filter((model) => model.available && model.provider !== "local");
+  const selected = models.find((model) => model.id === selectedId)
+    ?? models.find((model) => model.id === bot?.modelId)
+    ?? preferredModel(providers);
+  const configuredAPI = state.settings.engineMode === "api" && Boolean(state.settings.apiBaseUrl && state.settings.apiModel);
+  const canSelectModel = models.length > 0;
+  const selectedCLI = engines.some((engine) => engine.providerId === selected?.provider && engine.status === "ready");
 
-  const finish = (action?: () => void) => {
-    void patchSettings({ onboarded: true });
-    action?.();
+  const finish = async (mode: "real" | "demo" | "close") => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    try {
+      if (mode !== "close" && bot && (mode === "demo" || !configuredAPI)) {
+        const modelId = mode === "demo" ? "grox-demo" : selected?.id;
+        if (!modelId || (bot.modelId !== modelId && !await updateBot(bot.id, { modelId }))) return;
+      }
+      const settings = mode === "demo" || (mode === "real" && !configuredAPI)
+        ? { onboarded: true, engineMode: "auto" }
+        : { onboarded: true };
+      if (!await patchSettings(settings)) return;
+      if (mode !== "close" && bot) selectBot(bot.id);
+      if (mode !== "close" && !bot) setUI({ newBotOpen: true });
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal open={open} onClose={() => finish()} title="Welcome to Grox" width={640}>
+    <Modal open={open} onClose={() => void finish("close")} title="Set up Grox" width={480}>
       <div className="onboarding">
         <div className="onboarding-hero">
-          <Mascot seed="Grox" size={92} />
+          <Mascot seed={bot?.name || "Grox"} size={60} />
           <div>
-            <GroxLogo size={24} />
-            <h2>Your local bot team</h2>
-            <p>Grox runs on this Mac. Bring your own CLI logins or API keys; nothing is uploaded to a Grox cloud.</p>
+            <h2>{bot ? `Start with ${bot.name}` : "Set up your first agent"}</h2>
+            <p>Choose the engine for your first conversation.</p>
           </div>
         </div>
-        <div className="onboarding-points">
-          <div><ShieldCheck size={16} /><span><strong>Local by default</strong>Workspace, memory and credentials stay on this machine.</span></div>
-          <div><Bot size={16} /><span><strong>A portrait per bot</strong>Every bot gets a deterministic layered 1-bit face, generated from its name.</span></div>
-          <div><Plug size={16} /><span><strong>Real engines</strong>Demo works offline; connect Grok, Claude, Codex, Gemini or an OpenAI-compatible API when ready.</span></div>
-        </div>
-        <div className="modal-actions split">
-          <button type="button" className="btn btn-ghost" onClick={() => finish(() => setUI({ settingsOpen: true, settingsSection: "engines" }))}>Connect an engine</button>
-          <div className="modal-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => finish()}>Start with demo</button>
-            <button type="button" className="btn btn-primary" onClick={() => finish(() => setUI({ newBotOpen: true }))}>Create a bot <ArrowRight size={14} /></button>
+        {configuredAPI ? (
+          <div className="setup-engine"><Plug size={16} /> {state.settings.apiModel} <span>API configured</span></div>
+        ) : canSelectModel && selected ? (
+          <div className="setup-choice">
+            <EngineModelSelect providers={providers} value={selected.id} onChange={setSelectedId} demo={false} disabled={saving} />
+            <p>{selectedCLI ? "CLI installed. Sign in to it if your first message asks for authentication." : "API key configured. The first message checks whether it works."}</p>
           </div>
+        ) : (
+          <div className="setup-engine"><Plug size={16} /> No engine configured</div>
+        )}
+        <div className="setup-actions">
+          <button type="button" className="btn btn-ghost" disabled={saving} title="Explore with scripted replies" onClick={() => void finish("demo")}>Try demo</button>
+          <button type="button" className={configuredAPI || canSelectModel ? "btn btn-secondary" : "btn btn-primary"} disabled={saving} onClick={() => setUI({ settingsOpen: true, settingsSection: "engines" })}>
+            {configuredAPI || canSelectModel ? "Engine settings" : "Connect an engine"}
+          </button>
+          {(configuredAPI || canSelectModel) && (
+            <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void finish("real")}>
+              {saving ? "Saving…" : "Start chatting"} <ArrowRight size={14} />
+            </button>
+          )}
         </div>
       </div>
     </Modal>

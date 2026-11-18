@@ -27,34 +27,11 @@ type apiRound struct {
 }
 
 const (
-	maxToolRounds = 4
-	maxToolCalls  = 8
-	maxToolList   = 32
+	maxToolRounds     = 4
+	maxToolCalls      = 8
+	maxToolList       = 32
+	maxToolImageBytes = 12 << 20
 )
-
-func apiEndpoint(req Request) (string, string) {
-	base := strings.TrimSpace(req.APIBaseURL)
-	if base == "" {
-		switch req.Model.Provider {
-		case "grok":
-			base = "https://api.x.ai/v1"
-		case "openai":
-			base = "https://api.openai.com/v1"
-		}
-	}
-	if base == "" {
-		return "", ""
-	}
-	endpoint := strings.TrimSuffix(base, "/")
-	if !strings.HasSuffix(endpoint, "/chat/completions") {
-		endpoint += "/chat/completions"
-	}
-	modelID := strings.TrimSpace(req.APIModel)
-	if modelID == "" {
-		modelID = req.Model.ID
-	}
-	return endpoint, modelID
-}
 
 func toolSchema(tool Tool) map[string]any {
 	parameters := tool.Parameters
@@ -78,46 +55,9 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 	if endpoint == "" {
 		return "", fmt.Errorf("no API base URL is configured")
 	}
-	system := req.Bot.Soul
-	if system == "" {
-		system = "You are " + req.Bot.Name + ", a helpful assistant."
-	}
-	system += "\n\nYou are replying inside Grox, a chat app. Use GitHub-flavored Markdown when it helps."
-	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
-		system += "\n\n## Enabled skills\n\n" + skillText
-	}
-	if memoryText := strings.TrimSpace(req.MemoryText); memoryText != "" {
-		system += "\n\n## Memory\n\n" + memoryText
-	}
-	if recallText := strings.TrimSpace(req.RecallText); recallText != "" {
-		system += "\n\n## Recalled memory\n\n" + recallText
-	}
-	system += "\n\nYou can call connected-app tools. Use a tool only when it is necessary; explain the result to the person in plain language."
-	messages := []map[string]any{{"role": "system", "content": system}}
-	if extra := strings.TrimSpace(req.ExtraContext); extra != "" {
-		messages = append(messages, map[string]any{"role": "system", "content": extra})
-	}
-	for _, message := range recent(req.History, 16) {
-		text := strings.TrimSpace(message.Text)
-		if text == "" || message.Pending {
-			continue
-		}
-		switch message.Role {
-		case model.RoleUser:
-			messages = append(messages, map[string]any{"role": "user", "content": text})
-		case model.RoleBot:
-			content := text
-			if message.SenderName != "" && message.SenderName != req.Bot.Name {
-				content = message.SenderName + ": " + text
-			}
-			messages = append(messages, map[string]any{"role": "assistant", "content": content})
-		}
-	}
-	userText := strings.TrimSpace(req.UserText)
-	if userText != "" {
-		if len(messages) == 0 || messages[len(messages)-1]["role"] != "user" || messages[len(messages)-1]["content"] != userText {
-			messages = append(messages, map[string]any{"role": "user", "content": userText})
-		}
+	messages, err := apiMessages(ctx, req, true)
+	if err != nil {
+		return "", err
 	}
 	tools := req.Tools
 	if len(tools) > maxToolList {
@@ -128,16 +68,20 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 		definitions = append(definitions, toolSchema(tool))
 	}
 	var text strings.Builder
+	toolImageBytes := 0
 	for round := 0; round < maxToolRounds; round += 1 {
 		result, err := streamAPIRound(ctx, endpoint, modelID, req.APIKey, messages, definitions, sink)
 		if err != nil {
-			return "", err
+			return text.String() + result.Text, err
 		}
 		if result.Text != "" {
 			text.WriteString(result.Text)
 		}
 		if len(result.Calls) == 0 {
 			break
+		}
+		if roundSink, ok := sink.(interface{ StartToolRound() }); ok {
+			roundSink.StartToolRound()
 		}
 		calls := result.Calls
 		if len(calls) > maxToolCalls {
@@ -154,6 +98,9 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 			"role": "assistant", "content": result.Text, "tool_calls": assistantCalls,
 		})
 		for _, call := range calls {
+			if err := ctx.Err(); err != nil {
+				return text.String(), err
+			}
 			arguments := map[string]any{}
 			raw := strings.TrimSpace(call.Arguments.String())
 			if raw == "" {
@@ -183,6 +130,24 @@ func runAPITools(ctx context.Context, req Request, sink Sink) (string, error) {
 				content = content[:20000] + "…"
 			}
 			messages = append(messages, map[string]any{"role": "tool", "tool_call_id": call.ID, "content": content})
+		}
+		if req.TakeAPIToolImages != nil {
+			images := req.TakeAPIToolImages()
+			if len(images) == 0 {
+				continue
+			}
+			var labels strings.Builder
+			labels.WriteString("Images returned by tools:")
+			for _, image := range images {
+				toolImageBytes += len(image.Data)
+				fmt.Fprintf(&labels, "\n- %q", image.Name)
+			}
+			if toolImageBytes > maxToolImageBytes {
+				return text.String(), fmt.Errorf("the tools returned more than 12 MiB of images in this turn")
+			}
+			// Chat Completions tool replies support text only. Keep the
+			// correlated replies above, then provide actual visual input.
+			messages = append(messages, map[string]any{"role": "user", "content": apiUserContent(labels.String(), images)})
 		}
 	}
 	if strings.TrimSpace(text.String()) == "" {
@@ -249,7 +214,7 @@ func streamAPIRound(ctx context.Context, endpoint, modelID, apiKey string, messa
 			continue
 		}
 		if errObj, ok := event["error"].(map[string]any); ok {
-			return apiRound{}, fmt.Errorf("%s", str(errObj["message"]))
+			return result, fmt.Errorf("%s", str(errObj["message"]))
 		}
 		if usage, ok := usageFromEvent(event); ok {
 			reportUsage(sink, usage)
@@ -282,8 +247,11 @@ func streamAPIRound(ctx context.Context, endpoint, modelID, apiKey string, messa
 			collectToolCalls(message["tool_calls"], byIndex)
 		}
 	}
-	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		return apiRound{}, fmt.Errorf("the API stream ended early: %w", err)
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if err := scanner.Err(); err != nil {
+		return result, fmt.Errorf("the API stream ended early: %w", err)
 	}
 	indexes := make([]int, 0, len(byIndex))
 	for index := range byIndex {

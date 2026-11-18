@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -131,6 +130,9 @@ func (s *Service) UpdateGroup(groupID string, patch model.GroupPatch) (model.Gro
 	if patch.Description != nil {
 		g.Description = strings.TrimSpace(*patch.Description)
 	}
+	if patch.Instructions != nil {
+		g.Instructions = strings.TrimSpace(*patch.Instructions)
+	}
 	if patch.Color != nil && allowedColors[*patch.Color] {
 		g.Color = *patch.Color
 	}
@@ -221,7 +223,11 @@ func (s *Service) CreateGroupThread(groupID, title string) (model.Thread, error)
 		title = "New conversation"
 	}
 	now := time.Now()
-	thread := model.Thread{ID: newID("thread"), Title: title, Kind: "group", CreatedAt: now, UpdatedAt: now}
+	kind := "group"
+	if title == "New task" {
+		kind = "task"
+	}
+	thread := model.Thread{ID: newID("thread"), Title: title, Kind: kind, CreatedAt: now, UpdatedAt: now, Messages: []model.Message{}}
 	g.Threads = append([]model.Thread{thread}, g.Threads...)
 	g.UpdatedAt = now
 	s.st.State.ActiveGroupID = groupID
@@ -251,7 +257,8 @@ func (s *Service) SelectGroup(groupID, threadID string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("conversation not found")
 	}
-	g.Unread = 0
+	g.Unread = max(0, g.Unread-thread.Unread)
+	thread.Unread = 0
 	s.st.State.ActiveGroupID = groupID
 	s.st.State.ActiveBotID = ""
 	s.st.State.ActiveThreadID = threadID
@@ -271,6 +278,9 @@ func (s *Service) MarkGroupRead(groupID string) error {
 		return fmt.Errorf("channel not found")
 	}
 	g.Unread = 0
+	for index := range g.Threads {
+		g.Threads[index].Unread = 0
+	}
 	s.touchLocked()
 	s.saveLocked()
 	s.emitStateLocked()
@@ -311,7 +321,8 @@ func (s *Service) sendGroupInternal(groupID, threadID, text string, attachments 
 		s.mu.Unlock()
 		return model.SendResult{}, fmt.Errorf("the channel is still working on the last message")
 	}
-	if err := s.validateAttachments(attachments); err != nil {
+	attachments, err := s.savedAttachments(attachments)
+	if err != nil {
 		s.mu.Unlock()
 		return model.SendResult{}, err
 	}
@@ -320,89 +331,28 @@ func (s *Service) sendGroupInternal(groupID, threadID, text string, attachments 
 		s.mu.Unlock()
 		return model.SendResult{}, fmt.Errorf("this channel has no bots")
 	}
+	defer s.mu.Unlock()
+	before := s.snapshotLocked()
 	now := time.Now()
 	userMsg := model.Message{
 		ID: newID("msg"), Role: model.RoleUser, Kind: model.KindText, Text: text, Attachments: attachments,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	thread.Messages = append(thread.Messages, userMsg)
-	if text != "" && (thread.Title == "" || thread.Title == "New conversation") {
+	if text != "" && (thread.Title == "" || thread.Title == "New conversation" || thread.Title == "New task") {
 		thread.Title = titleFromText(text)
 	}
 	thread.UpdatedAt = now
+	g.Unread = max(0, g.Unread-thread.Unread)
 	thread.Unread = 0
-	g.Unread = 0
 	g.UpdatedAt = now
 	s.st.State.ActiveGroupID = groupID
 	s.st.State.ActiveBotID = ""
 	s.st.State.ActiveThreadID = threadID
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	s.mu.Unlock()
-
-	if err := s.startGroupTurn(groupID, threadID, responder.ID, text, s.attachmentContext(attachments), ""); err != nil {
+	if err := s.admitTurnLocked(before, responder, g, thread, text, attachments, "", false); err != nil {
 		return model.SendResult{}, err
 	}
 	return model.SendResult{GroupID: groupID, BotID: responder.ID, ThreadID: threadID, MessageID: userMsg.ID}, nil
-}
-
-func (s *Service) startGroupTurn(groupID, threadID, botID, agentText, extraContext, runID string) error {
-	s.mu.Lock()
-	g := s.findGroupLocked(groupID)
-	if g == nil {
-		s.mu.Unlock()
-		return fmt.Errorf("channel not found")
-	}
-	thread := s.findGroupThreadLocked(g, threadID)
-	if thread == nil {
-		s.mu.Unlock()
-		return fmt.Errorf("conversation not found")
-	}
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return fmt.Errorf("bot not found")
-	}
-	if thread.Busy {
-		s.mu.Unlock()
-		return fmt.Errorf("the channel is still working on the last message")
-	}
-	key := "group:" + groupID + "|" + threadID
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	s.turns[key] = &turnControl{cancel: cancel, botID: botID, groupID: groupID, threadID: threadID}
-	now := time.Now()
-	thread.Busy = true
-	thread.Status = "Thinking"
-	thread.UpdatedAt = now
-	g.UpdatedAt = now
-	bot.LastActiveAt = now
-	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext, groupID)
-	req.GroupID = groupID
-	if sel.Kind == "cli" {
-		target := claudeHookTarget{BotID: botID, GroupID: groupID, ThreadID: threadID}
-		if mcpURL, hookURL, err := s.newToolURLs(target); err == nil {
-			req.MCPURL = mcpURL
-			if bot.Approval == model.ApprovalAsk {
-				req.HookURL = hookURL
-			}
-		}
-		if req.Model.Provider == "claude" && bot.Approval == model.ApprovalAsk {
-			if hookURL, err := s.newClaudeHookURL(target); err == nil {
-				req.PermissionHookURL = hookURL
-			}
-		}
-	}
-	s.touchLocked()
-	turn := &model.Turn{BotID: botID, GroupID: groupID, ThreadID: threadID, Busy: true, Status: "Thinking", Engine: sel.Engine}
-	s.mu.Unlock()
-
-	s.emitEvent(model.Event{Type: "turn", BotID: botID, GroupID: groupID, ThreadID: threadID, Turn: turn})
-	if sel.Note != "" {
-		s.emitEvent(model.Event{Type: "toast", BotID: botID, GroupID: groupID, ThreadID: threadID, Toast: &model.Toast{Kind: "info", Title: sel.Note}})
-	}
-	go s.runTurn(ctx, key, req, sel, runID)
-	return nil
 }
 
 // StopGroup interrupts a channel turn.
@@ -421,8 +371,8 @@ func (s *Service) StopGroup(groupID, threadID string) error {
 		}
 	}
 	t := &model.Turn{GroupID: groupID, ThreadID: threadID, Busy: true, Status: "Stopping"}
-	s.mu.Unlock()
 	s.emitEvent(model.Event{Type: "turn", GroupID: groupID, ThreadID: threadID, Turn: t})
+	s.mu.Unlock()
 	return nil
 }
 
@@ -533,6 +483,16 @@ func (s *Service) DecideGroup(groupID, threadID, messageID, decision string) err
 		s.mu.Unlock()
 		return fmt.Errorf("this approval was already answered")
 	}
+	defer s.mu.Unlock()
+	responder := msg.SenderID
+	if responder == "" {
+		responder = g.LeadID
+	}
+	bot := s.findBotLocked(responder)
+	if bot == nil {
+		return fmt.Errorf("bot not found")
+	}
+	before := s.snapshotLocked()
 	now := time.Now()
 	command := msg.Approval.Command
 	switch decision {
@@ -542,9 +502,6 @@ func (s *Service) DecideGroup(groupID, threadID, messageID, decision string) err
 	case "always":
 		msg.Status = model.StatusAlways
 		msg.Approval.Decision = "always"
-		if bot := s.findBotLocked(msg.SenderID); bot != nil {
-			bot.Approval = model.ApprovalAuto
-		}
 	case "deny":
 		msg.Status = model.StatusDenied
 		msg.Approval.Decision = "denied"
@@ -553,19 +510,11 @@ func (s *Service) DecideGroup(groupID, threadID, messageID, decision string) err
 	msg.UpdatedAt = now
 	thread.UpdatedAt = now
 	g.UpdatedAt = now
-	responder := msg.SenderID
-	if responder == "" {
-		responder = g.LeadID
-	}
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	s.mu.Unlock()
 	prompt := "[approval:denied] " + command
 	if decision != "deny" {
 		prompt = "[approval:allowed] " + command
 	}
-	return s.startGroupTurn(groupID, threadID, responder, prompt, "", "")
+	return s.admitTurnLocked(before, bot, g, thread, prompt, nil, "", true)
 }
 
 // AnswerGroup settles an option card in a channel.
@@ -611,6 +560,16 @@ func (s *Service) AnswerGroup(groupID, threadID, messageID, answer string) error
 		s.mu.Unlock()
 		return fmt.Errorf("choose an answer first")
 	}
+	defer s.mu.Unlock()
+	responder := msg.SenderID
+	if responder == "" {
+		responder = g.LeadID
+	}
+	bot := s.findBotLocked(responder)
+	if bot == nil {
+		return fmt.Errorf("bot not found")
+	}
+	before := s.snapshotLocked()
 	now := time.Now()
 	msg.Status = model.StatusAnswered
 	msg.UpdatedAt = now
@@ -623,13 +582,5 @@ func (s *Service) AnswerGroup(groupID, threadID, messageID, answer string) error
 	})
 	thread.UpdatedAt = now
 	g.UpdatedAt = now
-	responder := msg.SenderID
-	if responder == "" {
-		responder = g.LeadID
-	}
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	s.mu.Unlock()
-	return s.startGroupTurn(groupID, threadID, responder, "My answer: "+visible, "", "")
+	return s.admitTurnLocked(before, bot, g, thread, "My answer: "+visible, nil, "", true)
 }

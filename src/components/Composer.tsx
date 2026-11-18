@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Loader2, Mic, Paperclip, Plus, Square, X } from "lucide-react";
 import { useApp } from "@/state/store";
 import { IconButton } from "@/components/ui";
@@ -6,30 +6,66 @@ import { cn } from "@/lib/cn";
 import type { Attachment } from "@/lib/bridge";
 import { getRecognitionCtor, type RecognitionLike } from "@/lib/speech";
 import { AttachmentGallery, formatBytes } from "@/components/Attachments";
+import { unfinishedReply } from "@/lib/conversations";
 
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
 
-export function Composer() {
-  const { activeBot, activeGroup, activeThread, send, uploadAttachment, stop, newTask, setUI, toast } = useApp();
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [queue, setQueue] = useState<string[]>([]);
-  const [pending, setPending] = useState<Attachment[]>([]);
-  const [uploading, setUploading] = useState(false);
+type Draft = {
+  text: string;
+  queue: string[];
+  attachments: Attachment[];
+  uploads: number;
+  sending: boolean;
+  queuePaused: boolean;
+  resumedAfter: string;
+  error: string;
+};
+
+const emptyDraft: Draft = {
+  text: "", queue: [], attachments: [], uploads: 0, sending: false, queuePaused: false, resumedAfter: "", error: "",
+};
+
+export function Composer({ visible }: { visible: boolean }) {
+  const { activeBot, activeGroup, activeThread, state, providers, send, uploadAttachment, stop, newTask, setUI, toast } = useApp();
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [plusOpen, setPlusOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<RecognitionLike | null>(null);
   const dictationBase = useRef("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const sendingQueue = useRef(false);
+  const sendingThreads = useRef(new Set<string>());
   const threadId = activeThread?.id ?? "";
-  const text = drafts[threadId] ?? "";
+  const { text, queue, attachments: pending, uploads, sending, queuePaused, resumedAfter, error } = drafts[threadId] ?? emptyDraft;
   const busy = Boolean(activeThread?.busy);
+  const unfinished = unfinishedReply(activeThread);
+  const queueBlocked = queuePaused || Boolean(unfinished && unfinished.id !== resumedAfter);
+  const previousRequest = unfinished && [...(activeThread?.messages ?? [])].reverse().find((message) => message.role === "user");
+  const engineMode = state.settings.engineMode;
+  const demo = engineMode === "demo" || (!activeGroup && engineMode === "auto" && activeBot?.modelId === "grox-demo");
+  const model = providers.flatMap((provider) => provider.models).find((item) => item.id === activeBot?.modelId);
+  const needsModel = !activeGroup && engineMode === "auto" && !demo && !model?.available;
+  const openEngines = () => setUI({ settingsOpen: true, settingsSection: "engines" });
+
+  const updateDraft = useCallback((update: (draft: Draft) => Partial<Draft>) => {
+    setDrafts((previous) => {
+      const draft = previous[threadId] ?? emptyDraft;
+      return { ...previous, [threadId]: { ...draft, ...update(draft) } };
+    });
+  }, [threadId, visible]);
 
   useEffect(() => {
-    setQueue([]);
-    setPending([]);
     setPlusOpen(false);
+    setListening(false);
+    return () => {
+      const recognition = recognitionRef.current;
+      if (!recognition) return;
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.abort?.();
+      recognitionRef.current = null;
+    };
   }, [threadId]);
 
   useEffect(() => {
@@ -38,62 +74,76 @@ export function Composer() {
     element.style.height = "0px";
     const height = Math.min(148, Math.max(26, element.scrollHeight));
     element.style.height = height + "px";
-  }, [text]);
-
-  useEffect(() => () => {
-    recognitionRef.current?.abort?.();
-    recognitionRef.current = null;
-  }, []);
+  }, [text, visible]);
 
   useEffect(() => {
-    if (busy || queue.length === 0 || sendingQueue.current) return;
-    const [next, ...rest] = queue;
-    if (!next) return;
-    sendingQueue.current = true;
-    setQueue(rest);
-    void send(next).finally(() => {
-      sendingQueue.current = false;
+    const [next] = queue;
+    if (!visible || !threadId || busy || !next || queueBlocked || sendingThreads.current.has(threadId)) return;
+    const inFlight = sendingThreads.current;
+    inFlight.add(threadId);
+    updateDraft(() => ({ sending: true }));
+    void send(next).then((result) => {
+      inFlight.delete(threadId);
+      updateDraft((draft) => ({
+        sending: false,
+        queue: result.accepted ? draft.queue.slice(1) : draft.queue,
+        queuePaused: !result.accepted,
+        error: result.accepted ? "" : result.error,
+      }));
     });
-  }, [busy, queue, send]);
+  }, [busy, queue, queueBlocked, send, threadId, updateDraft, visible]);
 
   if ((!activeBot && !activeGroup) || !activeThread) return null;
   const conversationName = activeGroup ? "# " + activeGroup.name : activeBot?.name ?? "this chat";
 
-  const setText = (value: string) => setDrafts((previous) => ({ ...previous, [threadId]: value }));
+  const setText = (value: string) => updateDraft(() => ({ text: value, error: "" }));
 
   const addFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    for (const file of Array.from(files)) {
-      if (file.size > MAX_FILE_BYTES) {
-        toast({ kind: "error", title: "That file is too large", body: file.name + " is over 32 MB." });
-        continue;
-      }
-      const attachment = await uploadAttachment(file);
-      if (attachment) setPending((previous) => [...previous, attachment]);
-    }
-    setUploading(false);
+    const selected = Array.from(files ?? []);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (selected.length === 0) return;
+    updateDraft((draft) => ({ uploads: draft.uploads + 1 }));
+    try {
+      for (const file of selected) {
+        if (file.size > MAX_FILE_BYTES) {
+          toast({ kind: "error", title: "That file is too large", body: file.name + " is over 32 MB." });
+          continue;
+        }
+        const attachment = await uploadAttachment(file);
+        if (attachment) updateDraft((draft) => ({ attachments: [...draft.attachments, attachment] }));
+      }
+    } finally {
+      updateDraft((draft) => ({ uploads: draft.uploads - 1 }));
+    }
   };
 
-  const submit = (value: string) => {
+  const submit = async (value: string) => {
     const clean = value.trim();
-    if (!clean && pending.length === 0) return;
-    if (busy) {
+    const inFlight = sendingThreads.current;
+    if ((!clean && pending.length === 0) || uploads > 0 || inFlight.has(threadId)) return;
+    if (busy || (queue.length > 0 && !queueBlocked)) {
       if (pending.length > 0) {
-        toast({ kind: "info", title: "Wait for the current turn", body: "Attachments can be sent with the next message; text can still be queued." });
+        toast({ kind: "info", title: "Wait for the current turn", body: "Attachments can be sent with the next message." });
         return;
       }
-      setQueue((previous) => [...previous, clean]);
-      setText("");
+      updateDraft((draft) => ({ text: "", queue: [...draft.queue, clean] }));
       return;
     }
-    setText("");
-    setPending([]);
-    void send(clean, pending);
+    inFlight.add(threadId);
+    updateDraft(() => ({ sending: true, text: "", attachments: [], error: "", queuePaused: queueBlocked && queue.length > 0 }));
+    const result = await send(clean, pending);
+    inFlight.delete(threadId);
+    updateDraft((draft) => result.accepted ? { sending: false } : {
+      sending: false,
+      text: [value, draft.text].filter(Boolean).join("\n"),
+      attachments: [...pending, ...draft.attachments],
+      error: result.error,
+    });
   };
 
-  const removePending = (id: string) => setPending((previous) => previous.filter((item) => item.id !== id));
+  const removePending = (id: string) => updateDraft((draft) => ({
+    attachments: draft.attachments.filter((item) => item.id !== id),
+  }));
 
   const toggleDictation = () => {
     if (listening) {
@@ -144,17 +194,34 @@ export function Composer() {
 
   return (
     <div className="composer-dock">
+      {(error || unfinished || needsModel) && (
+        <div className="composer-notice" role={error ? "alert" : "status"}>
+          <span>{error || (unfinished ? unfinished.error ? "The last turn failed." : "The last turn stopped." : "This model is unavailable.")}</span>
+          {previousRequest && !text && pending.length === 0 && (
+            <button type="button" className="link-button" onClick={() => {
+              updateDraft(() => ({ text: previousRequest.text, attachments: previousRequest.attachments ?? [], error: "" }));
+              textareaRef.current?.focus();
+            }}>Restore request</button>
+          )}
+          <button type="button" className="link-button" onClick={openEngines}>Engines</button>
+        </div>
+      )}
       {queue.length > 0 && (
         <div className="composer-queue">
           {queue.map((item, index) => (
             <span className="queue-chip" key={item + index}>
               <span className="queue-label">Queued</span>
               <span className="queue-text">{item}</span>
-              <button type="button" aria-label="Remove queued message" onClick={() => setQueue((previous) => previous.filter((_, i) => i !== index))}>
+              <button type="button" aria-label="Remove queued message" disabled={sending && index === 0}
+                onClick={() => updateDraft((draft) => ({
+                  queue: draft.queue.filter((_, i) => i !== index),
+                  queuePaused: index === 0 ? false : draft.queuePaused,
+                }))}>
                 <X size={12} />
               </button>
             </span>
           ))}
+          {queueBlocked && <button type="button" className="btn btn-ghost" onClick={() => updateDraft(() => ({ queuePaused: false, resumedAfter: unfinished?.id ?? "", error: "" }))}>Resume queue</button>}
         </div>
       )}
       {pending.length > 0 && (
@@ -199,7 +266,7 @@ export function Composer() {
             if (event.key !== "Enter" || event.shiftKey) return;
             if (event.nativeEvent.isComposing) return;
             event.preventDefault();
-            submit(text);
+            void submit(text);
           }}
           placeholder={"Message " + conversationName}
           aria-label={"Message " + conversationName}
@@ -207,7 +274,7 @@ export function Composer() {
           spellCheck={false}
         />
         <div className="composer-actions">
-          {uploading && <span className="composer-uploading"><Loader2 size={15} className="spin" /></span>}
+          {uploads > 0 && <span className="composer-uploading"><Loader2 size={15} className="spin" /></span>}
           <IconButton
             label={listening ? "Stop dictation" : "Dictate"}
             size={30}
@@ -226,8 +293,8 @@ export function Composer() {
               className="composer-send"
               aria-label="Send"
               title="Send"
-              disabled={!text.trim() && pending.length === 0}
-              onClick={() => submit(text)}
+              disabled={sending || uploads > 0 || (!text.trim() && pending.length === 0)}
+              onClick={() => void submit(text)}
             >
               <ArrowUp size={18} strokeWidth={2.4} />
             </button>
@@ -244,7 +311,7 @@ export function Composer() {
       />
       <div className="composer-hint">
         <span>Enter to send · Shift + Enter for a new line</span>
-        <span className="composer-model">Grox runs on your machine</span>
+        {demo && <span className="composer-model">Demo · scripted replies</span>}
       </div>
     </div>
   );

@@ -3,29 +3,30 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dandandujie/grox/internal/agent"
+	"github.com/dandandujie/grox/internal/browser"
 	"github.com/dandandujie/grox/internal/catalog"
 	"github.com/dandandujie/grox/internal/model"
 )
 
 // Send appends a user message and starts a bot turn.
 func (s *Service) Send(botID, threadID, text string) (model.SendResult, error) {
-	return s.sendInternal(botID, threadID, text, nil, "", true)
+	return s.sendInternal(botID, threadID, text, nil)
 }
 
 // SendWithAttachments sends a message with files previously stored by
 // SaveAttachment.
 func (s *Service) SendWithAttachments(botID, threadID, text string, attachments []model.Attachment) (model.SendResult, error) {
-	return s.sendInternal(botID, threadID, text, attachments, "", true)
+	return s.sendInternal(botID, threadID, text, attachments)
 }
 
-func (s *Service) sendInternal(botID, threadID, text string, attachments []model.Attachment, runID string, appendUser bool) (model.SendResult, error) {
+func (s *Service) sendInternal(botID, threadID, text string, attachments []model.Attachment) (model.SendResult, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(attachments) == 0 {
 		return model.SendResult{}, fmt.Errorf("write a message first")
@@ -48,79 +49,100 @@ func (s *Service) sendInternal(botID, threadID, text string, attachments []model
 		s.mu.Unlock()
 		return model.SendResult{}, fmt.Errorf("%s is still working on the last message", bot.Name)
 	}
-	if err := s.validateAttachments(attachments); err != nil {
+	attachments, err := s.savedAttachments(attachments)
+	if err != nil {
 		s.mu.Unlock()
 		return model.SendResult{}, err
 	}
-	now := time.Now()
-	userMsgID := ""
-	if appendUser {
-		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleUser, Kind: model.KindText, Text: text, Attachments: attachments,
-			CreatedAt: now, UpdatedAt: now,
-		}
-		thread.Messages = append(thread.Messages, msg)
-		userMsgID = msg.ID
-		if text != "" && (thread.Title == "" || thread.Title == "New conversation" || thread.Title == "New task") {
-			thread.Title = titleFromText(text)
-		}
-	}
-	thread.UpdatedAt = now
-	thread.Unread = 0
-	bot.LastActiveAt = now
-	bot.UpdatedAt = now
-	s.st.State.ActiveBotID = botID
-	s.st.State.ActiveThreadID = threadID
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	s.mu.Unlock()
-
-	if err := s.startTurn(botID, threadID, text, s.attachmentContext(attachments), runID); err != nil {
+	defer s.mu.Unlock()
+	before := s.snapshotLocked()
+	userMsgID := s.appendBotMessageLocked(bot, thread, text, attachments)
+	if err := s.admitTurnLocked(before, bot, nil, thread, text, attachments, "", false); err != nil {
 		return model.SendResult{}, err
 	}
 	return model.SendResult{BotID: botID, ThreadID: threadID, MessageID: userMsgID}, nil
 }
 
+func (s *Service) appendBotMessageLocked(bot *model.Bot, thread *model.Thread, text string, attachments []model.Attachment) string {
+	now := time.Now()
+	msg := model.Message{
+		ID: newID("msg"), Role: model.RoleUser, Kind: model.KindText, Text: text, Attachments: attachments,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	thread.Messages = append(thread.Messages, msg)
+	if text != "" && (thread.Title == "" || thread.Title == "New conversation" || thread.Title == "New task") {
+		thread.Title = titleFromText(text)
+	}
+	thread.Unread = 0
+	bot.UpdatedAt = now
+	s.st.State.ActiveBotID = bot.ID
+	s.st.State.ActiveGroupID = ""
+	s.st.State.ActiveThreadID = thread.ID
+	return msg.ID
+}
+
 func titleFromText(text string) string {
 	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
-	if len(text) > 54 {
-		return text[:51] + "…"
+	if utf8.RuneCountInString(text) > 54 {
+		return string([]rune(text)[:51]) + "…"
 	}
 	return text
 }
 
-// startTurn prepares the request and runs the selected engine in the
-// background. It must be called without s.mu held.
-func (s *Service) startTurn(botID, threadID, agentText, extraContext, runID string) error {
-	s.prefetchMCPOAuth()
-	s.mu.Lock()
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return fmt.Errorf("bot not found")
+// admitTurnLocked commits the outgoing action and claims the thread in one
+// operation. The caller validates that the thread is idle before mutating it.
+func (s *Service) admitTurnLocked(before model.AppState, bot *model.Bot, group *model.Group, thread *model.Thread, agentText string, attachments []model.Attachment, runID string, demoContinuation bool) error {
+	botID, threadID := bot.ID, thread.ID
+	groupID := ""
+	if group != nil {
+		groupID = group.ID
 	}
-	thread := s.findThreadLocked(bot, threadID)
-	if thread == nil {
-		s.mu.Unlock()
-		return fmt.Errorf("conversation not found")
-	}
-	if thread.Busy {
-		s.mu.Unlock()
-		return fmt.Errorf("%s is still working on the last message", bot.Name)
-	}
-	key := botID + "|" + threadID
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	s.turns[key] = &turnControl{cancel: cancel, botID: botID, threadID: threadID}
-
 	now := time.Now()
+	if group != nil {
+		group.UpdatedAt = now
+	}
 	thread.Busy = true
 	thread.Status = "Thinking"
-	bot.LastActiveAt = now
 	thread.UpdatedAt = now
-	req, sel := s.engineRequestLocked(bot, thread, agentText, extraContext)
+	bot.LastActiveAt = now
+	key := turnKey(botID, groupID, threadID)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	computer, computerErr := s.computerTargetLocked(bot)
+	control := &turnControl{
+		ctx: ctx, cancel: cancel, botID: botID, groupID: groupID, threadID: threadID,
+		computer: computer, computerErr: computerErr, computerAllowed: make(map[string]bool),
+	}
+	if computerErr == nil && computer.remote == nil {
+		control.browser = browser.NewSession(ctx)
+	}
+	s.turns[key] = control
+	req, sel := s.engineRequestLocked(bot, thread, agentText, s.attachmentContext(attachments), groupID)
+	if demoContinuation {
+		req.EngineMode = "demo"
+		sel = agent.Select(req)
+	}
+	var admissionErr error
+	if sel.Kind == "unavailable" && runID == "" {
+		admissionErr = fmt.Errorf("%s", sel.Note)
+	} else {
+		s.touchLocked()
+		if err := s.st.SaveState(); err != nil {
+			admissionErr = fmt.Errorf("save outgoing turn: %w", err)
+		}
+	}
+	if admissionErr != nil {
+		delete(s.turns, key)
+		cancel()
+		s.st.State = before
+		return admissionErr
+	}
+	req.GroupID = groupID
+	if sel.Kind == "api" && len(attachments) > 0 {
+		req.LoadAPIAttachments = s.apiAttachmentLoader(attachments)
+		req.ExtraContext = ""
+	}
 	if sel.Kind == "cli" {
-		target := claudeHookTarget{BotID: botID, ThreadID: threadID}
+		target := claudeHookTarget{BotID: botID, GroupID: groupID, ThreadID: threadID, control: control}
 		if mcpURL, hookURL, err := s.newToolURLs(target); err == nil {
 			req.MCPURL = mcpURL
 			if bot.Approval == model.ApprovalAsk {
@@ -133,15 +155,16 @@ func (s *Service) startTurn(botID, threadID, agentText, extraContext, runID stri
 			}
 		}
 	}
-	s.touchLocked()
-	turn := &model.Turn{BotID: botID, ThreadID: threadID, Busy: true, Status: "Thinking", Engine: sel.Engine}
-	s.mu.Unlock()
-
-	s.emitEvent(model.Event{Type: "turn", BotID: botID, ThreadID: threadID, Turn: turn})
-	if sel.Note != "" {
-		s.emitEvent(model.Event{Type: "toast", BotID: botID, ThreadID: threadID, Toast: &model.Toast{Kind: "info", Title: sel.Note}})
-	}
-	go s.runTurn(ctx, key, req, sel, runID)
+	s.emitStateLocked()
+	turn := &model.Turn{BotID: botID, GroupID: groupID, ThreadID: threadID, Busy: true, Status: thread.Status, Engine: sel.Engine}
+	s.emitEvent(model.Event{Type: "turn", BotID: botID, GroupID: groupID, ThreadID: threadID, Turn: turn})
+	go func() {
+		defer cancel()
+		if control.browser != nil {
+			defer control.browser.Close()
+		}
+		s.runTurn(ctx, key, control, req, sel, runID)
+	}()
 	return nil
 }
 
@@ -154,50 +177,45 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 	}
 	botCopy := cloneBot(*bot)
 	threadCopy := cloneThread(*thread)
+	if group := s.findGroupLocked(groupID); group != nil && strings.TrimSpace(group.Instructions) != "" {
+		if strings.TrimSpace(botCopy.Soul) == "" {
+			botCopy.Soul = "You are " + botCopy.Name + ", a helpful assistant."
+		}
+		botCopy.Soul += "\n\n## Channel instructions\n\n" + strings.TrimSpace(group.Instructions)
+	}
 	settings := s.st.State.Settings
 	engineMode := settings.EngineMode
-	// Approvals and question cards in this build are produced by the demo
-	// engine. Resolve them with the same engine instead of forwarding a
-	// synthetic prompt to a real CLI that never asked for it.
-	if strings.HasPrefix(agentText, "[approval:") || strings.HasPrefix(agentText, "My answer:") || strings.HasPrefix(agentText, "[choice]") {
-		engineMode = "demo"
-	}
 	engines := s.engines
 	modelDef := s.modelByIDLocked(bot.ModelID)
 
 	// An explicit engine choice in Settings applies to every bot. Use that
 	// provider's default model so a Grok model never goes to the Codex CLI.
-	if provider := providerForEngineMode(settings.EngineMode); provider != "" {
+	if provider := agent.ProviderForEngineMode(settings.EngineMode); provider != "" {
 		if modelDef.Provider != provider {
 			if fallback := s.defaultModelForProviderLocked(provider); fallback.ID != "" {
 				modelDef = fallback
 			}
 		}
 	}
-	apiBase := strings.TrimSpace(settings.APIBaseURL)
+	apiBase := strings.TrimRight(strings.TrimSpace(settings.APIBaseURL), "/")
 	apiKey := ""
+	providerBase, providerKey := "", ""
 	switch modelDef.Provider {
 	case "grok":
-		apiKey = s.st.Key("xai")
-		if apiBase == "" && apiKey != "" {
-			apiBase = "https://api.x.ai/v1"
-		}
+		providerBase, providerKey = "https://api.x.ai/v1", s.st.Key("xai")
 	case "openai":
-		apiKey = s.st.Key("openai")
-		if apiBase == "" && apiKey != "" {
-			apiBase = "https://api.openai.com/v1"
-		}
+		providerBase, providerKey = "https://api.openai.com/v1", s.st.Key("openai")
+	}
+	if apiBase == "" && providerKey != "" {
+		apiBase = providerBase
+	}
+	if apiBase == providerBase || apiBase == providerBase+"/chat/completions" {
+		apiKey = providerKey
 	}
 	if settings.EngineMode == "api" {
 		if key := s.st.Key("api"); key != "" {
 			apiKey = key
 		}
-	}
-	if apiBase == "" && apiKey != "" && modelDef.Provider == "grok" {
-		apiBase = "https://api.x.ai/v1"
-	}
-	if apiBase == "" && apiKey != "" && modelDef.Provider == "openai" {
-		apiBase = "https://api.openai.com/v1"
 	}
 
 	cli := map[string]bool{}
@@ -230,6 +248,9 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		req.Prompt += "\n\n" + extraContext
 	}
 	sel := agent.Select(req)
+	if sel.Kind == "api" && strings.TrimSpace(req.APIModel) != "" {
+		req.Model.Name = strings.TrimSpace(req.APIModel)
+	}
 	if bot.Approval != model.ApprovalAsk {
 		req.Tools = append(req.Tools, agent.Tool{
 			Name:        "memory_forget",
@@ -283,55 +304,61 @@ func (s *Service) engineRequestLocked(bot *model.Bot, thread *model.Thread, agen
 		for _, tool := range s.cachedComposioTools() {
 			req.Tools = append(req.Tools, agent.Tool{Name: tool.Slug, Description: tool.Description, Parameters: tool.InputSchema})
 		}
-		filteredTools := req.Tools[:0]
-		for _, tool := range req.Tools {
-			if toolAllowed(bot.ToolPolicy, tool.Name) {
-				filteredTools = append(filteredTools, tool)
-			}
+	}
+	target := claudeHookTarget{
+		BotID: botCopy.ID, GroupID: groupID, ThreadID: threadCopy.ID,
+		control: s.turns[turnKey(botCopy.ID, groupID, threadCopy.ID)],
+	}
+	if sel.Kind == "api" && target.control != nil {
+		req.Tools = append(computerToolsForTurn(target.control), req.Tools...)
+	}
+	filteredTools := req.Tools[:0]
+	for _, tool := range req.Tools {
+		if toolAllowed(bot.ToolPolicy, tool.Name) {
+			filteredTools = append(filteredTools, tool)
 		}
-		req.Tools = filteredTools
+	}
+	req.Tools = filteredTools
+	if len(req.Tools) > 0 {
+		var computerImages []agent.APIAttachment
+		req.TakeAPIToolImages = func() []agent.APIAttachment {
+			images := computerImages
+			computerImages = nil
+			return images
+		}
 		req.ExecuteTool = func(ctx context.Context, name string, arguments map[string]any) (string, error) {
-			if !toolAllowed(bot.ToolPolicy, name) {
+			if !toolAllowed(botCopy.ToolPolicy, name) {
 				return "", fmt.Errorf("tool %s is blocked by this bot's tool policy", name)
 			}
-			if name == "memory_forget" {
-				return s.memoryForgetTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
+			if isComputerTool(name) {
+				result, err := s.executeComputerTool(ctx, target, name, arguments)
+				if err == nil && result.image != nil && result.image.ImageMIME != "image/gif" {
+					computerImages = append(computerImages, *result.image)
+				}
+				return result.text, err
 			}
-			if name == "memory_tidy" {
-				return s.memoryTidyTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID})
+			if botCopy.Approval == model.ApprovalAsk {
+				return "", fmt.Errorf("tool %s is unavailable in Ask mode", name)
 			}
-			if name == "memory_update" {
-				return s.memoryUpdateTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
-			}
-			if name == "ask_user" {
-				return s.askUserTool(claudeHookTarget{BotID: bot.ID, GroupID: groupID, ThreadID: thread.ID}, arguments)
+			switch name {
+			case "memory_forget":
+				return s.memoryForgetTool(target, arguments)
+			case "memory_tidy":
+				return s.memoryTidyTool(target)
+			case "memory_update":
+				return s.memoryUpdateTool(target, arguments)
+			case "ask_user":
+				return s.askUserTool(ctx, target, arguments)
 			}
 			value, err := s.ExecuteComposioTool(name, arguments)
 			if err != nil {
 				return "", err
 			}
 			data, err := json.Marshal(value)
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return string(data), err
 		}
 	}
 	return req, sel
-}
-
-func providerForEngineMode(mode string) string {
-	switch mode {
-	case "grok":
-		return "grok"
-	case "claude":
-		return "claude"
-	case "codex":
-		return "openai"
-	case "gemini":
-		return "google"
-	}
-	return ""
 }
 
 func (s *Service) defaultModelForProviderLocked(provider string) model.Model {
@@ -355,8 +382,8 @@ func (s *Service) defaultModelForProviderLocked(provider string) model.Model {
 
 var runAgent = agent.Run
 
-func (s *Service) runTurn(ctx context.Context, key string, req agent.Request, sel agent.Selection, runID string) {
-	sink := &turnSink{svc: s, key: key, botID: req.Bot.ID, groupID: req.GroupID, threadID: req.Thread.ID, engine: sel.Engine, model: req.Model}
+func (s *Service) runTurn(ctx context.Context, key string, control *turnControl, req agent.Request, sel agent.Selection, runID string) {
+	sink := &turnSink{svc: s, key: key, control: control, botID: req.Bot.ID, groupID: req.GroupID, threadID: req.Thread.ID, engine: sel.Engine, model: req.Model}
 	finished := false
 	defer func() {
 		if finished {
@@ -364,51 +391,28 @@ func (s *Service) runTurn(ctx context.Context, key string, req agent.Request, se
 		}
 		if recovered := recover(); recovered != nil {
 			logPanic("turn", recovered)
-			s.finishTurn(key, sink, fmt.Errorf("the engine stopped unexpectedly"), runID)
+			s.finishTurn(sink, fmt.Errorf("the engine stopped unexpectedly"), runID)
 		}
 	}()
-	_, err := runAgent(ctx, sel, req, sink)
-	if err != nil && sel.Kind == "cli" && !errors.Is(err, context.Canceled) && isConnectionError(err) {
-		// A CLI that is installed but signed out should not make the app
-		// silent. Use the local demo for this reply and say so.
-		fallback := agent.Selection{Kind: "demo", Engine: "Grox Demo"}
-		sink.engine = fallback.Engine
-		s.emitEvent(model.Event{Type: "toast", BotID: req.Bot.ID, GroupID: req.GroupID, ThreadID: req.Thread.ID, Toast: &model.Toast{
-			Kind: "info", Title: freshConnectionNote(err), Body: "This reply came from the built-in demo engine. Connect the CLI or add a key in Settings → Engines.",
-		}})
-		if _, demoErr := agent.Run(ctx, fallback, req, sink); demoErr == nil {
-			err = nil
+	var err error
+	if sel.Kind == "unavailable" {
+		err = fmt.Errorf("%s", sel.Note)
+	} else {
+		if sel.Kind == "cli" {
+			s.prefetchMCPOAuth(ctx, req.Bot.ID)
+			s.mu.Lock()
+			req.MCPServers = s.mcpConfigsForTurn(req.Bot.ID)
+			s.mu.Unlock()
+		}
+		if err = ctx.Err(); err == nil {
+			_, err = runAgent(ctx, sel, req, sink)
+			if err == nil {
+				err = ctx.Err()
+			}
 		}
 	}
-	s.finishTurn(key, sink, err, runID)
+	s.finishTurn(sink, err, runID)
 	finished = true
-}
-
-func isConnectionError(err error) bool {
-	message := strings.ToLower(err.Error())
-	for _, part := range []string{"not signed in", "not authenticated", "signed out", "login", "api key", "unauthorized", "401", "command not found", "no such file"} {
-		if strings.Contains(message, part) {
-			return true
-		}
-	}
-	return false
-}
-
-func freshConnectionNote(err error) string {
-	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "signed in") || strings.Contains(message, "authenticated") || strings.Contains(message, "login") {
-		return "That CLI is not signed in"
-	}
-	return "That engine is not available"
-}
-
-func runRoutineID(s *Service, runID string) string {
-	for _, r := range s.st.State.Runs {
-		if r.ID == runID {
-			return r.RoutineID
-		}
-	}
-	return ""
 }
 
 func messageSummary(thread *model.Thread, id string) string {
@@ -448,8 +452,8 @@ func (s *Service) Stop(botID, threadID string) error {
 		}
 	}
 	t := &model.Turn{BotID: botID, ThreadID: threadID, Busy: true, Status: "Stopping"}
-	s.mu.Unlock()
 	s.emitEvent(model.Event{Type: "turn", BotID: botID, ThreadID: threadID, Turn: t})
+	s.mu.Unlock()
 	return nil
 }
 
@@ -494,6 +498,8 @@ func (s *Service) Decide(botID, threadID, messageID, decision string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("this approval was already answered")
 	}
+	defer s.mu.Unlock()
+	before := s.snapshotLocked()
 	now := time.Now()
 	command := msg.Approval.Command
 	switch decision {
@@ -503,7 +509,6 @@ func (s *Service) Decide(botID, threadID, messageID, decision string) error {
 	case "always":
 		msg.Status = model.StatusAlways
 		msg.Approval.Decision = "always"
-		bot.Approval = model.ApprovalAuto
 	case "deny":
 		msg.Status = model.StatusDenied
 		msg.Approval.Decision = "denied"
@@ -512,16 +517,11 @@ func (s *Service) Decide(botID, threadID, messageID, decision string) error {
 	msg.UpdatedAt = now
 	thread.UpdatedAt = now
 	bot.UpdatedAt = now
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	s.mu.Unlock()
-
 	prompt := "[approval:denied] " + command
 	if decision != "deny" {
 		prompt = "[approval:allowed] " + command
 	}
-	return s.startTurn(botID, threadID, prompt, "", "")
+	return s.admitTurnLocked(before, bot, nil, thread, prompt, nil, "", true)
 }
 
 // Answer settles an options card, adds the chosen answer as a user message,
@@ -568,6 +568,8 @@ func (s *Service) Answer(botID, threadID, messageID, answer string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("choose an answer first")
 	}
+	defer s.mu.Unlock()
+	before := s.snapshotLocked()
 	now := time.Now()
 	msg.Status = model.StatusAnswered
 	msg.UpdatedAt = now
@@ -583,12 +585,7 @@ func (s *Service) Answer(botID, threadID, messageID, answer string) error {
 	thread.Unread = 0
 	bot.LastActiveAt = now
 	bot.UpdatedAt = now
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	s.mu.Unlock()
-
-	return s.startTurn(botID, threadID, "My answer: "+visible, "", "")
+	return s.admitTurnLocked(before, bot, nil, thread, "My answer: "+visible, nil, "", true)
 }
 
 func homeDir() string {

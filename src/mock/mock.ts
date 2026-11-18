@@ -2,7 +2,7 @@ import type {
   Activity, AppEntry, AppEvent, AppState, Attachment, Bootstrap, Bot, BotPatch, CreateBotInput,
   CommandResult, ComposioLink, ComposioTool, CreateGroupInput, FilePreview, FolderListing, Group, GroupPatch, Message, Option, PhoneInfo, Routine, RoutineInput, RoutinePatch, SecretStatus, SendResult,
   APIInfo, Department, MCPOAuthStart, MCPServer, Playbook, PlaybookInput, MCPServerInput, MCPServerPatch, MemoryForgetResult, MemoryState, MemoryTidyResult, MemoryTopic, Preset, PresetInput, PresetPatch, Settings, Skill,
-  TeamImportResult, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
+  TeamImportResult, OpenMausExport, Thread, Webhook, WebhookInfo, WebhookInput, WebhookPatch,
 } from "@/lib/bridge";
 import fixture from "@/mock/bootstrap.json";
 
@@ -114,11 +114,10 @@ export class MockBackend {
     const now = nowISO();
     const botId = uid("bot");
     const threadId = uid("thread");
-    const greeting = `Hey — I'm ${input.name || "your new bot"}.${input.title ? " I look after " + input.title.toLowerCase() + "." : ""}\n\nAsk me anything, or open **Agent profile** to shape how I work. I am ready when you are.`;
     const thread: Thread = {
       id: threadId, botId, title: "New conversation", kind: "chat", pinned: false, unread: 0,
       busy: false, createdAt: now, updatedAt: now,
-      messages: [{ id: uid("msg"), role: "bot", kind: "text", text: greeting, pending: false, error: false, createdAt: now, updatedAt: now }],
+      messages: [],
     };
     const bot: Bot = {
       id: botId, name: input.name || "New bot", title: input.title || "", description: input.description || "",
@@ -128,6 +127,7 @@ export class MockBackend {
     };
     this.state.bots.push(bot);
     this.state.activeBotId = botId;
+    this.state.activeGroupId = "";
     this.state.activeThreadId = threadId;
     this.emitState();
     return clone(bot);
@@ -176,7 +176,7 @@ export class MockBackend {
     const bot = this.bot(botId);
     const now = nowISO();
     const thread: Thread = {
-      id: uid("thread"), botId, title: title || "New conversation", kind: "chat", pinned: false,
+      id: uid("thread"), botId, title: title || "New conversation", kind: title === "New task" ? "task" : "chat", pinned: false,
       unread: 0, busy: false, createdAt: now, updatedAt: now, messages: [],
     };
     bot.threads.unshift(thread);
@@ -342,7 +342,6 @@ export class MockBackend {
     message.status = decision === "deny" ? "denied" : decision === "always" ? "always" : "allowed";
     message.approval.decision = message.status;
     message.approval.decidedAt = nowISO();
-    if (decision === "always") bot.approval = "auto";
     this.emitMessage(botId, threadId, message);
     this.emitState();
     const prompt = decision === "deny" ? "I denied the command." : "The command was allowed. Tell me the result.";
@@ -418,7 +417,7 @@ Mention a bot with **@Name**, or just ask and the lead will take it.`,
   async createGroupThread(groupId: string, title: string): Promise<Thread> {
     const group = this.group(groupId);
     const now = nowISO();
-    const thread: Thread = { id: uid("thread"), botId: "", title: title || "New conversation", kind: "group", pinned: false, unread: 0, busy: false, createdAt: now, updatedAt: now, messages: [] };
+    const thread: Thread = { id: uid("thread"), botId: "", title: title || "New conversation", kind: title === "New task" ? "task" : "group", pinned: false, unread: 0, busy: false, createdAt: now, updatedAt: now, messages: [] };
     group.threads = [thread, ...group.threads];
     group.updatedAt = now;
     this.state.activeGroupId = groupId;
@@ -449,8 +448,9 @@ Mention a bot with **@Name**, or just ask and the lead will take it.`,
 
   async selectGroup(groupId: string, threadId: string): Promise<void> {
     const group = this.group(groupId);
-    this.groupThread(group, threadId);
-    group.unread = 0;
+    const thread = this.groupThread(group, threadId);
+    group.unread = Math.max(0, group.unread - thread.unread);
+    thread.unread = 0;
     this.state.activeGroupId = groupId;
     this.state.activeBotId = "";
     this.state.activeThreadId = threadId;
@@ -460,6 +460,7 @@ Mention a bot with **@Name**, or just ask and the lead will take it.`,
   async markGroupRead(groupId: string): Promise<void> {
     const group = this.group(groupId);
     group.unread = 0;
+    for (const thread of group.threads) thread.unread = 0;
     this.emitState();
   }
 
@@ -473,7 +474,7 @@ Mention a bot with **@Name**, or just ask and the lead will take it.`,
     const now = nowISO();
     const user: Message = { id: uid("msg"), role: "user", kind: "text", text, attachments, pending: false, error: false, createdAt: now, updatedAt: now };
     thread.messages.push(user);
-    if (text && (thread.title === "" || thread.title === "New conversation")) thread.title = titleFrom(text);
+    if (text && (thread.title === "" || thread.title === "New conversation" || thread.title === "New task")) thread.title = titleFrom(text);
     const lower = text.toLowerCase();
     const responderId = group.memberIds.find((id) => {
       const member = this.state.bots.find((bot) => bot.id === id);
@@ -720,6 +721,10 @@ In the desktop app this runs in the bot's working folder.`, stderr: "", exitCode
   }
 
   async exportTeam(_groupId: string): Promise<string> {
+    throw new Error("Team packages are exported by the desktop app.");
+  }
+
+  async exportOpenMausTeam(_groupId: string, _includeMemory: boolean): Promise<OpenMausExport> {
     throw new Error("Team packages are exported by the desktop app.");
   }
 

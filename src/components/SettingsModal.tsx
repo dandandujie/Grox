@@ -10,7 +10,7 @@ import { speak } from "@/lib/speech";
 import { GroxLogo, ProviderMark } from "@/components/Icons";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
-import type { APIInfo, Department, MCPServer, Settings } from "@/lib/bridge";
+import type { APIInfo, Department, MCPServer, Settings, TeamImportResult } from "@/lib/bridge";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <Palette size={16} /> },
@@ -36,7 +36,7 @@ const SKINS = [
 const KEY_FIELDS = [
   { name: "xai", label: "xAI API key", hint: "For Grok models over the xAI API.", placeholder: "xai-…" },
   { name: "anthropic", label: "Anthropic API key", hint: "Used by the Claude engine.", placeholder: "sk-ant-…" },
-  { name: "openai", label: "OpenAI API key", hint: "Used by the Codex engine.", placeholder: "sk-…" },
+  { name: "openai", label: "OpenAI API key", hint: "For OpenAI models over the API.", placeholder: "sk-…" },
   { name: "google", label: "Google AI API key", hint: "Used by Gemini models.", placeholder: "AIza…" },
   { name: "composio", label: "Composio project key", hint: "Enables real OAuth links and the live tool runner in Connected apps.", placeholder: "ak_…" },
   { name: "api", label: "Custom API key", hint: "For an OpenAI-compatible gateway or a local model.", placeholder: "Optional" },
@@ -236,18 +236,17 @@ function ConnectionsSection() {
           })}
         </div>
       </SectionCard>
-      <SectionCard title="Connected apps" hint="A Composio project key turns the Connected apps page into real OAuth links and a live tool runner. Without it, no account is marked connected.">
-        <p className="settings-note">Keys never leave this machine. For a real app session, add the Composio key above and wire the connector in a later iteration.</p>
-      </SectionCard>
     </>
   );
 }
 
 function EnginesSection() {
-  const { engines, state, patchSettings, refreshCatalog, providers } = useApp();
+  const { engines, state, patchSettings, refreshCatalog, providers, setUI, toast } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [baseUrl, setBaseUrl] = useState(state.settings.apiBaseUrl);
   const [apiModel, setApiModel] = useState(state.settings.apiModel);
+  const [apiError, setAPIError] = useState("");
+  const [apiSaving, setAPISaving] = useState(false);
   const [inputPrice, setInputPrice] = useState(String(state.settings.inputPricePerMillion ?? 0));
   const [outputPrice, setOutputPrice] = useState(String(state.settings.outputPricePerMillion ?? 0));
 
@@ -264,15 +263,33 @@ function EnginesSection() {
     setRefreshing(false);
   };
 
-  const saveAPI = () => {
-    void patchSettings({ apiBaseUrl: baseUrl.trim(), apiModel: apiModel.trim() });
+  const useAPI = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const url = new URL(baseUrl.trim());
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    } catch {
+      setAPIError("Enter an HTTP or HTTPS base URL without credentials, query parameters or a fragment.");
+      return;
+    }
+    if (!apiModel.trim()) { setAPIError("Enter the model ID served by this endpoint."); return; }
+    setAPIError("");
+    setAPISaving(true);
+    try {
+      if (await patchSettings({ apiBaseUrl: baseUrl.trim(), apiModel: apiModel.trim(), engineMode: "api" })) {
+        toast({ kind: "success", title: "API settings saved" });
+        if (!state.settings.onboarded) setUI({ settingsOpen: false });
+      }
+    } finally {
+      setAPISaving(false);
+    }
   };
 
   return (
     <>
       <SectionCard
         title="Local engines"
-        hint="Grox uses the agent CLIs installed on this Mac, with their own logins. An installed CLI may still need signing in."
+        hint="Sign in to your CLI before using it in Grox."
         action={<button type="button" className="btn btn-ghost" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />} Refresh</button>}
       >
         <div className="engine-list">
@@ -284,7 +301,7 @@ function EnginesSection() {
                 <span className="engine-mark"><ProviderMark provider={provider} size={18} /></span>
                 <span className="engine-copy">
                   <span className="engine-name">{ENGINE_LABEL[provider]}</span>
-                  <span className="engine-detail">{ready ? (engine?.version || engine?.command) : "Not installed · connect a key or install the CLI"}</span>
+                  <span className="engine-detail">{ready ? (engine?.version || engine?.command) : "Not installed"}</span>
                 </span>
                 <span className={cn("engine-status", ready ? "is-ready" : "is-missing")}>{ready ? "Installed" : "Missing"}</span>
               </div>
@@ -293,7 +310,7 @@ function EnginesSection() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Engine preference" hint="Auto uses the engine behind the bot's model. Pick one engine to route every bot there.">
+      <SectionCard title="Engine preference" hint="Auto follows each bot's model. Other choices override all bots.">
         <Segmented
           label="Engine preference"
           value={state.settings.engineMode}
@@ -308,13 +325,10 @@ function EnginesSection() {
           ]}
           onChange={(engineMode) => void patchSettings({ engineMode })}
         />
-        <p className="settings-note">
-          Approval stays honest: Ask installs a per-turn tool hook and gates every tool through a Grox card. Auto accepts edits, Full bypasses the CLI's own checks. The app itself also asks before the demo engine touches anything.
-        </p>
       </SectionCard>
 
-      <SectionCard title="OpenAI-compatible API" hint="Use a gateway, a local Ollama/LM Studio server, or an OpenAI/xAI key.">
-        <div className="settings-form">
+      <SectionCard title="OpenAI-compatible API" hint="Use your own endpoint for all bots.">
+        <form className="settings-form" onSubmit={(event) => void useAPI(event)}>
           <label className="panel-field">
             <span>Base URL</span>
             <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:11434/v1" spellCheck={false} />
@@ -324,9 +338,11 @@ function EnginesSection() {
             <input value={apiModel} onChange={(event) => setApiModel(event.target.value)} placeholder="qwen3.5:8b" spellCheck={false} />
           </label>
           <div className="settings-form-actions">
-            <button type="button" className="btn btn-primary" onClick={saveAPI}><Save size={14} /> Save API settings</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setUI({ settingsSection: "connections" })}>Manage API keys</button>
+            <button type="submit" className="btn btn-primary" disabled={apiSaving}><Save size={14} /> {apiSaving ? "Saving…" : "Use API for all bots"}</button>
           </div>
-        </div>
+          {apiError && <p className="form-error" role="alert">{apiError}</p>}
+        </form>
       </SectionCard>
 
       <SectionCard title="Token pricing" hint="Optional USD prices per one million tokens. Grox only uses them to label message cost; it never invents a provider price.">
@@ -946,6 +962,7 @@ function MCPSection() {
                   <strong>{server.name}</strong>
                   <span>{server.transport === "stdio" ? [server.command, ...(server.args ?? [])].join(" ") : server.url}</span>
                   <small>{server.transport === "stdio" ? "Local command" : (server.botIds?.length ?? 0) > 0 ? (server.botIds?.length + " bot(s)") : server.oauthConfigured ? "OAuth client credentials" : (server.headerNames?.length ?? 0) > 0 ? (server.headerNames?.length + " header(s) configured") : server.authConfigured ? "Bearer token configured" : "No auth headers"}</small>
+                  {!!server.requiredHeaders?.length && <small>Requested headers: {server.requiredHeaders.join(", ")}</small>}
                 </div>
                 <Switch checked={server.enabled} label={"Enable " + server.name} onChange={(value) => void toggle(server, value)} />
                 <button type="button" className="link-button" onClick={() => { setEditing(server); setEditorOpen(true); }}>Edit</button>
@@ -960,27 +977,62 @@ function MCPSection() {
   );
 }
 
+const grokExportPrompt = `Give me a machine-readable copy of this Grok Bot. Keep the bot, its skills and routines unchanged.
+
+Output JSON with this shape:
+{
+  "format": "grok-bot-export",
+  "version": 1,
+  "bots": [{
+    "name": "", "title": "", "description": "", "instructions": "",
+    "memories": [], "user_facts": [],
+    "skills": [{"name": "", "description": "", "instructions": ""}],
+    "routines": [{"name": "", "instruction": "", "trigger": "", "schedule_cron": "", "schedule_text": "", "timezone": "", "trigger_details": ""}],
+    "apps": [{"name": "", "mcp_url": ""}]
+  }]
+}
+
+Include full instructions, all enabled skills, and scheduled or paused routines. Omit keys, passwords, cookies and private URLs. Leave unknown fields empty. If needed, split the export into multiple complete JSON documents using the same bot name.`;
+
 function DataSection() {
   const { boot, exportWorkspace, resetWorkspace, revealDataFolder, backend, toast } = useApp();
   const importRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [teamImport, setTeamImport] = useState<TeamImportResult | null>(null);
+  const [grokReply, setGrokReply] = useState("");
 
-  const importTeam = async (file: File | undefined) => {
-    if (!file) return;
-    if (file.size > 4 * 1024 * 1024) {
-      toast({ kind: "error", title: "Team package is too large", body: "Use a file under 4 MB." });
-      return;
-    }
+  const importTeam = async (read: () => Promise<string>) => {
+    if (importing) return;
+    setImporting(true);
+    setTeamImport(null);
     try {
-      const result = await backend.importTeam(await file.text());
-      toast({
-        kind: "success",
-        title: "Team package imported",
-        body: result.bots + " bots, " + result.groups + " channel, " + result.routines + " paused routines, " + result.skills + " skills.",
-      });
+      const result = await backend.importTeam(await read());
+      setTeamImport(result);
+      toast({ kind: "success", title: result.bots > 0 ? "Team package imported" : "These bots were already imported" });
     } catch (cause) {
       toast({ kind: "error", title: "Could not import the team", body: cause instanceof Error ? cause.message : "Try again." });
     } finally {
+      setImporting(false);
       if (importRef.current) importRef.current.value = "";
+    }
+  };
+  const importFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    void importTeam(async () => {
+      if (files.reduce((size, file) => size + file.size, 0) > 4 * 1024 * 1024) throw new Error("Choose files totaling at most 4 MB.");
+      const texts = await Promise.all(files.map((file) => file.text()));
+      if (texts.length > 1 && texts.some((text) => /^\s*---|["']format["']\s*:\s*["'](?:grox\.team|openmaus\.package)["']/.test(text))) {
+        throw new Error("Choose one team package at a time. Grok Bot export parts can be added together.");
+      }
+      return texts.join("\n");
+    });
+  };
+  const copyGrokPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(grokExportPrompt);
+      toast({ kind: "success", title: "Export prompt copied" });
+    } catch {
+      toast({ kind: "error", title: "Could not copy. Select the prompt below." });
     }
   };
   return (
@@ -1003,19 +1055,55 @@ function DataSection() {
           <button type="button" className="btn btn-secondary" onClick={() => void exportWorkspace()}>Export workspace</button>
         </div>
       </SectionCard>
-      <SectionCard title="Team packages" hint="Move one channel with its bots, enabled skills, memory and routines. The file carries no keys or app connections.">
+      <SectionCard title="Team packages" hint="Import a Grox or OpenMaus JSON file, a BotMRR blueprint, or a Grok Bot export.">
         <div className="data-row">
           <span className="data-label">Import</span>
-          <span className="data-hint">Adds new bots and a channel; imported routines arrive paused and skills start off. Nothing existing is overwritten.</span>
-          <button type="button" className="btn btn-secondary" onClick={() => importRef.current?.click()}><Upload size={14} /> Import team</button>
+          <span className="data-hint">New bots start on Ask, with routines paused and skills disabled.</span>
+          <button type="button" className="btn btn-secondary" disabled={importing} onClick={() => importRef.current?.click()}>
+            {importing ? <Spinner size={14} /> : <Upload size={14} />} {importing ? "Importing…" : "Import team"}
+          </button>
           <input
             ref={importRef}
             type="file"
-            accept="application/json,.json"
+            accept=".json,.md,.txt,application/json,text/plain,text/markdown"
+            multiple
             className="sr-only"
-            onChange={(event) => void importTeam(event.target.files?.[0])}
+            onChange={(event) => importFiles(Array.from(event.target.files ?? []))}
           />
         </div>
+        <details>
+          <summary>Move from Grok Bot</summary>
+          <label className="panel-field">
+            <span>Export prompt</span>
+            <textarea rows={4} readOnly value={grokExportPrompt} />
+          </label>
+          <button type="button" className="btn btn-secondary" onClick={() => void copyGrokPrompt()}>Copy prompt</button>
+          <label className="panel-field">
+            <span>Grok Bot replies</span>
+            <textarea rows={5} value={grokReply} onChange={(event) => setGrokReply(event.target.value)} />
+          </label>
+          <button type="button" className="btn btn-secondary" disabled={importing || !grokReply.trim()} onClick={() => void importTeam(async () => grokReply)}>
+            Import Grok Bot
+          </button>
+        </details>
+        {teamImport && (
+          <>
+            <div className="row-divider" />
+            <div className="data-row" role="status">
+              <span className="data-label">{teamImport.name}</span>
+              <span className="data-hint">
+                {teamImport.bots} bots · {teamImport.groups} channels · {teamImport.routines} paused routines · {teamImport.skills} skills · {teamImport.memories} notes
+                {teamImport.playbooks ? " · " + teamImport.playbooks + " playbooks" : ""}
+                {teamImport.connections ? " · " + teamImport.connections + " disabled connections" : ""}
+              </span>
+            </div>
+            {teamImport.warnings?.length ? (
+              <ul className="about-note">
+                {teamImport.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+              </ul>
+            ) : null}
+          </>
+        )}
       </SectionCard>
       <SectionCard title="Reset" hint="Replace the workspace with the first-run team. Keys are kept.">
         <div className="data-row">
@@ -1045,7 +1133,7 @@ function AboutSection() {
         <div><span>License</span><span>Apache-2.0</span></div>
         <div><span>Data</span><span>On this machine</span></div>
       </div>
-      <p className="about-note">Grox is an independent project. Every portrait is generated locally from layered pixel matrices; no avatar image is uploaded or fetched.</p>
+      <p className="about-note">Grox is an independent project. Portraits are generated locally from each bot’s name.</p>
       <button type="button" className="btn btn-secondary" onClick={() => { void patchSettings({ onboarded: false }); setUI({ settingsOpen: false }); }}>Show welcome again</button>
     </div>
   );

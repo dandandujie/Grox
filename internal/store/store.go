@@ -1,4 +1,4 @@
-// Package store persists the workspace to disk and seeds a first-run team.
+// Package store persists the workspace to disk and initializes new workspaces.
 package store
 
 import (
@@ -269,25 +269,7 @@ func (s *Store) Normalize() {
 			b.Threads = []model.Thread{{ID: "thread-" + b.ID, BotID: b.ID, Title: "New conversation", Kind: "chat", CreatedAt: now, UpdatedAt: now}}
 		}
 		for ti := range b.Threads {
-			t := &b.Threads[ti]
-			if t.Title == "" {
-				t.Title = "New conversation"
-			}
-			if t.Kind == "" {
-				t.Kind = "chat"
-			}
-			t.Busy = false
-			t.Status = ""
-			for mi := range t.Messages {
-				m := &t.Messages[mi]
-				m.Pending = false
-				if m.Kind == "" {
-					m.Kind = model.KindText
-				}
-				if m.CreatedAt.IsZero() {
-					m.CreatedAt = t.CreatedAt
-				}
-			}
+			normalizeThread(&b.Threads[ti], "chat", now)
 		}
 	}
 	if st.Groups == nil {
@@ -330,24 +312,22 @@ func (s *Store) Normalize() {
 			g.Threads = []model.Thread{{ID: "thread-" + g.ID, Title: "New conversation", Kind: "group", CreatedAt: now, UpdatedAt: now}}
 		}
 		for ti := range g.Threads {
-			t := &g.Threads[ti]
-			if t.Title == "" {
-				t.Title = "New conversation"
-			}
-			if t.Kind == "" {
-				t.Kind = "group"
-			}
-			t.Busy = false
-			t.Status = ""
-			for mi := range t.Messages {
-				m := &t.Messages[mi]
-				m.Pending = false
-				if m.Kind == "" {
-					m.Kind = model.KindText
-				}
-				if m.CreatedAt.IsZero() {
-					m.CreatedAt = t.CreatedAt
-				}
+			normalizeThread(&g.Threads[ti], "group", now)
+		}
+	}
+	for i := range st.Runs {
+		run := &st.Runs[i]
+		if run.Status != "running" {
+			continue
+		}
+		run.Status = "stopped"
+		run.FinishedAt = now
+		run.Summary = "Grox restarted before the run finished."
+		for j := range st.Routines {
+			routine := &st.Routines[j]
+			if routine.ID == run.RoutineID && routine.LastRun.Equal(run.StartedAt) {
+				routine.LastStatus = run.Status
+				break
 			}
 		}
 	}
@@ -410,6 +390,40 @@ func (s *Store) Reset(now time.Time) error {
 		return err
 	}
 	return nil
+}
+
+func normalizeThread(thread *model.Thread, kind string, now time.Time) {
+	if thread.Title == "" {
+		thread.Title = "New conversation"
+	}
+	if thread.Kind == "" {
+		thread.Kind = kind
+	}
+	for index := range thread.Messages {
+		message := &thread.Messages[index]
+		message.Pending = false
+		if thread.Busy && message.Status == model.StatusPending && (message.Kind == model.KindApproval || message.Kind == model.KindOptions) {
+			message.Status = "expired"
+		}
+		if message.Kind == "" {
+			message.Kind = model.KindText
+		}
+		if message.CreatedAt.IsZero() {
+			message.CreatedAt = thread.CreatedAt
+		}
+	}
+	if thread.Busy {
+		thread.Messages = append(thread.Messages, model.Message{
+			ID: fmt.Sprintf("%s-interrupted-%d", thread.ID, len(thread.Messages)), Role: model.RoleBot, Kind: model.KindNotice,
+			Status: "stopped", Text: "Grox closed before this turn finished.", CreatedAt: now, UpdatedAt: now,
+		})
+		thread.UpdatedAt = now
+	}
+	thread.Busy = false
+	thread.Status = ""
+	if thread.Messages == nil {
+		thread.Messages = []model.Message{}
+	}
 }
 
 func hasBot(st *model.AppState, id string) bool { return findBot(st, id) != nil }

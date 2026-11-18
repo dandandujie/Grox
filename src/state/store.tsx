@@ -9,8 +9,8 @@ import type {
 import type { Backend } from "@/lib/bridge";
 import { speak } from "@/lib/speech";
 
-export type View = "chat" | "routines" | "apps";
-export type Panel = "profile" | "skills" | "playbooks" | "memory" | "computer" | "activity";
+export type View = "chat" | "work" | "routines" | "apps";
+export type Panel = "profile" | "skills" | "playbooks" | "memory" | "computer" | "activity" | "artifacts";
 export type SettingsSection = "general" | "connections" | "engines" | "mcp" | "computer" | "phone" | "automation" | "departments" | "voice" | "data" | "about";
 
 export interface ToastItem {
@@ -81,14 +81,14 @@ interface AppContextValue {
   openThread: (botId: string, threadId: string) => void;
   openGroupThread: (groupId: string, threadId: string) => void;
   newTask: () => void;
-  send: (text: string, attachments?: Attachment[]) => Promise<void>;
+  send: (text: string, attachments?: Attachment[]) => Promise<{ accepted: true } | { accepted: false; error: string }>;
   uploadAttachment: (file: File) => Promise<Attachment | null>;
   stop: () => void;
   createBot: (input: CreateBotInput) => Promise<Bot | null>;
   createGroup: (input: CreateGroupInput) => Promise<Group | null>;
   updateGroup: (groupId: string, patch: GroupPatch) => Promise<void>;
   deleteGroup: (groupId: string) => void;
-  updateBot: (botId: string, patch: BotPatch) => Promise<void>;
+  updateBot: (botId: string, patch: BotPatch) => Promise<boolean>;
   duplicateBot: (botId: string) => Promise<void>;
   deleteBot: (botId: string) => void;
   renameThread: (threadId: string, title: string) => Promise<void>;
@@ -97,13 +97,13 @@ interface AppContextValue {
   revealWorkingFolder: (botId: string) => Promise<void>;
   decide: (messageId: string, decision: string) => Promise<void>;
   answer: (messageId: string, answer: string) => Promise<void>;
-  patchSettings: (patch: Partial<Settings>) => Promise<void>;
+  patchSettings: (patch: Partial<Settings>) => Promise<boolean>;
   saveSecret: (name: string, value: string) => Promise<boolean>;
   clearSecret: (name: string) => Promise<void>;
   refreshCatalog: () => Promise<void>;
   setConnection: (appId: string, connected: boolean) => Promise<void>;
   createRoutine: (input: RoutineInput) => Promise<Routine | null>;
-  updateRoutine: (id: string, patch: RoutinePatch) => Promise<void>;
+  updateRoutine: (id: string, patch: RoutinePatch) => Promise<boolean>;
   deleteRoutine: (id: string) => Promise<void>;
   runRoutine: (id: string) => Promise<void>;
   exportWorkspace: () => Promise<void>;
@@ -249,11 +249,11 @@ function initialUI(boot: Bootstrap): UIState {
   const panelParam = params.get("panel");
   const viewParam = params.get("view");
   return {
-    view: viewParam === "routines" || viewParam === "apps" ? viewParam : "chat",
+    view: viewParam === "work" || viewParam === "routines" || viewParam === "apps" ? viewParam : "chat",
     activeBotId: activeBot?.id ?? "",
     activeGroupId: activeGroup?.id ?? "",
     activeThreadId: thread?.id ?? "",
-    panel: panelParam === "profile" || panelParam === "skills" || panelParam === "memory" || panelParam === "computer" || panelParam === "activity" ? panelParam : null,
+    panel: panelParam === "profile" || panelParam === "skills" || panelParam === "memory" || panelParam === "computer" || panelParam === "activity" || panelParam === "artifacts" ? panelParam : null,
     settingsOpen: settingsParam !== null,
     settingsSection: (settingsSections.includes(settingsParam ?? "") ? settingsParam : "general") as SettingsSection,
     modelPickerOpen: params.get("modelPicker") === "1",
@@ -318,7 +318,8 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   useEffect(() => {
     const unsubscribe = backend.subscribe((event) => {
       if (event.type === "state" && event.state) {
-        setState(event.state);
+        const next = event.state;
+        setState((previous) => next.revision >= previous.revision ? next : previous);
         return;
       }
       if (event.type === "message" && event.message && event.threadId) {
@@ -488,7 +489,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       activeBotId: "",
       activeThreadId: target,
       groups: previous.groups.map((item) => item.id === groupId
-        ? { ...item, unread: 0, threads: item.threads.map((thread) => thread.id === target ? { ...thread, unread: 0 } : thread) }
+        ? { ...item, unread: Math.max(0, item.unread - (item.threads.find((thread) => thread.id === target)?.unread ?? 0)), threads: item.threads.map((thread) => thread.id === target ? { ...thread, unread: 0 } : thread) }
         : item),
     }));
     void backend.selectGroup(groupId, target).catch(fail);
@@ -513,8 +514,8 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   }, [activeBot, activeGroup, backend, fail, setUI]);
 
   const send = useCallback(async (text: string, attachments: Attachment[] = []) => {
-    if (!activeThread || (!activeBot && !activeGroup)) return;
-    if (!text.trim() && attachments.length === 0) return;
+    if (!activeThread || (!activeBot && !activeGroup)) return { accepted: false, error: "Open a conversation first." } as const;
+    if (!text.trim() && attachments.length === 0) return { accepted: false, error: "Write a message or attach a file." } as const;
     try {
       if (activeGroup) {
         if (attachments.length > 0) await backend.sendGroupWithAttachments(activeGroup.id, activeThread.id, text, attachments);
@@ -523,8 +524,10 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
         if (attachments.length > 0) await backend.sendWithAttachments(activeBot.id, activeThread.id, text, attachments);
         else await backend.send(activeBot.id, activeThread.id, text);
       }
+      return { accepted: true } as const;
     } catch (error) {
       fail(error);
+      return { accepted: false, error: error instanceof Error ? error.message : String(error) } as const;
     }
   }, [activeBot, activeGroup, activeThread, backend, fail]);
 
@@ -558,16 +561,16 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
           ? previous.bots.map((item) => (item.id === bot.id ? bot : item))
           : [...previous.bots, bot],
         activeBotId: bot.id,
+        activeGroupId: "",
         activeThreadId: bot.threads[0]?.id ?? "",
       }));
-      setUI({ activeBotId: bot.id, activeThreadId: bot.threads[0]?.id ?? "", newBotOpen: false, view: "chat" });
-      toast({ kind: "success", title: bot.name + " is ready", body: "Say hi, or shape the bot in Agent profile." });
+      setUI({ activeBotId: bot.id, activeGroupId: "", activeThreadId: bot.threads[0]?.id ?? "", newBotOpen: false, panel: null, view: "chat" });
       return bot;
     } catch (error) {
       fail(error);
       return null;
     }
-  }, [backend, fail, toast, setUI]);
+  }, [backend, fail, setUI]);
 
   const createGroup = useCallback(async (input: CreateGroupInput) => {
     try {
@@ -604,15 +607,12 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   }, [backend, fail]);
 
   const updateBot = useCallback(async (botId: string, patch: BotPatch) => {
-    setState((previous) => ({
-      ...previous,
-      bots: previous.bots.map((bot) => (bot.id === botId ? { ...bot, ...patch } : bot)),
-    }));
     try {
-      const bot = await backend.updateBot(botId, patch);
-      setState((previous) => ({ ...previous, bots: previous.bots.map((item) => (item.id === bot.id ? bot : item)) }));
+      await backend.updateBot(botId, patch);
+      return true;
     } catch (error) {
       fail(error);
+      return false;
     }
   }, [backend, fail]);
 
@@ -839,15 +839,14 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   }, [backend, fail, toast]);
 
   const patchSettings = useCallback(async (patch: Partial<Settings>) => {
-    const next = { ...state.settings, ...patch };
-    setState((previous) => ({ ...previous, settings: next }));
     try {
-      const saved = await backend.updateSettings(next);
-      setState((previous) => ({ ...previous, settings: saved }));
+      await backend.updateSettings({ ...stateRef.current.settings, ...patch });
+      return true;
     } catch (error) {
       fail(error);
+      return false;
     }
-  }, [backend, fail, state.settings]);
+  }, [backend, fail]);
 
   const refreshCatalog = useCallback(async () => {
     try {
@@ -856,7 +855,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
       setEngines(fresh.engines);
       setSecrets(fresh.secrets);
       setPhone(fresh.phone);
-      setState(fresh.state);
+      setState((previous) => fresh.state.revision >= previous.revision ? fresh.state : previous);
     } catch (error) {
       fail(error);
     }
@@ -911,7 +910,9 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   const createRoutine = useCallback(async (input: RoutineInput) => {
     try {
       const routine = await backend.createRoutine(input);
-      setState((previous) => ({ ...previous, routines: [...previous.routines, routine] }));
+      setState((previous) => previous.routines.some((item) => item.id === routine.id)
+        ? previous
+        : { ...previous, routines: [...previous.routines, routine] });
       toast({ kind: "success", title: "Routine created" });
       return routine;
     } catch (error) {
@@ -924,8 +925,10 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     try {
       const routine = await backend.updateRoutine(id, patch);
       setState((previous) => ({ ...previous, routines: previous.routines.map((item) => item.id === id ? routine : item) }));
+      return true;
     } catch (error) {
       fail(error);
+      return false;
     }
   }, [backend, fail]);
 
@@ -943,7 +946,15 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
     const routine = state.routines.find((item) => item.id === id);
     try {
       const result = await backend.runRoutine(id);
-      setUI({ activeBotId: result.botId, activeThreadId: result.threadId, view: "chat", newRoutineOpen: false });
+      setUI({
+        activeBotId: result.groupId ? "" : result.botId,
+        activeGroupId: result.groupId ?? "",
+        activeThreadId: result.threadId,
+        view: "chat",
+        panel: null,
+        newRoutineOpen: false,
+        editingRoutineId: null,
+      });
       toast({ kind: "success", title: routine?.name ? routine.name + " is running" : "Routine is running" });
     } catch (error) {
       fail(error);
@@ -962,7 +973,7 @@ export function AppProvider({ backend, boot, children }: { backend: Backend; boo
   const resetWorkspace = useCallback(() => {
     requestConfirm({
       title: "Reset this workspace?",
-      body: "Bots, conversations and routines will be replaced with the first-run team. API keys are kept.",
+      body: "This removes bots, conversations and routines and starts a fresh workspace. API keys are kept.",
       confirmLabel: "Reset everything",
       danger: true,
       onConfirm: () => {

@@ -15,6 +15,7 @@ type claudeHookTarget struct {
 	BotID    string
 	GroupID  string
 	ThreadID string
+	control  *turnControl
 }
 
 type claudeHookApproval struct {
@@ -43,7 +44,16 @@ func (s *Service) startApprovalServer() {
 	mux.HandleFunc("/claude-hook/", s.handleClaudeHook)
 	mux.HandleFunc("/hook/", s.handleToolHook)
 	mux.HandleFunc("/mcp/", s.handleMCP)
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 8 * time.Second}
+	server := &http.Server{
+		ReadHeaderTimeout: 8 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Host != listener.Addr().String() || len(r.Header.Values("Origin")) != 0 {
+				http.Error(w, "this gateway accepts local agent clients", http.StatusForbidden)
+				return
+			}
+			mux.ServeHTTP(w, r)
+		}),
+	}
 	s.approvalListener = listener
 	s.approvalServer = server
 	go func() {
@@ -81,6 +91,31 @@ func (s *Service) newClaudeHookURL(target claudeHookTarget) (string, error) {
 	return fmt.Sprintf("http://127.0.0.1:%d/claude-hook/%s", addr.Port, token), nil
 }
 
+func (s *Service) hookOwnerLocked(target claudeHookTarget) sinkOwner {
+	owner := s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+	if target.control == nil {
+		return owner
+	}
+	key := turnKey(target.BotID, target.GroupID, target.ThreadID)
+	if s.turns[key] != target.control || (owner.thread != nil && owner.thread.Status == "Stopping") {
+		return sinkOwner{}
+	}
+	return owner
+}
+
+func (s *Service) revokeTurnHooks(control *turnControl) {
+	if control == nil {
+		return
+	}
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	for token, target := range s.approvalTokens {
+		if target.control == control {
+			delete(s.approvalTokens, token)
+		}
+	}
+}
+
 func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -102,7 +137,7 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(input.ToolName) == "" {
 		input.ToolName = "a tool"
 	}
-	if strings.Contains(strings.ToLower(input.ToolName), "ask_user") {
+	if strings.Contains(strings.ToLower(input.ToolName), "ask_user") || (target.control != nil && isGroxComputerHook(input.ToolName)) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(toolHookResponse("claude", "allow"))
 		return
@@ -115,7 +150,7 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 		command += " " + raw
 	}
 	s.mu.Lock()
-	owner := s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+	owner := s.hookOwnerLocked(target)
 	if owner.thread == nil {
 		s.mu.Unlock()
 		http.Error(w, "conversation not found", http.StatusNotFound)
@@ -144,18 +179,17 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	if owner.group != nil {
 		owner.group.UpdatedAt = now
 	}
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
-	s.mu.Unlock()
 	pending := &claudeHookApproval{ch: make(chan string, 1), suggestions: input.PermissionSuggestions, target: target}
 	s.approvalMu.Lock()
 	s.hookApprovals[message.ID] = pending
 	s.approvalMu.Unlock()
-
+	s.touchLocked()
+	s.saveLocked()
+	s.emitStateLocked()
+	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
 	s.emitEvent(model.Event{Type: "message", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, MessageID: message.ID, Message: &message})
 	s.emitEvent(model.Event{Type: "turn", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Turn: turn})
+	s.mu.Unlock()
 
 	decision := "deny"
 	timer := time.NewTimer(240 * time.Second)
@@ -173,7 +207,7 @@ func (s *Service) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	current := s.hookApprovals[message.ID]
 	if current != nil {
 		delete(s.hookApprovals, message.ID)
-		owner = s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+		owner = s.hookOwnerLocked(target)
 		if owner.thread != nil {
 			if msg := s.findMessageLocked(owner.thread, message.ID); msg != nil && msg.Status == model.StatusPending {
 				msg.Status = model.StatusDenied

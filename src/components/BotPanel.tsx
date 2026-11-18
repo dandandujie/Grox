@@ -10,7 +10,6 @@ import { currentModel } from "@/components/ModelPicker";
 import { ProviderMark } from "@/components/Icons";
 import { IconButton, Modal, Segmented, Switch } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { generateAvatar } from "@/lib/pixel-avatar";
 import { clock, relative, sidebarTime } from "@/lib/format";
 import { getVoices } from "@/lib/speech";
 import { formatBytes } from "@/components/Attachments";
@@ -37,23 +36,11 @@ function useBotDrafts(bot: Bot) {
 }
 
 function AvatarCard({ bot }: { bot: Bot }) {
-  const avatar = generateAvatar(bot.name);
   return (
     <section className="avatar-card generated-avatar-card">
-      <div className="avatar-card-head">
-        <span>Portrait</span>
-        <span className="avatar-seed">seed: {avatar.seed}</span>
-      </div>
+      <div className="avatar-card-head">Portrait</div>
       <div className="avatar-hero generated-avatar-hero">
         <Mascot seed={bot.name} title={bot.name} size={128} />
-      </div>
-      <p className="avatar-hint">A deterministic 1-bit portrait built from layered pixel matrices. Rename the bot to change its seed and combination.</p>
-      <div className="avatar-section-label">Layer recipe</div>
-      <div className="avatar-recipe">
-        <div><span>Hair</span><strong>{avatar.hair.name}</strong></div>
-        <div><span>Eyes</span><strong>{avatar.eyes.name}</strong></div>
-        <div><span>Facial hair / mouth</span><strong>{avatar.facial.name}</strong></div>
-        <div><span>Hash</span><strong>{avatar.hash.toString(16)}</strong></div>
       </div>
     </section>
   );
@@ -418,7 +405,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
           <Segmented
             label="Computer location"
             value={mode}
-            options={[{ value: "local", label: "This Mac" }, { value: "ssh", label: "SSH box" }]}
+            options={[{ value: "local", label: "This computer" }, { value: "ssh", label: "SSH box" }]}
             onChange={(value) => {
               const next = value === "ssh" ? "ssh" : "local";
               setMode(next);
@@ -428,7 +415,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
           />
         </div>
         {mode === "local" ? (
-          <p className="panel-note">Screen capture, files and the terminal run on this Mac under your user account.</p>
+          <p className="panel-note">Agent tools use this computer and follow the bot’s approval settings.</p>
         ) : (
           <div className="remote-fields">
             <div className="form-two">
@@ -440,7 +427,7 @@ function ComputerTab({ bot }: { bot: Bot }) {
               <label className="panel-field"><span>Remote root</span><input value={sshRoot} onChange={(event) => setSshRoot(event.target.value)} placeholder="/home/ubuntu" spellCheck={false} /></label>
             </div>
             <label className="panel-field"><span>Private key path</span><input value={sshKeyPath} onChange={(event) => setSshKeyPath(event.target.value)} placeholder="~/.ssh/id_ed25519" spellCheck={false} /></label>
-            <p className="computer-hint">The key stays on this Mac. The host key is checked against ~/.ssh/known_hosts when that file exists. Screen capture needs grim, scrot or ImageMagick on the remote box.</p>
+            <p className="computer-hint">The host key must match ~/.ssh/known_hosts. Screen capture needs an active display and grim, scrot or ImageMagick on the remote box.</p>
             {remoteNote && <pre className="remote-note">{remoteNote}</pre>}
             <button type="button" className="btn btn-secondary remote-save" disabled={remoteBusy} onClick={async () => {
               setRemoteBusy(true);

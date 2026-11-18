@@ -1,15 +1,10 @@
 package agent
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/dandandujie/grox/internal/model"
 )
@@ -25,6 +20,25 @@ func runAPI(ctx context.Context, req Request, sink Sink) (string, error) {
 
 // runAPIPlain streams one response without function tools.
 func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
+	endpoint, modelID := apiEndpoint(req)
+	if endpoint == "" {
+		return "", fmt.Errorf("no API base URL is configured")
+	}
+	messages, err := apiMessages(ctx, req, false)
+	if err != nil {
+		return "", err
+	}
+	result, err := streamAPIRound(ctx, endpoint, modelID, req.APIKey, messages, nil, sink)
+	if err != nil {
+		return result.Text, err
+	}
+	if strings.TrimSpace(result.Text) == "" {
+		return "", fmt.Errorf("the API returned an empty reply")
+	}
+	return result.Text, nil
+}
+
+func apiEndpoint(req Request) (string, string) {
 	base := strings.TrimSpace(req.APIBaseURL)
 	if base == "" {
 		switch req.Model.Provider {
@@ -35,7 +49,7 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 		}
 	}
 	if base == "" {
-		return "", fmt.Errorf("no API base URL is configured")
+		return "", ""
 	}
 	endpoint := strings.TrimSuffix(base, "/")
 	if !strings.HasSuffix(endpoint, "/chat/completions") {
@@ -45,153 +59,97 @@ func runAPIPlain(ctx context.Context, req Request, sink Sink) (string, error) {
 	if modelID == "" {
 		modelID = req.Model.ID
 	}
+	return endpoint, modelID
+}
 
-	messages := []map[string]string{}
+func apiMessages(ctx context.Context, req Request, withTools bool) ([]map[string]any, error) {
 	system := req.Bot.Soul
 	if system == "" {
 		system = "You are " + req.Bot.Name + ", a helpful assistant."
 	}
 	system += "\n\nYou are replying inside Grox, a chat app. Use GitHub-flavored Markdown when it helps."
-	if playbookText := strings.TrimSpace(req.PlaybookText); playbookText != "" {
-		system += "\n\n## Installed playbooks\n\n" + playbookText
-	}
-	if skillText := strings.TrimSpace(req.SkillText); skillText != "" {
-		system += "\n\n## Enabled skills\n\n" + skillText
-	}
-	if memoryText := strings.TrimSpace(req.MemoryText); memoryText != "" {
-		system += "\n\n## Memory\n\n" + memoryText
-	}
-	if recallText := strings.TrimSpace(req.RecallText); recallText != "" {
-		system += "\n\n## Recalled memory\n\n" + recallText
-	}
-	messages = append(messages, map[string]string{"role": "system", "content": system})
-	for _, m := range recent(req.History, 16) {
-		text := strings.TrimSpace(m.Text)
-		if text == "" || m.Pending {
-			continue
-		}
-		switch m.Role {
-		case model.RoleUser:
-			messages = append(messages, map[string]string{"role": "user", "content": text})
-		case model.RoleBot:
-			content := text
-			if m.SenderName != "" && m.SenderName != req.Bot.Name {
-				content = m.SenderName + ": " + text
-			}
-			messages = append(messages, map[string]string{"role": "assistant", "content": content})
+	for _, context := range []struct{ title, content string }{
+		{"Installed playbooks", req.PlaybookText},
+		{"Enabled skills", req.SkillText},
+		{"Memory", req.MemoryText},
+		{"Recalled memory", req.RecallText},
+	} {
+		if text := strings.TrimSpace(context.content); text != "" {
+			system += "\n\n## " + context.title + "\n\n" + text
 		}
 	}
-	// Ensure the newest user message is present exactly once.
+	if withTools {
+		system += "\n\nYou can call connected-app tools. Use a tool only when it is necessary; explain the result to the person in plain language."
+	}
+	messages := []map[string]any{{"role": "system", "content": system}}
+	history := recent(req.History, 16)
 	userText := strings.TrimSpace(req.UserText)
-	if userText != "" {
-		if len(messages) == 0 || messages[len(messages)-1]["content"] != userText || messages[len(messages)-1]["role"] != "user" {
-			messages = append(messages, map[string]string{"role": "user", "content": userText})
+	for index, message := range history {
+		text := strings.TrimSpace(message.Text)
+		if message.Pending {
+			continue
+		}
+		switch message.Role {
+		case model.RoleUser:
+			// The active send is already in the saved transcript. Add it
+			// below, together with the explicitly selected file contents.
+			if index == len(history)-1 && text == userText {
+				continue
+			}
+			if text != "" {
+				messages = append(messages, map[string]any{"role": "user", "content": text})
+			}
+		case model.RoleBot:
+			if text == "" {
+				continue
+			}
+			if message.SenderName != "" && message.SenderName != req.Bot.Name {
+				text = message.SenderName + ": " + text
+			}
+			messages = append(messages, map[string]any{"role": "assistant", "content": text})
 		}
 	}
-
-	body, err := json.Marshal(map[string]any{
-		"model":          modelID,
-		"messages":       messages,
-		"stream":         true,
-		"stream_options": map[string]any{"include_usage": true},
-	})
-	if err != nil {
-		return "", err
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	if req.APIKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
-	}
-
-	sink.Status("Thinking")
-	client := &http.Client{}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
+	var attachments []APIAttachment
+	if req.LoadAPIAttachments != nil {
+		var err error
+		attachments, err = req.LoadAPIAttachments(ctx)
+		if err != nil {
+			return nil, err
 		}
-		return "", fmt.Errorf("could not reach the API: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		msg := strings.TrimSpace(string(data))
-		if len(msg) > 300 {
-			msg = msg[:300] + "…"
-		}
-		return "", fmt.Errorf("the API returned %s: %s", resp.Status, msg)
+	if userText != "" || len(attachments) > 0 {
+		messages = append(messages, map[string]any{"role": "user", "content": apiUserContent(userText, attachments)})
 	}
+	return messages, nil
+}
 
+func apiUserContent(userText string, attachments []APIAttachment) any {
 	var text strings.Builder
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
-	firstToken := false
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, ":") {
+	text.WriteString(userText)
+	var images []map[string]any
+	for _, file := range attachments {
+		if file.ImageMIME != "" {
+			images = append(images, map[string]any{
+				"type": "image_url",
+				"image_url": map[string]string{
+					"url": "data:" + file.ImageMIME + ";base64," + base64.StdEncoding.EncodeToString(file.Data),
+				},
+			})
 			continue
 		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
+		if text.Len() > 0 {
+			text.WriteString("\n\n")
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" {
-			break
-		}
-		var event map[string]any
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			continue
-		}
-		if errObj, ok := event["error"].(map[string]any); ok {
-			return "", fmt.Errorf("%s", str(errObj["message"]))
-		}
-		if usage, ok := usageFromEvent(event); ok {
-			reportUsage(sink, usage)
-		}
-		choices, _ := event["choices"].([]any)
-		if len(choices) == 0 {
-			continue
-		}
-		choice, _ := choices[0].(map[string]any)
-		if choice == nil {
-			continue
-		}
-		delta, _ := choice["delta"].(map[string]any)
-		if delta != nil {
-			if content := contentText(delta["content"]); content != "" {
-				if !firstToken {
-					sink.Status("Writing")
-					firstToken = true
-				}
-				sink.Text(content)
-				text.WriteString(content)
-			}
-			if calls, ok := delta["tool_calls"].([]any); ok && len(calls) > 0 {
-				sink.Activity(model.Activity{Label: "Used a tool", Status: model.StatusRunning, StartedAt: time.Now()})
-			}
-		}
-		if msg, _ := choice["message"].(map[string]any); msg != nil && text.Len() == 0 {
-			if content := contentText(msg["content"]); content != "" {
-				sink.Text(content)
-				text.WriteString(content)
-			}
-		}
+		fmt.Fprintf(&text, "Attached file %q:\n", file.Name)
+		text.Write(file.Data)
 	}
-	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		return "", fmt.Errorf("the API stream ended early: %w", err)
+	if len(images) == 0 {
+		return text.String()
 	}
-	if strings.TrimSpace(text.String()) == "" {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		return "", fmt.Errorf("the API returned an empty reply")
+	if text.Len() == 0 {
+		return images
 	}
-	return text.String(), nil
+	return append([]map[string]any{{"type": "text", "text": text.String()}}, images...)
 }
 
 func usageFromEvent(event map[string]any) (TokenUsage, bool) {

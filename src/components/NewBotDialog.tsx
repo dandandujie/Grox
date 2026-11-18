@@ -4,6 +4,7 @@ import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
 import { Modal } from "@/components/ui";
 import type { Preset } from "@/lib/bridge";
+import { EngineModelSelect, preferredModel } from "@/components/EngineModelSelect";
 
 export function NewBotDialog() {
   const { ui, setUI, createBot, providers, state } = useApp();
@@ -16,8 +17,7 @@ export function NewBotDialog() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const options = providers.flatMap((provider) => provider.models.filter((model) => model.available).map((model) => ({ provider, model })));
-  const fallbackModel = options.find((item) => item.model.default) ?? options[0];
+  const fallbackModel = preferredModel(providers);
 
   useEffect(() => {
     if (!ui.newBotOpen) return;
@@ -26,7 +26,7 @@ export function NewBotDialog() {
     setDepartment("General");
     setDescription("");
     setSoul("");
-    setModelId(fallbackModel?.model.id ?? "grox-demo");
+    setModelId(fallbackModel?.id ?? "grox-demo");
     setBusy(false);
     setError("");
   }, [ui.newBotOpen]);
@@ -56,7 +56,6 @@ export function NewBotDialog() {
       <form className="new-bot" onSubmit={submit}>
         <div className="new-bot-hero">
           <Mascot seed={name || "New bot"} size={78} />
-          <p className="new-bot-avatar-note">The portrait is generated from the name. Rename the bot later to change its seed.</p>
         </div>
 
         <div className="preset-row">
@@ -83,22 +82,7 @@ export function NewBotDialog() {
             <input value={department} onChange={(event) => setDepartment(event.target.value)} placeholder="General" />
           </label>
         </div>
-        <div className="form-two">
-          <label className="panel-field">
-            <span>Model</span>
-            <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-              {providers.map((provider) => {
-                const available = provider.models.filter((model) => model.available);
-                if (!available.length) return null;
-                return (
-                  <optgroup key={provider.id} label={provider.name}>
-                    {available.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
-                  </optgroup>
-                );
-              })}
-            </select>
-          </label>
-        </div>
+        <EngineModelSelect providers={providers} value={modelId} onChange={setModelId} />
         <label className="panel-field">
           <span>What it does</span>
           <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="A short description for the sidebar" />

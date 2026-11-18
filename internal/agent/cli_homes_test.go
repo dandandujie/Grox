@@ -24,7 +24,14 @@ func TestPrepareCLIHomes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte("model = \"gpt-5.2\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte("{\"theme\":\"dark\"}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(`{
+  // Keep settings written by Gemini CLI.
+  "theme": "dark",
+  "fixture": "the URL is https://example.test/" /* comments aren't required to be on their own line */
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", "oauth_creds.json"), []byte("test-fixture"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	server := model.MCPServerConfig{ID: "mcp-1", Name: "Linear", URL: "https://mcp.example.test/mcp", Token: "tok", Headers: map[string]string{"X-Test": "header-value"}}
@@ -50,7 +57,9 @@ func TestPrepareCLIHomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	geminiRaw, _ := os.ReadFile(filepath.Join(geminiHome, "settings.json"))
+	defer geminiCleanup()
+	geminiConfig := filepath.Join(geminiHome, ".gemini")
+	geminiRaw, _ := os.ReadFile(filepath.Join(geminiConfig, "settings.json"))
 	var geminiSettings map[string]any
 	if err := json.Unmarshal(geminiRaw, &geminiSettings); err != nil {
 		t.Fatal(err)
@@ -61,7 +70,12 @@ func TestPrepareCLIHomes(t *testing.T) {
 	if _, ok := geminiSettings["hooks"]; !ok {
 		t.Fatalf("gemini hooks = %s", geminiRaw)
 	}
-	geminiCleanup()
+	if geminiSettings["theme"] != "dark" || geminiSettings["fixture"] != "the URL is https://example.test/" || !strings.Contains(string(geminiRaw), "\"timeout\": 300000") {
+		t.Fatalf("Gemini settings or approval timeout missing: %s", geminiRaw)
+	}
+	if credentials, err := os.ReadFile(filepath.Join(geminiConfig, "oauth_creds.json")); err != nil || string(credentials) != "test-fixture" {
+		t.Fatalf("Gemini auth fixture unavailable at its expected path: %v", err)
+	}
 	mcpPath, mcpCleanup, err := writeMCPConfig("http://127.0.0.1:1/mcp", server)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +127,7 @@ func TestPrepareStdioMCPConfigs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	geminiRaw, _ := os.ReadFile(filepath.Join(geminiHome, "settings.json"))
+	geminiRaw, _ := os.ReadFile(filepath.Join(geminiHome, ".gemini", "settings.json"))
 	if !strings.Contains(string(geminiRaw), "mcp-tool") || !strings.Contains(string(geminiRaw), "stdio") {
 		t.Fatalf("gemini stdio config = %s", geminiRaw)
 	}

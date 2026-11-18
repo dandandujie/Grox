@@ -1,7 +1,7 @@
 package service
 
 import (
-	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"mime"
@@ -70,7 +70,7 @@ func (s *Service) remoteConfigLocked(bot *model.Bot) (remoteConfig, error) {
 	return cfg, nil
 }
 
-func (s *Service) remoteClient(cfg remoteConfig) (*ssh.Client, error) {
+func (s *Service) remoteClient(ctx context.Context, cfg remoteConfig) (*ssh.Client, error) {
 	key, err := os.ReadFile(expandHome(cfg.KeyPath))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the SSH key: %w", err)
@@ -79,14 +79,13 @@ func (s *Service) remoteClient(cfg remoteConfig) (*ssh.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not parse the SSH key: %w", err)
 	}
-	hostKeyCallback := ssh.InsecureIgnoreHostKey()
-	if home, homeErr := os.UserHomeDir(); homeErr == nil {
-		knownHosts := filepath.Join(home, ".ssh", "known_hosts")
-		if _, statErr := os.Stat(knownHosts); statErr == nil {
-			if callback, callbackErr := knownhosts.New(knownHosts); callbackErr == nil {
-				hostKeyCallback = callback
-			}
-		}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("could not locate SSH known_hosts: %w", err)
+	}
+	hostKeyCallback, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
+	if err != nil {
+		return nil, fmt.Errorf("load SSH known_hosts: %w", err)
 	}
 	config := &ssh.ClientConfig{
 		User:            cfg.User,
@@ -95,11 +94,15 @@ func (s *Service) remoteClient(cfg remoteConfig) (*ssh.Client, error) {
 		Timeout:         12 * time.Second,
 	}
 	address := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	conn, err := net.DialTimeout("tcp", address, 12*time.Second)
+	dialCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach %s: %w", address, err)
 	}
+	stopHandshake := context.AfterFunc(dialCtx, func() { _ = conn.Close() })
 	sshConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
+	stopHandshake()
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("SSH handshake failed: %w", err)
@@ -111,38 +114,39 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func (s *Service) remoteRun(cfg remoteConfig, command string, timeout time.Duration) (string, string, int, error) {
-	client, err := s.remoteClient(cfg)
+func (s *Service) remoteRun(parent context.Context, cfg remoteConfig, command string, timeout time.Duration, outputLimit int) (string, string, int, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	client, err := s.remoteClient(ctx, cfg)
 	if err != nil {
 		return "", "", 1, err
 	}
 	defer client.Close()
+	stopIO := context.AfterFunc(ctx, func() { _ = client.Close() })
+	defer stopIO()
 	session, err := client.NewSession()
 	if err != nil {
 		return "", "", 1, err
 	}
 	defer session.Close()
-	var stdout, stderr bytes.Buffer
-	session.Stdout = &stdout
-	session.Stderr = &stderr
+	stdout := &cappedBuffer{max: outputLimit}
+	stderr := &cappedBuffer{max: maxCommandBytes}
+	session.Stdout = stdout
+	session.Stderr = stderr
 	full := "cd " + shellQuote(cfg.Root) + " 2>/dev/null && " + command
-	done := make(chan error, 1)
-	go func() { done <- session.Run(full) }()
-	select {
-	case err = <-done:
-	case <-time.After(timeout):
-		_ = client.Close()
-		return stdout.String(), stderr.String(), 1, fmt.Errorf("the remote command timed out")
+	err = session.Run(full)
+	if ctx.Err() != nil {
+		return stdout.buf.String(), stderr.buf.String(), 1, ctx.Err()
 	}
 	exitCode := 0
 	if err != nil {
 		if exit, ok := err.(*ssh.ExitError); ok {
 			exitCode = exit.ExitStatus()
 		} else {
-			return stdout.String(), stderr.String(), 1, err
+			return stdout.buf.String(), stderr.buf.String(), 1, err
 		}
 	}
-	return stdout.String(), stderr.String(), exitCode, nil
+	return stdout.buf.String(), stderr.buf.String(), exitCode, nil
 }
 
 func remoteJoin(root, value string) (string, error) {
@@ -155,19 +159,24 @@ func remoteJoin(root, value string) (string, error) {
 	if !strings.HasPrefix(value, "/") {
 		result = path.Join(cleanRoot, value)
 	}
-	if result != cleanRoot && !strings.HasPrefix(result, cleanRoot+"/") {
+	if result != cleanRoot && !strings.HasPrefix(result, strings.TrimSuffix(cleanRoot, "/")+"/") {
 		return "", fmt.Errorf("that path is outside the remote computer root")
 	}
 	return result, nil
 }
 
-func (s *Service) remoteList(cfg remoteConfig, target string) (model.FolderListing, error) {
+func remotePathCommand(root, target, command string) string {
+	return "base=$(realpath -e -- " + shellQuote(root) + ") && target=$(realpath -e -- " + shellQuote(target) +
+		") && { [ \"$target\" = \"$base\" ] || [ \"${target#\"${base%/}\"/}\" != \"$target\" ]; } && " + command
+}
+
+func (s *Service) remoteList(ctx context.Context, cfg remoteConfig, target string) (model.FolderListing, error) {
 	remotePath, err := remoteJoin(cfg.Root, target)
 	if err != nil {
 		return model.FolderListing{}, err
 	}
-	command := "find " + shellQuote(remotePath) + " -maxdepth 1 -mindepth 1 -printf '%f\\t%y\\t%s\\t%T@\\n' 2>/dev/null"
-	stdout, stderr, code, err := s.remoteRun(cfg, command, 20*time.Second)
+	command := remotePathCommand(cfg.Root, remotePath, "find \"$target\" -maxdepth 1 -mindepth 1 -printf '%f\\t%y\\t%s\\t%T@\\n' 2>/dev/null")
+	stdout, stderr, code, err := s.remoteRun(ctx, cfg, command, 20*time.Second, maxCommandBytes)
 	if err != nil {
 		return model.FolderListing{}, err
 	}
@@ -205,15 +214,18 @@ func (s *Service) remoteList(cfg remoteConfig, target string) (model.FolderListi
 		}
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
+	if len(entries) > 500 {
+		entries = entries[:500]
+	}
 	return model.FolderListing{Root: cfg.Root, Path: remotePath, Entries: entries}, nil
 }
 
-func (s *Service) remoteRead(cfg remoteConfig, target string) (model.FilePreview, error) {
+func (s *Service) remoteRead(ctx context.Context, cfg remoteConfig, target string) (model.FilePreview, error) {
 	remotePath, err := remoteJoin(cfg.Root, target)
 	if err != nil {
 		return model.FilePreview{}, err
 	}
-	sizeOut, _, code, err := s.remoteRun(cfg, "wc -c < "+shellQuote(remotePath), 15*time.Second)
+	sizeOut, _, code, err := s.remoteRun(ctx, cfg, remotePathCommand(cfg.Root, remotePath, "test -f \"$target\" && wc -c < \"$target\""), 15*time.Second, 256)
 	if err != nil {
 		return model.FilePreview{}, err
 	}
@@ -230,25 +242,29 @@ func (s *Service) remoteRead(cfg remoteConfig, target string) (model.FilePreview
 		if size > maxPreviewImage {
 			return model.FilePreview{}, fmt.Errorf("this image is too large to preview")
 		}
-		out, stderr, code, err := s.remoteRun(cfg, "base64 < "+shellQuote(remotePath)+" | tr -d '\\n'", 30*time.Second)
+		out, stderr, code, err := s.remoteRun(ctx, cfg, remotePathCommand(cfg.Root, remotePath, "test -f \"$target\" && head -c 12582913 < \"$target\" | base64 | tr -d '\\n'"), 30*time.Second, base64.StdEncoding.EncodedLen(maxPreviewImage+1))
 		if err != nil || code != 0 {
 			if err == nil {
 				err = fmt.Errorf("%s", strings.TrimSpace(stderr))
 			}
 			return model.FilePreview{}, err
 		}
+		if len(out) > base64.StdEncoding.EncodedLen(maxPreviewImage) {
+			return model.FilePreview{}, fmt.Errorf("this image is too large to preview")
+		}
 		preview.Kind = "image"
 		preview.Data = strings.TrimSpace(out)
 		return preview, nil
 	}
-	out, stderr, code, err := s.remoteRun(cfg, "head -c 262145 < "+shellQuote(remotePath), 20*time.Second)
+	out, stderr, code, err := s.remoteRun(ctx, cfg, remotePathCommand(cfg.Root, remotePath, "test -f \"$target\" && head -c 262145 < \"$target\""), 20*time.Second, maxPreviewText+1)
 	if err != nil || code != 0 {
 		if err == nil {
 			err = fmt.Errorf("%s", strings.TrimSpace(stderr))
 		}
 		return model.FilePreview{}, err
 	}
-	if size > maxPreviewText {
+	if len(out) > maxPreviewText {
+		out = out[:maxPreviewText]
 		preview.Truncated = true
 	}
 	if strings.ContainsRune(out, 0) {
@@ -260,7 +276,7 @@ func (s *Service) remoteRead(cfg remoteConfig, target string) (model.FilePreview
 }
 
 func (s *Service) remoteOpen(cfg remoteConfig, target string) error {
-	preview, err := s.remoteRead(cfg, target)
+	preview, err := s.remoteRead(context.Background(), cfg, target)
 	if err != nil {
 		return err
 	}
@@ -268,13 +284,16 @@ func (s *Service) remoteOpen(cfg remoteConfig, target string) error {
 	if err != nil {
 		return err
 	}
-	out, _, code, err := s.remoteRun(cfg, "base64 < "+shellQuote(remotePath)+" | tr -d '\\n'", 40*time.Second)
+	out, _, code, err := s.remoteRun(context.Background(), cfg, remotePathCommand(cfg.Root, remotePath, "test -f \"$target\" && head -c 12582913 < \"$target\" | base64 | tr -d '\\n'"), 40*time.Second, base64.StdEncoding.EncodedLen(maxPreviewImage+1))
 	if err != nil || code != 0 {
 		return fmt.Errorf("could not download the remote file")
 	}
 	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(out))
 	if err != nil {
 		return err
+	}
+	if len(data) > maxPreviewImage {
+		return fmt.Errorf("the remote file is too large to open")
 	}
 	file, err := os.CreateTemp("", "grox-remote-*"+path.Ext(preview.Name))
 	if err != nil {
@@ -297,19 +316,22 @@ func (s *Service) remoteOpen(cfg remoteConfig, target string) error {
 	return cmd.Start()
 }
 
-func (s *Service) remoteScreen(cfg remoteConfig) (string, error) {
-	command := "tmp=/tmp/grox-screen-$$.png; " +
+func (s *Service) remoteScreen(ctx context.Context, cfg remoteConfig) (string, error) {
+	command := "tmp=$(mktemp -t grox-screen-XXXXXX.png) || exit; trap 'rm -f \"$tmp\"' EXIT; " +
 		"if command -v grim >/dev/null 2>&1; then grim \"$tmp\" >/dev/null 2>&1; " +
 		"elif command -v scrot >/dev/null 2>&1; then scrot -o \"$tmp\" >/dev/null 2>&1; " +
 		"elif command -v import >/dev/null 2>&1; then import -window root \"$tmp\" >/dev/null 2>&1; " +
 		"else echo 'no screen capture tool (grim, scrot, or import)' >&2; exit 127; fi; " +
-		"base64 < \"$tmp\" | tr -d '\\n'; rm -f \"$tmp\""
-	out, stderr, code, err := s.remoteRun(cfg, command, 30*time.Second)
+		"test -s \"$tmp\" && base64 < \"$tmp\" | tr -d '\\n'"
+	out, stderr, code, err := s.remoteRun(ctx, cfg, command, 30*time.Second, base64.StdEncoding.EncodedLen(20<<20)+1)
 	if err != nil {
 		return "", err
 	}
 	if code != 0 {
 		return "", fmt.Errorf("%s", strings.TrimSpace(stderr))
+	}
+	if len(out) > base64.StdEncoding.EncodedLen(20<<20) || out == "" {
+		return "", fmt.Errorf("the remote screenshot is empty or too large")
 	}
 	return strings.TrimSpace(out), nil
 }
@@ -327,7 +349,7 @@ func (s *Service) TestRemoteComputer(botID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	stdout, stderr, code, err := s.remoteRun(cfg, "uname -a; pwd", 20*time.Second)
+	stdout, stderr, code, err := s.remoteRun(context.Background(), cfg, "uname -a; pwd", 20*time.Second, maxCommandBytes)
 	if err != nil {
 		return "", err
 	}

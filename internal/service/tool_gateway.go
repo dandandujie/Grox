@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -72,7 +73,7 @@ func (s *Service) handleToolHook(w http.ResponseWriter, r *http.Request) {
 	if style == "" {
 		style = "grok"
 	}
-	if strings.Contains(strings.ToLower(toolName), "ask_user") {
+	if strings.Contains(strings.ToLower(toolName), "ask_user") || (target.control != nil && isGroxComputerHook(toolName)) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(toolHookResponse(style, "allow"))
 		return
@@ -83,7 +84,7 @@ func (s *Service) handleToolHook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	owner := s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+	owner := s.hookOwnerLocked(target)
 	if owner.thread == nil {
 		s.mu.Unlock()
 		http.Error(w, "conversation not found", http.StatusNotFound)
@@ -110,18 +111,17 @@ func (s *Service) handleToolHook(w http.ResponseWriter, r *http.Request) {
 	if owner.group != nil {
 		owner.group.UpdatedAt = now
 	}
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
-	s.mu.Unlock()
 	pending := &claudeHookApproval{ch: make(chan string, 1), suggestions: suggestions, target: target}
 	s.approvalMu.Lock()
 	s.hookApprovals[message.ID] = pending
 	s.approvalMu.Unlock()
-
+	s.touchLocked()
+	s.saveLocked()
+	s.emitStateLocked()
+	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
 	s.emitEvent(model.Event{Type: "message", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, MessageID: message.ID, Message: &message})
 	s.emitEvent(model.Event{Type: "turn", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Turn: turn})
+	s.mu.Unlock()
 
 	decision := "deny"
 	timer := time.NewTimer(240 * time.Second)
@@ -136,7 +136,7 @@ func (s *Service) handleToolHook(w http.ResponseWriter, r *http.Request) {
 	current := s.hookApprovals[message.ID]
 	if current != nil {
 		delete(s.hookApprovals, message.ID)
-		owner = s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+		owner = s.hookOwnerLocked(target)
 		if owner.thread != nil {
 			if msg := s.findMessageLocked(owner.thread, message.ID); msg != nil && msg.Status == model.StatusPending {
 				msg.Status = model.StatusDenied
@@ -290,6 +290,12 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 
+		if target.control != nil {
+			for _, tool := range computerToolsForTurn(target.control) {
+				items = append(items, map[string]any{"name": tool.Name, "description": tool.Description, "inputSchema": tool.Parameters})
+			}
+		}
+
 		for _, tool := range tools {
 			schema := tool.InputSchema
 			if schema == nil {
@@ -316,6 +322,22 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 		}
 		if !toolAllowed(policy, slug) {
 			writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": "tool " + slug + " is blocked by this bot's tool policy"}}, "isError": true}, nil)
+			return
+		}
+		if isComputerTool(slug) {
+			result, err := s.executeComputerTool(r.Context(), target, slug, args)
+			if err != nil {
+				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
+				return
+			}
+			content := []map[string]any{{"type": "text", "text": result.text}}
+			if result.image != nil {
+				content = append(content, map[string]any{
+					"type": "image", "mimeType": result.image.ImageMIME,
+					"data": base64.StdEncoding.EncodeToString(result.image.Data),
+				})
+			}
+			writeMCP(w, id, map[string]any{"content": content}, nil)
 			return
 		}
 		if slug == "memory_forget" {
@@ -349,7 +371,7 @@ func (s *Service) handleMCP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if slug == "ask_user" {
-			value, err := s.askUserTool(target, args)
+			value, err := s.askUserTool(r.Context(), target, args)
 			if err != nil {
 				writeMCP(w, id, map[string]any{"content": []map[string]any{{"type": "text", "text": err.Error()}}, "isError": true}, nil)
 				return

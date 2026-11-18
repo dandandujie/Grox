@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -38,13 +39,13 @@ func chooseAnswer(options []model.Option, answer string) string {
 
 // askUser creates a real KindOptions card and blocks the calling tool until a
 // person answers it. It is used by the MCP gateway and the API tool loop.
-func (s *Service) askUser(target claudeHookTarget, question string, options []model.Option) (string, error) {
+func (s *Service) askUser(ctx context.Context, target claudeHookTarget, question string, options []model.Option) (string, error) {
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return "", fmt.Errorf("question is empty")
 	}
 	s.mu.Lock()
-	owner := s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+	owner := s.hookOwnerLocked(target)
 	if owner.thread == nil {
 		s.mu.Unlock()
 		return "", fmt.Errorf("conversation not found")
@@ -67,41 +68,43 @@ func (s *Service) askUser(target claudeHookTarget, question string, options []mo
 	if owner.group != nil {
 		owner.group.UpdatedAt = now
 	}
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
-	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
-	s.mu.Unlock()
-
 	waiter := &questionWaiter{ch: make(chan string, 1), target: target}
 	s.approvalMu.Lock()
 	s.questionWaiters[message.ID] = waiter
 	s.approvalMu.Unlock()
-
+	s.touchLocked()
+	s.saveLocked()
+	s.emitStateLocked()
+	turn := &model.Turn{BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Busy: true, Status: "Waiting for you"}
 	s.emitEvent(model.Event{Type: "message", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, MessageID: message.ID, Message: &message})
 	s.emitEvent(model.Event{Type: "turn", BotID: target.BotID, GroupID: target.GroupID, ThreadID: target.ThreadID, Turn: turn})
+	s.mu.Unlock()
 
+	wait, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	select {
 	case answer := <-waiter.ch:
 		return answer, nil
-	case <-time.After(10 * time.Minute):
+	case <-wait.Done():
+		s.mu.Lock()
 		s.approvalMu.Lock()
 		delete(s.questionWaiters, message.ID)
 		s.approvalMu.Unlock()
-		s.mu.Lock()
 		owner = s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
 		if owner.thread != nil {
 			if msg := s.findMessageLocked(owner.thread, message.ID); msg != nil && msg.Status == model.StatusPending {
 				msg.Status = model.StatusDenied
 				msg.UpdatedAt = time.Now()
+				if owner.thread.Status != "Stopping" {
+					owner.thread.Status = "Thinking"
+				}
+				s.touchLocked()
+				s.saveLocked()
+				s.emitStateLocked()
 			}
-			owner.thread.Status = "Thinking"
 		}
-		s.touchLocked()
-		s.saveLocked()
-		s.emitStateLocked()
 		s.mu.Unlock()
-		return "", fmt.Errorf("timed out waiting for an answer")
+		return "", fmt.Errorf("waiting for a reply: %w", wait.Err())
 	}
 }
 
@@ -109,7 +112,7 @@ func (s *Service) askUser(target claudeHookTarget, question string, options []mo
 // turn. The blocked tool call receives the answer as its result.
 func (s *Service) resolveQuestion(target claudeHookTarget, messageID, answer string) error {
 	s.mu.Lock()
-	owner := s.ownerLocked(target.BotID, target.GroupID, target.ThreadID)
+	owner := s.hookOwnerLocked(target)
 	if owner.thread == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("conversation not found")
@@ -174,10 +177,10 @@ func parseQuestionOptions(raw any) []model.Option {
 	return options
 }
 
-func (s *Service) askUserTool(target claudeHookTarget, arguments map[string]any) (string, error) {
+func (s *Service) askUserTool(ctx context.Context, target claudeHookTarget, arguments map[string]any) (string, error) {
 	question, _ := arguments["question"].(string)
 	if strings.TrimSpace(question) == "" {
 		question, _ = arguments["text"].(string)
 	}
-	return s.askUser(target, question, parseQuestionOptions(arguments["options"]))
+	return s.askUser(ctx, target, question, parseQuestionOptions(arguments["options"]))
 }

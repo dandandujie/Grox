@@ -4,7 +4,39 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/dandandujie/grox/internal/model"
 )
+
+func TestReopenRecoversInterruptedTurn(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread := &s.State.Bots[0].Threads[0]
+	thread.Busy = true
+	thread.Messages = []model.Message{
+		{ID: "user-request", Role: model.RoleUser, Text: "Summarize these notes"},
+		{ID: "pending-permission", Role: model.RoleBot, Kind: model.KindApproval, Status: model.StatusPending},
+	}
+	s.State.Runs = []model.Run{{ID: "run-interrupted", Status: "running", StartedAt: time.Now()}}
+	if err := s.SaveState(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered := reopened.State.Bots[0].Threads[0]
+	if recovered.Busy || len(recovered.Messages) != 3 || recovered.Messages[0].Text != "Summarize these notes" || recovered.Messages[1].Status != "expired" || recovered.Messages[2].Status != "stopped" {
+		t.Fatalf("reopened turn = %+v", recovered)
+	}
+	if reopened.State.Runs[0].Status != "stopped" {
+		t.Fatalf("reopened run = %+v", reopened.State.Runs[0])
+	}
+}
 
 func TestOpenSeedsAndPersists(t *testing.T) {
 	dir := t.TempDir()
@@ -12,8 +44,11 @@ func TestOpenSeedsAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.State.Bots) < 4 {
-		t.Fatalf("expected the first-run team, got %d bots", len(s.State.Bots))
+	if len(s.State.Bots) != 1 {
+		t.Fatalf("expected one starter agent, got %d", len(s.State.Bots))
+	}
+	if len(s.State.Bots[0].Threads) != 1 || len(s.State.Bots[0].Threads[0].Messages) != 0 || len(s.State.Groups)+len(s.State.Routines)+len(s.State.Runs) != 0 {
+		t.Fatal("a fresh workspace must not contain sample work or scheduled actions")
 	}
 	if s.State.ActiveBotID == "" || s.State.ActiveThreadID == "" {
 		t.Fatal("expected an active bot and thread")

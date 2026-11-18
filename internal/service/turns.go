@@ -10,18 +10,28 @@ import (
 	"github.com/dandandujie/grox/internal/model"
 )
 
+func turnKey(botID, groupID, threadID string) string {
+	if groupID != "" {
+		return "group:" + groupID + "|" + threadID
+	}
+	return botID + "|" + threadID
+}
+
 type turnSink struct {
-	svc      *Service
-	key      string
-	botID    string
-	groupID  string
-	threadID string
-	engine   string
-	model    model.Model
-	message  string
-	created  bool
-	canceled bool
-	usage    model.Usage
+	svc            *Service
+	key            string
+	control        *turnControl
+	botID          string
+	groupID        string
+	threadID       string
+	engine         string
+	model          model.Model
+	message        string
+	created        bool
+	canceled       bool
+	usage          model.Usage
+	toolRound      bool
+	toolActivities []model.Activity
 }
 
 type sinkOwner struct {
@@ -46,7 +56,14 @@ func (s *Service) ownerLocked(botID, groupID, threadID string) sinkOwner {
 }
 
 func (t *turnSink) ownerLocked() sinkOwner {
-	return t.svc.ownerLocked(t.botID, t.groupID, t.threadID)
+	if t.svc.turns[t.key] != t.control {
+		return sinkOwner{}
+	}
+	owner := t.svc.ownerLocked(t.botID, t.groupID, t.threadID)
+	if owner.thread != nil && owner.thread.Status == "Stopping" {
+		return sinkOwner{}
+	}
+	return owner
 }
 
 func (t *turnSink) senderLocked() (string, string) {
@@ -75,21 +92,22 @@ func (t *turnSink) Usage(usage agent.TokenUsage) {
 
 func (t *turnSink) Text(delta string) {
 	t.svc.mu.Lock()
+	defer t.svc.mu.Unlock()
 	owner := t.ownerLocked()
 	if owner.thread == nil {
-		t.svc.mu.Unlock()
 		return
 	}
 	thread := owner.thread
 	now := time.Now()
 	if t.message == "" {
 		msg := t.newMessage(model.KindText)
+		msg.Activities = t.toolActivities
+		t.toolActivities = nil
 		thread.Messages = append(thread.Messages, msg)
 		t.message = msg.ID
 	}
 	msg := t.svc.findMessageLocked(thread, t.message)
 	if msg == nil {
-		t.svc.mu.Unlock()
 		return
 	}
 	msg.Text += delta
@@ -103,7 +121,6 @@ func (t *turnSink) Text(delta string) {
 	msgCopy := cloneMessage(*msg)
 	created := !t.created
 	t.created = true
-	t.svc.mu.Unlock()
 
 	if created {
 		base := msgCopy
@@ -115,26 +132,57 @@ func (t *turnSink) Text(delta string) {
 
 func (t *turnSink) Status(status string) {
 	t.svc.mu.Lock()
+	defer t.svc.mu.Unlock()
 	owner := t.ownerLocked()
 	if owner.thread == nil {
-		t.svc.mu.Unlock()
 		return
 	}
 	owner.thread.Status = status
 	turn := &model.Turn{BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, Busy: true, Status: status, Engine: t.engine}
-	t.svc.mu.Unlock()
 	t.svc.emitEvent(model.Event{Type: "turn", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, Turn: turn})
+}
+
+// StartToolRound closes any preamble before the tool emits approvals or files.
+// Tool activity appears on the following reply, after the tool's messages.
+func (t *turnSink) StartToolRound() {
+	t.svc.mu.Lock()
+	defer t.svc.mu.Unlock()
+	owner := t.ownerLocked()
+	if owner.thread == nil {
+		return
+	}
+	t.toolRound = true
+	if t.message == "" {
+		return
+	}
+	msg := t.svc.findMessageLocked(owner.thread, t.message)
+	if msg != nil {
+		msg.Pending = false
+		msg.UpdatedAt = time.Now()
+		t.svc.touchLocked()
+		out := cloneMessage(*msg)
+		t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
+	}
+	t.message = ""
+	t.created = false
 }
 
 func (t *turnSink) Activity(activity model.Activity) {
 	t.svc.mu.Lock()
+	defer t.svc.mu.Unlock()
 	owner := t.ownerLocked()
 	if owner.thread == nil {
-		t.svc.mu.Unlock()
 		return
 	}
 	thread := owner.thread
 	now := time.Now()
+	if activity.StartedAt.IsZero() {
+		activity.StartedAt = now
+	}
+	if t.toolRound && t.message == "" {
+		t.toolActivities = append(t.toolActivities, activity)
+		return
+	}
 	if t.message == "" {
 		msg := t.newMessage(model.KindText)
 		thread.Messages = append(thread.Messages, msg)
@@ -142,11 +190,7 @@ func (t *turnSink) Activity(activity model.Activity) {
 	}
 	msg := t.svc.findMessageLocked(thread, t.message)
 	if msg == nil {
-		t.svc.mu.Unlock()
 		return
-	}
-	if activity.StartedAt.IsZero() {
-		activity.StartedAt = now
 	}
 	msg.Activities = append(msg.Activities, activity)
 	msg.UpdatedAt = now
@@ -156,15 +200,14 @@ func (t *turnSink) Activity(activity model.Activity) {
 	}
 	t.svc.touchLocked()
 	out := cloneMessage(*msg)
-	t.svc.mu.Unlock()
 	t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
 }
 
 func (t *turnSink) Approval(approval model.Approval) {
 	t.svc.mu.Lock()
+	defer t.svc.mu.Unlock()
 	owner := t.ownerLocked()
 	if owner.thread == nil {
-		t.svc.mu.Unlock()
 		return
 	}
 	thread := owner.thread
@@ -183,16 +226,15 @@ func (t *turnSink) Approval(approval model.Approval) {
 	t.svc.touchLocked()
 	out := cloneMessage(msg)
 	turn := &model.Turn{BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, Busy: true, Status: "Waiting for you", Engine: t.engine}
-	t.svc.mu.Unlock()
 	t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
 	t.svc.emitEvent(model.Event{Type: "turn", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, Turn: turn})
 }
 
 func (t *turnSink) Options(text string, options []model.Option) {
 	t.svc.mu.Lock()
+	defer t.svc.mu.Unlock()
 	owner := t.ownerLocked()
 	if owner.thread == nil {
-		t.svc.mu.Unlock()
 		return
 	}
 	thread := owner.thread
@@ -212,17 +254,20 @@ func (t *turnSink) Options(text string, options []model.Option) {
 	t.svc.touchLocked()
 	out := cloneMessage(msg)
 	turn := &model.Turn{BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, Busy: true, Status: "Waiting for you", Engine: t.engine}
-	t.svc.mu.Unlock()
 	t.svc.emitEvent(model.Event{Type: "message", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, MessageID: out.ID, Message: &out})
 	t.svc.emitEvent(model.Event{Type: "turn", BotID: t.botID, GroupID: t.groupID, ThreadID: t.threadID, Turn: turn})
 }
 
-func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID string) {
+func (s *Service) finishTurn(sink *turnSink, runErr error, runID string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.revokeTurnHooks(sink.control)
+	if s.turns[sink.key] != sink.control {
+		return
+	}
+	delete(s.turns, sink.key)
 	owner := s.ownerLocked(sink.botID, sink.groupID, sink.threadID)
 	if owner.thread == nil {
-		delete(s.turns, key)
-		s.mu.Unlock()
 		return
 	}
 	thread := owner.thread
@@ -240,17 +285,20 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 				if strings.TrimSpace(msg.Text) != "" {
 					msg.Text += "\n\n"
 				}
-				msg.Text += "**Couldn't finish this turn**\n\n" + runErr.Error() + "\n\nOpen **Settings → Engines** to check the connection."
+				msg.Text += "**Couldn't finish this turn**\n\n" + runErr.Error()
 			}
-			if canceled && strings.TrimSpace(msg.Text) == "" {
-				msg.Text = "_Stopped._"
+			if canceled {
+				msg.Status = "stopped"
+				if strings.TrimSpace(msg.Text) == "" {
+					msg.Text = "_Stopped._"
+				}
 			}
 			final = ptr(cloneMessage(*msg))
 		}
 	} else if runErr != nil && !canceled {
 		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Error: true,
-			Text:     "**Couldn't finish this turn**\n\n" + runErr.Error() + "\n\nOpen **Settings → Engines** to check the connection.",
+			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Error: true, Activities: sink.toolActivities,
+			Text:     "**Couldn't finish this turn**\n\n" + runErr.Error(),
 			SenderID: senderID, SenderName: senderName, CreatedAt: now, UpdatedAt: now,
 			Engine: sink.engine, Model: sink.model.Name,
 		}
@@ -258,7 +306,7 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 		final = ptr(cloneMessage(msg))
 	} else if canceled {
 		msg := model.Message{
-			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText,
+			ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Status: "stopped",
 			Text: "_Stopped._", SenderID: senderID, SenderName: senderName,
 			CreatedAt: now, UpdatedAt: now, Engine: sink.engine, Model: sink.model.Name,
 		}
@@ -315,35 +363,22 @@ func (s *Service) finishTurn(key string, sink *turnSink, runErr error, runID str
 		summary = text
 	}
 	if runID != "" {
-		for i := range s.st.State.Runs {
-			if s.st.State.Runs[i].ID == runID {
-				s.st.State.Runs[i].Status = status
-				s.st.State.Runs[i].FinishedAt = now
-				s.st.State.Runs[i].Summary = summary
-				break
-			}
+		if runErr != nil && !canceled && summary == "" {
+			summary = runErr.Error()
 		}
-		for i := range s.st.State.Routines {
-			if s.st.State.Routines[i].ID == runRoutineID(s, runID) {
-				s.st.State.Routines[i].LastStatus = status
-				if status == "completed" {
-					s.st.State.Routines[i].ConsecutiveFailures = 0
-				}
-				break
-			}
-		}
+		s.finishRoutineRunLocked(runID, status, summary, now)
 	}
-	delete(s.turns, key)
 	s.touchLocked()
-	s.saveLocked()
-	state := s.snapshotLocked()
-	rev := state.Revision
+	if err := s.st.SaveState(); err != nil {
+		s.emitEvent(model.Event{Type: "toast", Toast: &model.Toast{
+			Kind: "error", Title: "Couldn't save the finished turn", Body: err.Error(),
+		}})
+	}
 	turn := &model.Turn{BotID: sink.botID, GroupID: sink.groupID, ThreadID: sink.threadID, Busy: false, Engine: sink.engine}
-	s.mu.Unlock()
-
 	if final != nil {
 		s.emitEvent(model.Event{Type: "message", BotID: sink.botID, GroupID: sink.groupID, ThreadID: sink.threadID, MessageID: final.ID, Message: final})
 	}
 	s.emitEvent(model.Event{Type: "turn", BotID: sink.botID, GroupID: sink.groupID, ThreadID: sink.threadID, Turn: turn})
-	s.emitEvent(model.Event{Type: "state", Revision: rev, State: &state})
+	s.emitStateLocked()
+
 }

@@ -130,6 +130,7 @@ export interface Bot {
   pinned: boolean;
   hidden: boolean;
   archived: boolean;
+  grokImportKey?: string;
   createdAt: string;
   updatedAt: string;
   lastActiveAt: string;
@@ -311,6 +312,7 @@ export interface Group {
   id: string;
   name: string;
   description: string;
+  instructions?: string;
   color: string;
   memberIds: string[];
   leadId: string;
@@ -325,6 +327,7 @@ export interface Group {
 export interface GroupPatch {
   name?: string;
   description?: string;
+  instructions?: string;
   color?: string;
   memberIds?: string[];
   leadId?: string;
@@ -350,6 +353,7 @@ export interface MCPServer {
   enabled: boolean;
   authConfigured: boolean;
   headerNames?: string[];
+  requiredHeaders?: string[];
   oauthTokenUrl?: string;
   oauthAuthorizationUrl?: string;
   oauthConfigured?: boolean;
@@ -489,6 +493,13 @@ export interface Model {
   available: boolean;
 }
 
+/** OpenMausExport is an interoperable team file and its export report. */
+export interface OpenMausExport {
+  document: string;
+  filename: string;
+  warnings?: string[];
+}
+
 /** Option is one answer in a question card. */
 export interface Option {
   id: string;
@@ -575,11 +586,14 @@ export interface Provider {
 export interface Routine {
   id: string;
   botId: string;
+  groupId?: string;
   name: string;
   prompt: string;
   cadence: string;
   timeOfDay: string;
   weekday: number;
+  cronExpression?: string;
+  timeZone?: string;
   enabled: boolean;
   nextRun: string;
   lastRun?: string;
@@ -598,11 +612,14 @@ export interface Routine {
 /** RoutineInput is the New routine form. */
 export interface RoutineInput {
   botId: string;
+  groupId?: string;
   name: string;
   prompt: string;
   cadence: string;
   timeOfDay: string;
   weekday: number;
+  cronExpression?: string;
+  timeZone?: string;
   continuity?: boolean;
   checks?: string[];
   overlap?: string;
@@ -611,11 +628,15 @@ export interface RoutineInput {
 
 /** RoutinePatch edits only the fields it sets. */
 export interface RoutinePatch {
+  botId?: string;
+  groupId?: string;
   name?: string;
   prompt?: string;
   cadence?: string;
   timeOfDay?: string;
   weekday?: number;
+  cronExpression?: string;
+  timeZone?: string;
   continuity?: boolean;
   checks?: string[];
   overlap?: string;
@@ -627,6 +648,7 @@ export interface Run {
   id: string;
   routineId: string;
   botId: string;
+  groupId?: string;
   threadId: string;
   title: string;
   status: string;
@@ -694,6 +716,9 @@ export interface TeamImportResult {
   skills: number;
   memories: number;
   name: string;
+  playbooks?: number;
+  connections?: number;
+  warnings?: string[];
 }
 
 /** Thread is one conversation with a bot: a chat, a task, or a routine run. */
@@ -867,6 +892,7 @@ export const Grox = {
   createPreset(input: PresetInput): Promise<Preset> {
     return call("Grox.CreatePreset", input);
   },
+  /** CreateRoutine adds a scheduled task. */
   createRoutine(input: RoutineInput): Promise<Routine> {
     return call("Grox.CreateRoutine", input);
   },
@@ -941,6 +967,13 @@ export const Grox = {
     return call("Grox.ExecuteComposioTool", slug, arguments_);
   },
   /**
+   * ExportOpenMausTeam produces the same portable file envelope read by
+   * OpenMausBot. Starter notes travel only when the person includes them.
+   */
+  exportOpenMausTeam(groupID: string, includeMemory: boolean): Promise<OpenMausExport> {
+    return call("Grox.ExportOpenMausTeam", groupID, includeMemory);
+  },
+  /**
    * ExportTeam writes one channel and its member bots as a portable JSON package.
    * It includes only enabled SKILL.md bodies, persona text, MEMORY.md and routines;
    * no keys, connections, threads or app credentials travel.
@@ -972,9 +1005,8 @@ export const Grox = {
     return call("Grox.GetWebhookInfo");
   },
   /**
-   * ImportTeam adds a package as new records. Bots start at Ask approval, skills
-   * are written to disk but left disabled, routines arrive paused and no app
-   * connection or secret can be carried by the format.
+   * ImportTeam adds a Grox or OpenMaus team. Bots start at Ask, skills start
+   * disabled and routines start paused.
    */
   importTeam(raw: string): Promise<TeamImportResult> {
     return call("Grox.ImportTeam", raw);
@@ -1091,14 +1123,11 @@ export const Grox = {
   rotateAPIToken(): Promise<APIInfo> {
     return call("Grox.RotateAPIToken");
   },
-  /**
-   * RunComputerCommand runs a command the person typed in the Computer panel.
-   * It is intentionally not exposed to the agent as an unattended tool.
-   */
+  /** RunComputerCommand runs a command the person typed in the Computer panel. */
   runComputerCommand(botID: string, command: string): Promise<CommandResult> {
     return call("Grox.RunComputerCommand", botID, command);
   },
-  /** RunRoutine starts a routine now, as a fresh task thread. */
+  /** RunRoutine starts a routine now in its direct chat or channel. */
   runRoutine(id: string): Promise<SendResult> {
     return call("Grox.RunRoutine", id);
   },
@@ -1217,7 +1246,7 @@ export const Grox = {
   updatePreset(id: string, patch: PresetPatch): Promise<Preset> {
     return call("Grox.UpdatePreset", id, patch);
   },
-  /** UpdateRoutine edits a routine and recomputes its next run. */
+  /** UpdateRoutine edits a routine and recomputes its next run when necessary. */
   updateRoutine(id: string, patch: RoutinePatch): Promise<Routine> {
     return call("Grox.UpdateRoutine", id, patch);
   },

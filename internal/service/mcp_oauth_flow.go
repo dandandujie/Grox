@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -66,7 +67,13 @@ func (s *Service) BeginMCPOAuth(id string) (model.MCPOAuthStart, error) {
 			s.oauthMu.Lock()
 			delete(s.oauthPending, state)
 			s.oauthMu.Unlock()
-			go s.closeMCPOAuthPending(pending)
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := pending.server.Shutdown(ctx); err != nil {
+					s.closeMCPOAuthPending(pending)
+				}
+			}()
 		}()
 		code := strings.TrimSpace(r.URL.Query().Get("code"))
 		returnedState := strings.TrimSpace(r.URL.Query().Get("state"))
@@ -81,11 +88,11 @@ func (s *Service) BeginMCPOAuth(id string) (model.MCPOAuthStart, error) {
 		}
 		_, _ = w.Write([]byte("<html><body><h1>Grox is connected</h1><p>You can close this tab.</p></body></html>"))
 	})
+	pending.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	pending.listener = listener
 	s.oauthMu.Lock()
 	s.oauthPending[state] = pending
 	s.oauthMu.Unlock()
-	pending.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	pending.listener = listener
 	go func() { _ = pending.server.Serve(listener) }()
 	go func() {
 		time.Sleep(5 * time.Minute)

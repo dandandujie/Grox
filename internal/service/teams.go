@@ -133,7 +133,8 @@ func (s *Service) ExportTeam(groupID string) (string, error) {
 		Format: teamPackageFormat, Version: 1, ExportedAt: time.Now(), Name: group.Name,
 		Group: model.PackageGroup{
 			Name: group.Name, Description: group.Description, Color: group.Color,
-			LeadKey: group.LeadID, MemberKeys: append([]string(nil), group.MemberIDs...),
+			Instructions: group.Instructions,
+			LeadKey:      group.LeadID, MemberKeys: append([]string(nil), group.MemberIDs...),
 		},
 	}
 	seenSkills := map[string]bool{}
@@ -166,12 +167,14 @@ func (s *Service) ExportTeam(groupID string) (string, error) {
 		}
 		pkg.Bots = append(pkg.Bots, item)
 		for _, routine := range s.st.State.Routines {
-			if routine.BotID != bot.ID {
+			if routine.BotID != bot.ID || (routine.GroupID != "" && routine.GroupID != group.ID) {
 				continue
 			}
 			pkg.Routines = append(pkg.Routines, model.PackageRoutine{
 				BotKey: bot.ID, Name: routine.Name, Prompt: routine.Prompt, Cadence: routine.Cadence,
 				TimeOfDay: routine.TimeOfDay, Weekday: routine.Weekday, Enabled: routine.Enabled,
+				Channel: routine.GroupID != "", CronExpression: routine.CronExpression, TimeZone: routine.TimeZone,
+				Continuity: routine.Continuity, Overlap: routine.Overlap, Checks: routine.Checks,
 			})
 		}
 	}
@@ -193,12 +196,27 @@ func safePackageSkillDir(id string) string {
 	return value
 }
 
-// ImportTeam adds a package as new records. Bots start at Ask approval, skills
-// are written to disk but left disabled, routines arrive paused and no app
-// connection or secret can be carried by the format.
+// ImportTeam adds a Grox or OpenMaus team. Bots start at Ask, skills start
+// disabled and routines start paused.
 func (s *Service) ImportTeam(raw string) (model.TeamImportResult, error) {
 	if len(raw) > 4*1024*1024 {
 		return model.TeamImportResult{}, fmt.Errorf("team package is too large (4 MB max)")
+	}
+	raw = strings.TrimPrefix(strings.TrimSpace(raw), "\ufeff")
+	if strings.HasPrefix(raw, "---\n") || strings.HasPrefix(raw, "---\r\n") {
+		return s.importBotMRR(raw)
+	}
+	var header struct {
+		Format string `json:"format"`
+	}
+	if err := json.Unmarshal([]byte(raw), &header); err != nil {
+		return s.importGrokBots(raw)
+	}
+	if header.Format == "openmaus.package" {
+		return s.importOpenMausTeam(raw)
+	}
+	if header.Format != teamPackageFormat {
+		return s.importGrokBots(raw)
 	}
 	var pkg model.TeamPackage
 	if err := json.Unmarshal([]byte(raw), &pkg); err != nil {
@@ -287,7 +305,8 @@ func (s *Service) ImportTeam(raw string) (model.TeamImportResult, error) {
 	}
 	group := model.Group{
 		ID: groupID, Name: result.Name, Description: pkg.Group.Description, Color: color,
-		MemberIDs: members, LeadID: leadID, CreatedAt: now, UpdatedAt: now,
+		Instructions: pkg.Group.Instructions,
+		MemberIDs:    members, LeadID: leadID, CreatedAt: now, UpdatedAt: now,
 		Threads: []model.Thread{{
 			ID: newID("thread"), BotID: "", Title: "New conversation", Kind: "group",
 			CreatedAt: now, UpdatedAt: now,
@@ -307,6 +326,11 @@ func (s *Service) ImportTeam(raw string) (model.TeamImportResult, error) {
 			ID: newID("routine"), BotID: botID, Name: routine.Name, Prompt: routine.Prompt,
 			Cadence: normalCadence(routine.Cadence), TimeOfDay: schedule.Clock(routine.TimeOfDay),
 			Weekday: routine.Weekday, Enabled: false, CreatedAt: now, UpdatedAt: now,
+			CronExpression: routine.CronExpression, TimeZone: routine.TimeZone,
+			Continuity: routine.Continuity, Overlap: normalizeRoutineOverlap(routine.Overlap), Checks: normalizeRoutineChecks(routine.Checks),
+		}
+		if routine.Channel {
+			r.GroupID, r.Continuity = groupID, false
 		}
 		r.NextRun = schedule.Next(r, now)
 		s.st.State.Routines = append(s.st.State.Routines, r)

@@ -100,10 +100,16 @@ func TestRunAPIToolLoop(t *testing.T) {
 			}}}})
 		} else {
 			messages, _ := payload["messages"].([]any)
-			for _, item := range messages {
-				message, _ := item.(map[string]any)
-				if message["role"] == "tool" {
-					sawTool = true
+			if len(messages) < 2 {
+				t.Errorf("missing tool and image messages: %v", messages)
+			} else {
+				reply, _ := messages[len(messages)-2].(map[string]any)
+				sawTool = reply["role"] == "tool" && reply["tool_call_id"] == "call_1"
+				visual, _ := messages[len(messages)-1].(map[string]any)
+				content := fmt.Sprint(visual["content"])
+				if visual["role"] != "user" || !strings.Contains(content, "Images returned by tools:") ||
+					!strings.Contains(content, "repo-preview.png") || !strings.Contains(content, "data:image/png;base64,cGl4ZWxz") {
+					t.Errorf("missing visual tool result in the next round: %v", visual)
 				}
 			}
 			writeEvent(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "Repo is acme/grox"}}}})
@@ -113,6 +119,7 @@ func TestRunAPIToolLoop(t *testing.T) {
 	defer server.Close()
 	executed := false
 	sink := &fakeSink{}
+	var images []APIAttachment
 	result, err := runAPI(context.Background(), Request{
 		Bot:        model.Bot{Name: "Test", Approval: model.ApprovalAuto},
 		UserText:   "Which repo?",
@@ -124,8 +131,14 @@ func TestRunAPIToolLoop(t *testing.T) {
 			if name != "GITHUB_GET_REPO" || arguments["owner"] != "acme" {
 				t.Errorf("unexpected tool call: %s %+v", name, arguments)
 			}
+			images = append(images, APIAttachment{Name: "repo-preview.png", Data: []byte("pixels"), ImageMIME: "image/png"})
 			data, _ := json.Marshal(map[string]any{"full_name": "acme/grox"})
 			return string(data), nil
+		},
+		TakeAPIToolImages: func() []APIAttachment {
+			result := images
+			images = nil
+			return result
 		},
 	}, sink)
 	if err != nil {

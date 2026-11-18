@@ -2,7 +2,7 @@
   "name": "grox",
   "private": true,
   "type": "module",
-  "description": "A local-first chat app for a team of AI agents — the open-source Grok Bot alternative.",
+  "description": "A local-first personal agent workspace for the desktop.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.6"

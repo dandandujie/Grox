@@ -4,6 +4,7 @@ import { createBackend, type Backend, type Bootstrap } from "@/lib/bridge";
 import { AppProvider, useApp } from "@/state/store";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
+import { ArtifactPanel } from "@/components/ArtifactPanel";
 import { BotPanel } from "@/components/BotPanel";
 import { SettingsModal } from "@/components/SettingsModal";
 import { NewBotDialog } from "@/components/NewBotDialog";
@@ -12,6 +13,7 @@ import { GroupPanel } from "@/components/GroupPanel";
 import { CallSheet } from "@/components/CallSheet";
 import { AvatarGallery } from "@/components/AvatarGallery";
 import { RoutinesPage } from "@/components/RoutinesPage";
+import { WorkPage } from "@/components/WorkPage";
 import { AppsPage } from "@/components/AppsPage";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ConfirmDialog, ShortcutsModal, Toasts } from "@/components/Overlays";
@@ -41,10 +43,8 @@ function Shell() {
   }, [activeBot, activeGroup]);
 
   useEffect(() => {
-    if (ui.sidebarWidth !== state.settings.sidebarWidth) {
-      setUI({ sidebarWidth: state.settings.sidebarWidth });
-    }
-  }, [state.settings.sidebarWidth, ui.sidebarWidth, setUI]);
+    setUI({ sidebarWidth: state.settings.sidebarWidth });
+  }, [state.settings.sidebarWidth, setUI]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -109,11 +109,14 @@ function Shell() {
     >
       <Sidebar />
       <main className="workspace">
-        {ui.view === "chat" && <ChatView />}
+        <ChatView visible={ui.view === "chat"} />
+        {ui.view === "work" && <WorkPage />}
         {ui.view === "routines" && <RoutinesPage />}
         {ui.view === "apps" && <AppsPage />}
       </main>
-      {ui.view === "chat" && ui.panel && (activeGroup ? <GroupPanel /> : <BotPanel />)}
+      {ui.view === "chat" && ui.panel && (
+        ui.panel === "artifacts" ? <ArtifactPanel key={activeGroup?.id ?? activeBot?.id} /> : activeGroup ? <GroupPanel /> : <BotPanel />
+      )}
       <SettingsModal />
       <NewBotDialog />
       <NewChannelDialog />

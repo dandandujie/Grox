@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dandandujie/grox/internal/catalog"
 	"github.com/dandandujie/grox/internal/model"
 )
 
@@ -38,7 +39,20 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 
 	var args []string
 	var stdin string
+	approval := approvalMode(req.Bot.Approval)
+	if approval == "ask" {
+		approvalURL := req.HookURL
+		if provider == "claude" {
+			approvalURL = req.PermissionHookURL
+		}
+		if approvalURL == "" {
+			return "", fmt.Errorf("%s cannot start because Grox's approval service is unavailable", cliName(provider))
+		}
+	}
 	envExtras := map[string]string{}
+	for key, value := range req.Env {
+		envExtras[key] = value
+	}
 	cleanups := []func(){}
 	defer func() {
 		for _, cleanup := range cleanups {
@@ -48,21 +62,19 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 	switch provider {
 	case "grok":
 		mode := "dontAsk"
-		switch approvalMode(req.Bot.Approval) {
-		case "auto":
+		switch approval {
+		case "auto", "ask":
 			mode = "auto"
 		case "full":
 			mode = "bypassPermissions"
-		case "ask":
-			if req.HookURL != "" {
-				mode = "auto"
-			}
 		}
-		if req.MCPURL != "" || req.HookURL != "" || len(req.MCPServers) > 0 {
-			if home, cleanup, err := prepareGrokHome(req.MCPURL, req.HookURL, req.MCPServers...); err == nil {
-				envExtras["GROK_HOME"] = home
-				cleanups = append(cleanups, cleanup)
+		if req.MCPURL != "" || approval == "ask" || len(req.MCPServers) > 0 {
+			home, cleanup, err := prepareGrokHome(req.MCPURL, req.HookURL, req.MCPServers...)
+			if err != nil {
+				return "", cliConfigError(provider, err)
 			}
+			envExtras["GROK_HOME"] = home
+			cleanups = append(cleanups, cleanup)
 		}
 		args = []string{
 			"--permission-mode", mode,
@@ -76,15 +88,13 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 	case "claude":
 		mode := "plan"
 		prompts := "none"
-		switch approvalMode(req.Bot.Approval) {
+		switch approval {
 		case "auto":
 			mode = "auto"
 		case "full":
 			mode = "bypassPermissions"
 		case "ask":
-			if req.PermissionHookURL != "" {
-				mode = "manual"
-			}
+			mode = "manual"
 		}
 		args = []string{
 			"-p", "--model", req.Model.ID,
@@ -93,7 +103,7 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 			"--permission-mode", mode,
 			"--permission-prompts", prompts,
 		}
-		if req.PermissionHookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
+		if approval == "ask" {
 			settings := map[string]any{
 				"hooks": map[string]any{
 					"PermissionRequest": []any{map[string]any{
@@ -104,82 +114,82 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 					}},
 				},
 			}
-			if data, err := json.Marshal(settings); err == nil {
-				args = append(args, "--settings", string(data))
+			data, err := json.Marshal(settings)
+			if err != nil {
+				return "", cliConfigError(provider, err)
 			}
+			args = append(args, "--settings", string(data))
 		}
 		if req.MCPURL != "" || len(req.MCPServers) > 0 {
-			if path, cleanup, err := writeMCPConfig(req.MCPURL, req.MCPServers...); err == nil {
-				cleanups = append(cleanups, cleanup)
-				args = append(args, "--mcp-config", path, "--strict-mcp-config")
+			path, cleanup, err := writeMCPConfig(req.MCPURL, req.MCPServers...)
+			if err != nil {
+				return "", cliConfigError(provider, err)
 			}
+			cleanups = append(cleanups, cleanup)
+			args = append(args, "--mcp-config", path, "--strict-mcp-config")
 		}
 		stdin = prompt
 	case "openai":
 		sandbox := "read-only"
-		if approvalMode(req.Bot.Approval) == "auto" {
-			sandbox = "workspace-write"
-		}
-		if approvalMode(req.Bot.Approval) == "ask" && req.HookURL != "" {
+		if approval == "auto" || approval == "ask" {
 			sandbox = "workspace-write"
 		}
 		args = []string{"exec", "--json", "--skip-git-repo-check", "--color", "never", "-C", workdir, "-m", req.Model.ID}
-		if approvalMode(req.Bot.Approval) == "full" {
+		if approval == "full" {
 			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		} else {
 			args = append(args, "-s", sandbox)
 		}
-		if req.MCPURL != "" || (req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask") || len(req.MCPServers) > 0 {
+		if req.MCPURL != "" || approval == "ask" || len(req.MCPServers) > 0 {
 			script := ""
-			if req.HookURL != "" && approvalMode(req.Bot.Approval) == "ask" {
-				if hookScript, cleanup, scriptErr := makeToolHookScript(req.HookURL, "codex"); scriptErr == nil {
-					script = hookScript
-					cleanups = append(cleanups, cleanup)
+			if approval == "ask" {
+				hookScript, cleanup, err := makeToolHookScript(req.HookURL, "codex")
+				if err != nil {
+					return "", cliConfigError(provider, err)
 				}
-			}
-			if home, cleanup, homeErr := prepareCodexHome(req.MCPURL, script, req.MCPServers...); homeErr == nil {
-				envExtras["CODEX_HOME"] = home
+				script = hookScript
 				cleanups = append(cleanups, cleanup)
-				if script != "" {
-					args = append(args, "--dangerously-bypass-hook-trust")
-				}
+			}
+			home, cleanup, err := prepareCodexHome(req.MCPURL, script, req.MCPServers...)
+			if err != nil {
+				return "", cliConfigError(provider, err)
+			}
+			envExtras["CODEX_HOME"] = home
+			cleanups = append(cleanups, cleanup)
+			if script != "" {
+				args = append(args, "--enable", "hooks", "--dangerously-bypass-hook-trust")
 			}
 		}
 		args = append(args, "-")
 		stdin = prompt
 	case "google":
 		mode := "plan"
-		switch approvalMode(req.Bot.Approval) {
+		switch approval {
 		case "auto":
 			mode = "auto_edit"
-		case "full":
+		case "full", "ask":
 			mode = "yolo"
-		case "ask":
-			if req.HookURL != "" {
-				mode = "yolo"
-			}
 		}
 		args = []string{"-p", prompt, "-m", req.Model.ID, "-o", "stream-json", "--skip-trust", "--approval-mode", mode}
-		if req.MCPURL != "" || req.HookURL != "" || len(req.MCPServers) > 0 {
-			if home, cleanup, err := prepareGeminiHome(req.MCPURL, req.HookURL, req.MCPServers...); err == nil {
-				envExtras["GEMINI_CLI_HOME"] = home
-				cleanups = append(cleanups, cleanup)
+		if req.MCPURL != "" || approval == "ask" || len(req.MCPServers) > 0 {
+			home, cleanup, err := prepareGeminiHome(req.MCPURL, req.HookURL, req.MCPServers...)
+			if err != nil {
+				return "", cliConfigError(provider, err)
 			}
+			envExtras["GEMINI_CLI_HOME"] = home
+			cleanups = append(cleanups, cleanup)
 		}
 	}
 
-	for key, value := range req.Env {
-		envExtras[key] = value
-	}
 	for _, server := range req.MCPServers {
 		if strings.TrimSpace(server.Token) != "" {
 			envExtras[mcpEnvName(server.ID)] = server.Token
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd := catalog.CLICommand(ctx, binary, args...)
 	cmd.Dir = workdir
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "FORCE_COLOR=0")
+	cmd.Env = append(cmd.Environ(), "NO_COLOR=1", "TERM=dumb", "FORCE_COLOR=0")
 	for key, value := range envExtras {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
@@ -249,17 +259,24 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 		handleCLIEvent(provider, obj, &text, &sawDelta, &eventErr, sink)
 	}
 	scanErr := scanner.Err()
+	if scanErr != nil {
+		// The scanner can stop while the child still has a full output pipe.
+		_ = cmd.Process.Kill()
+	}
 	waitErr := cmd.Wait()
 	<-stderrDone
 
-	if eventErr != "" && text.Len() == 0 {
-		return "", fmt.Errorf("%s", eventErr)
+	if ctx.Err() != nil {
+		return text.String(), ctx.Err()
 	}
-	if waitErr != nil && ctx.Err() == nil && text.Len() == 0 && plain.Len() == 0 {
-		return "", friendlyError(provider, stderrBuf.String(), waitErr)
+	if eventErr != "" {
+		return text.String(), fmt.Errorf("%s", eventErr)
 	}
-	if scanErr != nil && text.Len() == 0 && plain.Len() == 0 {
-		return "", friendlyError(provider, stderrBuf.String(), scanErr)
+	if scanErr != nil {
+		return text.String(), friendlyError(provider, stderrBuf.String(), scanErr)
+	}
+	if waitErr != nil {
+		return text.String(), friendlyError(provider, stderrBuf.String(), waitErr)
 	}
 	if text.Len() == 0 && plain.Len() > 0 {
 		cleaned := cleanOutput(plain.String())
@@ -269,12 +286,13 @@ func runCLI(ctx context.Context, req Request, sink Sink) (string, error) {
 		}
 	}
 	if strings.TrimSpace(text.String()) == "" {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
 		return "", friendlyError(provider, stderrBuf.String(), fmt.Errorf("no reply"))
 	}
 	return text.String(), nil
+}
+
+func cliConfigError(provider string, err error) error {
+	return fmt.Errorf("could not configure %s for this turn: %w", cliName(provider), err)
 }
 
 func isNoiseLine(line string) bool {
@@ -351,6 +369,10 @@ func handleAnthropicEvent(obj map[string]any, text *strings.Builder, sawDelta *b
 		if usage, ok := usageFromMap(obj["usage"]); ok {
 			reportUsage(sink, usage)
 		}
+		if failed, _ := obj["is_error"].(bool); failed {
+			*eventErr = cliEventError(obj["result"], "the CLI marked this turn as failed")
+			return
+		}
 		if *sawDelta || text.Len() > 0 {
 			return
 		}
@@ -408,9 +430,9 @@ func handleCodexEvent(obj map[string]any, text *strings.Builder, eventErr *strin
 			*eventErr = msg
 		}
 	case "turn.failed":
-		if msg := str(obj["error"]); msg != "" {
-			*eventErr = msg
-		}
+		*eventErr = cliEventError(obj["error"], "Codex marked this turn as failed")
+	case "turn.completed":
+		*eventErr = ""
 	case "item.started", "item.completed", "item.updated":
 		item, _ := obj["item"].(map[string]any)
 		if item == nil {
@@ -459,6 +481,10 @@ func handleGeminiEvent(obj map[string]any, text *strings.Builder, sawDelta *bool
 		if msg := str(obj["message"]); msg != "" && *eventErr == "" {
 			*eventErr = msg
 		}
+	case "result":
+		if str(obj["status"]) == "error" {
+			*eventErr = cliEventError(obj["error"], "Gemini marked this turn as failed")
+		}
 	case "message":
 		if strings.ToLower(str(obj["role"])) != "assistant" && strings.ToLower(str(obj["role"])) != "model" {
 			return
@@ -481,6 +507,16 @@ func handleGeminiEvent(obj map[string]any, text *strings.Builder, sawDelta *bool
 	case "tool_result":
 		sink.Activity(model.Activity{Label: "Tool finished", Status: model.StatusOK, StartedAt: time.Now()})
 	}
+}
+
+func cliEventError(value any, fallback string) string {
+	if details, ok := value.(map[string]any); ok {
+		value = details["message"]
+	}
+	if message := str(value); message != "" {
+		return message
+	}
+	return fallback
 }
 
 func humanTool(name string) string {
@@ -513,19 +549,40 @@ func str(v any) string {
 }
 
 func makeToolHookScript(hookURL, style string) (string, func(), error) {
+	curl, err := exec.LookPath("curl")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("tool approvals require curl: %w", err)
+	}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		return "", func() {}, fmt.Errorf("tool approvals require /bin/sh: %w", err)
+	}
 	file, err := os.CreateTemp("", "grox-hook-*.sh")
 	if err != nil {
 		return "", func() {}, err
 	}
 	path := file.Name()
 	endpoint := hookURL + "?style=" + style
-	script := "#!/bin/sh\ncurl -sS --max-time 300 -X POST " + shellQuote(endpoint) + " -H 'Content-Type: application/json' --data-binary @-\n"
+	allow := `{"decision":"allow"}`
+	deny := `{"decision":"deny","reason":"Grox did not approve this tool call."}`
+	if style == "codex" {
+		allow = "{}"
+		deny = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Grox did not approve this tool call."}}`
+	}
+	// The CLI can ignore a failed hook. Return an explicit denial when the
+	// local service is unreachable or produces anything other than an allow.
+	script := "#!/bin/sh\n" +
+		"if reply=$(" + shellQuote(curl) + " --fail --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 245 -X POST " + shellQuote(endpoint) +
+		" -H 'Content-Type: application/json' --data-binary @-) && [ \"$reply\" = " + shellQuote(allow) + " ]; then\n" +
+		"  printf '%s\\n' \"$reply\"\nelse\n  printf '%s\\n' " + shellQuote(deny) + "\nfi\n"
 	if _, err := file.WriteString(script); err != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
 		return "", func() {}, err
 	}
-	_ = file.Close()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", func() {}, err
+	}
 	if err := os.Chmod(path, 0o700); err != nil {
 		_ = os.Remove(path)
 		return "", func() {}, err
@@ -537,39 +594,30 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
+func toolHookCommand(script string) string {
+	return "/bin/sh " + shellQuote(script)
+}
+
 func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerConfig) (string, func(), error) {
 	home, err := os.MkdirTemp("", "grox-gemini-*")
 	if err != nil {
 		return "", func() {}, err
 	}
 	cleanup := func() { _ = os.RemoveAll(home) }
-	realHome, err := os.UserHomeDir()
-	if err == nil {
-		realDir := filepath.Join(realHome, ".gemini")
-		if entries, readErr := os.ReadDir(realDir); readErr == nil {
-			for _, entry := range entries {
-				if entry.Name() == "settings.json" {
-					continue
-				}
-				_ = os.Symlink(filepath.Join(realDir, entry.Name()), filepath.Join(home, entry.Name()))
-			}
-		}
+	// GEMINI_CLI_HOME replaces the user's home directory. The CLI still
+	// appends .gemini when locating settings, auth and installed extensions.
+	configDir := filepath.Join(home, ".gemini")
+	if err := os.Mkdir(configDir, 0o700); err != nil {
+		cleanup()
+		return "", func() {}, err
 	}
 	settings := map[string]any{}
-	if data, readErr := os.ReadFile(filepath.Join(home, "settings.json")); readErr == nil {
-		_ = json.Unmarshal(data, &settings)
-	}
-	// Merge the real user settings file when it exists (the symlink loop skipped it).
-	if realHome != "" {
-		if data, readErr := os.ReadFile(filepath.Join(realHome, ".gemini", "settings.json")); readErr == nil {
-			var realSettings map[string]any
-			if json.Unmarshal(data, &realSettings) == nil {
-				for key, value := range realSettings {
-					if _, exists := settings[key]; !exists {
-						settings[key] = value
-					}
-				}
-			}
+	if realHome, err := os.UserHomeDir(); err == nil {
+		realDir := filepath.Join(realHome, ".gemini")
+		linkHomeEntries(realDir, configDir, "settings.json")
+		if err := readGeminiSettings(filepath.Join(realDir, "settings.json"), settings); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("read Gemini settings: %w", err)
 		}
 	}
 	if mcpURL != "" || len(serversConfig) > 0 {
@@ -596,6 +644,11 @@ func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerC
 		settings["mcpServers"] = servers
 	}
 	if hookURL != "" {
+		hooksConfig, _ := settings["hooksConfig"].(map[string]any)
+		if enabled, ok := hooksConfig["enabled"].(bool); ok && !enabled {
+			cleanup()
+			return "", func() {}, fmt.Errorf("enable Hooks in Gemini settings before using Ask mode")
+		}
 		script, scriptCleanup, scriptErr := makeToolHookScript(hookURL, "gemini")
 		if scriptErr != nil {
 			cleanup()
@@ -605,10 +658,11 @@ func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerC
 		if hooks == nil {
 			hooks = map[string]any{}
 		}
-		hooks["BeforeTool"] = []any{map[string]any{
+		beforeTool, _ := hooks["BeforeTool"].([]any)
+		hooks["BeforeTool"] = append(beforeTool, map[string]any{
 			"matcher": "*",
-			"hooks":   []any{map[string]any{"type": "command", "command": script, "timeout": 300}},
-		}}
+			"hooks":   []any{map[string]any{"type": "command", "command": toolHookCommand(script), "timeout": 300_000}},
+		})
 		settings["hooks"] = hooks
 		// The script must outlive this helper; put its cleanup on the home cleanup.
 		previous := cleanup
@@ -619,7 +673,7 @@ func prepareGeminiHome(mcpURL, hookURL string, serversConfig ...model.MCPServerC
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := os.WriteFile(filepath.Join(home, "settings.json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), data, 0o600); err != nil {
 		cleanup()
 		return "", func() {}, err
 	}

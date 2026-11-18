@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dandandujie/grox/internal/browser"
 	"github.com/dandandujie/grox/internal/catalog"
 	"github.com/dandandujie/grox/internal/model"
 	"github.com/dandandujie/grox/internal/store"
@@ -71,17 +72,23 @@ type Service struct {
 	apiSubMu    sync.Mutex
 	apiSubs     map[chan model.Event]struct{}
 
-	oauthMu      sync.Mutex
-	oauthTokens  map[string]mcpOAuthToken
-	oauthPending map[string]*mcpOAuthPending
-	oauthRetry   map[string]time.Time
+	oauthRefreshMu sync.Mutex
+	oauthMu        sync.Mutex
+	oauthTokens    map[string]mcpOAuthToken
+	oauthPending   map[string]*mcpOAuthPending
+	oauthRetry     map[string]time.Time
 }
 
 type turnControl struct {
-	cancel   context.CancelFunc
-	botID    string
-	groupID  string
-	threadID string
+	browser         *browser.Session
+	ctx             context.Context
+	computer        computerTarget
+	computerErr     error
+	computerAllowed map[string]bool
+	cancel          context.CancelFunc
+	botID           string
+	groupID         string
+	threadID        string
 }
 
 // New returns a service for the workspace at dir. The workspace itself is
@@ -227,7 +234,6 @@ func (s *Service) bootstrap(ctx context.Context, force bool) (model.Bootstrap, e
 	engines := s.detectEngines(ctx, force)
 
 	s.mu.Lock()
-	s.engines = engines
 	availability := s.availabilityLocked(engines)
 	defaultModel := catalog.DefaultModel(availability)
 	providers := catalog.Providers(availability, defaultModel)
@@ -238,7 +244,6 @@ func (s *Service) bootstrap(ctx context.Context, force bool) (model.Bootstrap, e
 	}
 	apps := s.appsLocked()
 	secrets := s.st.SecretStatus()
-	s.st.Normalize()
 	state := s.snapshotLocked()
 	settings := state.Settings
 	s.mu.Unlock()
@@ -264,13 +269,18 @@ func (s *Service) bootstrap(ctx context.Context, force bool) (model.Bootstrap, e
 func (s *Service) detectEngines(ctx context.Context, force bool) []model.EngineInfo {
 	s.catalogMu.Lock()
 	defer s.catalogMu.Unlock()
-	if !force && len(s.engines) > 0 && time.Since(s.engineFetched) < 2*time.Minute {
-		return s.engines
+	s.mu.Lock()
+	cached := s.engines
+	s.mu.Unlock()
+	if !force && len(cached) > 0 && time.Since(s.engineFetched) < 2*time.Minute {
+		return cached
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	engines := catalog.Engines(probeCtx)
+	s.mu.Lock()
 	s.engines = engines
+	s.mu.Unlock()
 	s.engineFetched = time.Now()
 	return engines
 }
@@ -284,9 +294,9 @@ func (s *Service) availabilityLocked(engines []model.EngineInfo) map[string]bool
 	}
 	available := map[string]bool{
 		"grok":   ready["grok"] || s.st.Key("xai") != "",
-		"claude": ready["claude"] || s.st.Key("anthropic") != "",
+		"claude": ready["claude"],
 		"openai": ready["openai"] || s.st.Key("openai") != "",
-		"google": ready["google"] || s.st.Key("google") != "",
+		"google": ready["google"],
 		"local":  true,
 	}
 	if strings.TrimSpace(s.st.State.Settings.APIBaseURL) != "" && s.st.Key("api") != "" {
@@ -409,6 +419,8 @@ func newID(prefix string) string {
 
 func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	previousSettings, previousRevision, previousUpdatedAt := s.st.State.Settings, s.st.State.Revision, s.st.State.UpdatedAt
 	cur := &s.st.State.Settings
 	switch settings.Theme {
 	case "midnight", "daylight", "atelier", "foundry":
@@ -442,9 +454,11 @@ func (s *Service) UpdateSettings(settings model.Settings) (model.Settings, error
 	cur.APIModel = strings.TrimSpace(settings.APIModel)
 	out := *cur
 	s.touchLocked()
-	s.saveLocked()
+	if err := s.st.SaveState(); err != nil {
+		s.st.State.Settings, s.st.State.Revision, s.st.State.UpdatedAt = previousSettings, previousRevision, previousUpdatedAt
+		return model.Settings{}, err
+	}
 	s.emitStateLocked()
-	s.mu.Unlock()
 	return out, nil
 }
 
@@ -453,7 +467,10 @@ func (s *Service) SetSecret(name, value string) (model.SecretStatus, error) {
 	if !allowed[name] {
 		return model.SecretStatus{}, fmt.Errorf("unknown key %q", name)
 	}
-	if err := s.st.SetSecret(name, strings.TrimSpace(value)); err != nil {
+	s.mu.Lock()
+	err := s.st.SetSecret(name, strings.TrimSpace(value))
+	s.mu.Unlock()
+	if err != nil {
 		return model.SecretStatus{}, err
 	}
 	s.catalogMu.Lock()
@@ -469,7 +486,10 @@ func (s *Service) SetSecret(name, value string) (model.SecretStatus, error) {
 }
 
 func (s *Service) ClearSecret(name string) (model.SecretStatus, error) {
-	if err := s.st.ClearSecret(name); err != nil {
+	s.mu.Lock()
+	err := s.st.ClearSecret(name)
+	s.mu.Unlock()
+	if err != nil {
 		return model.SecretStatus{}, err
 	}
 	s.catalogMu.Lock()
@@ -543,14 +563,17 @@ func (s *Service) ResetWorkspace() error {
 	s.mu.Lock()
 	for _, t := range s.turns {
 		t.cancel()
+		s.revokeTurnHooks(t)
 	}
 	s.turns = map[string]*turnControl{}
+	revision := s.st.State.Revision
 	if err := s.st.Reset(time.Now()); err != nil {
 		s.mu.Unlock()
 		return err
 	}
 	_ = os.RemoveAll(filepath.Join(s.st.Dir, "attachments"))
 	s.st.Normalize()
+	s.st.State.Revision = revision
 	s.touchLocked()
 	s.saveLocked()
 	s.emitStateLocked()

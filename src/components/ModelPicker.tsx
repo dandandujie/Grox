@@ -14,7 +14,7 @@ export function currentModel(providers: Provider[], modelId: string): Model | un
 }
 
 export function ModelPicker({ bot }: { bot: Bot }) {
-  const { providers, engines, updateBot, setUI, ui, toast } = useApp();
+  const { providers, engines, state, updateBot, setUI, ui } = useApp();
   const model = currentModel(providers, bot.modelId);
   const [activeId, setActiveId] = useState(model?.provider ?? providers[0]?.id ?? "grok");
   const open = ui.modelPickerOpen;
@@ -46,10 +46,14 @@ export function ModelPicker({ bot }: { bot: Bot }) {
 
   const choose = async (choice: Model) => {
     if (!choice.available) return;
-    await updateBot(bot.id, { modelId: choice.id });
+    if (!await updateBot(bot.id, { modelId: choice.id })) return;
     setUI({ modelPickerOpen: false });
-    toast({ kind: "success", title: "Model switched", body: choice.name + " · " + choice.providerName });
   };
+
+  const overrideLabel = ({
+    demo: "Grox Demo", grok: "Grok CLI", claude: "Claude Code", codex: "Codex CLI", gemini: "Gemini CLI",
+    api: state.settings.apiModel || "Custom API",
+  } as Record<string, string>)[state.settings.engineMode];
 
   return (
     <div className="model-picker-anchor no-drag">
@@ -58,15 +62,15 @@ export function ModelPicker({ bot }: { bot: Bot }) {
         className={cn("model-pill", open && "is-open")}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setUI({ modelPickerOpen: !open })}
-        title={model ? model.name : bot.modelId}
+        onClick={() => overrideLabel ? setUI({ modelPickerOpen: false, settingsOpen: true, settingsSection: "engines" }) : setUI({ modelPickerOpen: !open })}
+        title={overrideLabel ? "All bots use " + overrideLabel : model?.name || bot.modelId}
       >
-        <ProviderMark provider={model?.provider ?? "local"} size={15} />
-        <span className="model-pill-name">{model?.name ?? bot.modelId}</span>
+        {!overrideLabel && <ProviderMark provider={model?.provider ?? "local"} size={15} />}
+        <span className="model-pill-name">{overrideLabel || model?.name || bot.modelId}</span>
         <ChevronDown size={14} className="model-pill-chevron" />
       </button>
 
-      {open && (
+      {open && !overrideLabel && (
         <div className="model-picker" role="dialog" aria-label="Choose a model">
           <div className="model-rail">
             {providers.map((provider) => (
@@ -128,10 +132,6 @@ export function ModelPicker({ bot }: { bot: Bot }) {
                   </button>
                 );
               })}
-            </div>
-            <div className="model-panel-foot">
-              <span>{active?.status === "ready" ? "Uses your local login" : "Connect an engine to unlock"}</span>
-              <span className="model-foot-note">Switch mid-conversation</span>
             </div>
           </div>
         </div>

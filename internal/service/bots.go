@@ -41,17 +41,8 @@ func (s *Service) CreateBot(input model.CreateBotInput) (model.Bot, error) {
 	threadID := newID("thread")
 	thread := model.Thread{
 		ID: threadID, BotID: botID, Title: "New conversation", Kind: "chat",
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now, Messages: []model.Message{},
 	}
-	greeting := "Hey — I'm " + name + "."
-	if strings.TrimSpace(input.Title) != "" {
-		greeting += " I look after " + strings.ToLower(strings.TrimSpace(input.Title)) + "."
-	}
-	greeting += "\n\nAsk me anything, or open **Agent profile** to shape how I work. I am ready when you are."
-	thread.Messages = append(thread.Messages, model.Message{
-		ID: newID("msg"), Role: model.RoleBot, Kind: model.KindText, Text: greeting,
-		CreatedAt: now, UpdatedAt: now,
-	})
 	department := strings.TrimSpace(input.Department)
 	if department == "" {
 		department = "General"
@@ -65,11 +56,17 @@ func (s *Service) CreateBot(input model.CreateBotInput) (model.Bot, error) {
 		CreatedAt: now, UpdatedAt: now, LastActiveAt: now,
 		Threads: []model.Thread{thread},
 	}
+	before := s.snapshotLocked()
 	s.st.State.Bots = append(s.st.State.Bots, bot)
 	s.st.State.ActiveBotID = botID
+	s.st.State.ActiveGroupID = ""
 	s.st.State.ActiveThreadID = threadID
 	s.touchLocked()
-	s.saveLocked()
+	if err := s.st.SaveState(); err != nil {
+		s.st.State = before
+		s.mu.Unlock()
+		return model.Bot{}, err
+	}
 	out := cloneBot(bot)
 	s.emitStateLocked()
 	s.mu.Unlock()
@@ -84,6 +81,7 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 		s.mu.Unlock()
 		return model.Bot{}, fmt.Errorf("bot not found")
 	}
+	before := s.snapshotLocked()
 	if patch.Name != nil {
 		name := strings.TrimSpace(*patch.Name)
 		if name == "" {
@@ -199,7 +197,11 @@ func (s *Service) UpdateBot(botID string, patch model.BotPatch) (model.Bot, erro
 		}
 	}
 	s.touchLocked()
-	s.saveLocked()
+	if err := s.st.SaveState(); err != nil {
+		s.st.State = before
+		s.mu.Unlock()
+		return model.Bot{}, err
+	}
 	out := cloneBot(*bot)
 	s.emitStateLocked()
 	s.mu.Unlock()
@@ -316,13 +318,18 @@ func (s *Service) CreateThread(botID, title string) (model.Thread, error) {
 		title = "New conversation"
 	}
 	now := time.Now()
+	kind := "chat"
+	if title == "New task" {
+		kind = "task"
+	}
 	thread := model.Thread{
-		ID: newID("thread"), BotID: botID, Title: title, Kind: "chat",
-		CreatedAt: now, UpdatedAt: now,
+		ID: newID("thread"), BotID: botID, Title: title, Kind: kind,
+		CreatedAt: now, UpdatedAt: now, Messages: []model.Message{},
 	}
 	bot.Threads = append([]model.Thread{thread}, bot.Threads...)
 	bot.UpdatedAt = now
 	s.st.State.ActiveBotID = botID
+	s.st.State.ActiveGroupID = ""
 	s.st.State.ActiveThreadID = thread.ID
 	s.touchLocked()
 	s.saveLocked()
@@ -415,6 +422,7 @@ func (s *Service) Select(botID, threadID string) error {
 		s.st.State.ActiveThreadID = threadID
 	}
 	s.st.State.ActiveBotID = botID
+	s.st.State.ActiveGroupID = ""
 	if thread := s.findThreadLocked(bot, s.st.State.ActiveThreadID); thread != nil {
 		thread.Unread = 0
 	}

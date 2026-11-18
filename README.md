@@ -4,8 +4,8 @@
 
 # Grox
 
-**A local-first chat app for a team of AI agents.**
-The open-source Grok Bot alternative, written in Go with MyGo and React.
+**A local-first personal agent workspace for the desktop.**
+Written in Go with MyGo and React.
 
 [Quick start](#quick-start) · [What is real](#what-is-real-and-what-is-not) · [Architecture](ARCHITECTURE.md) · [Screenshots](#screenshots)
 
@@ -27,10 +27,8 @@ It runs the agent CLIs you already use — **Grok Build, Claude Code, Codex, Gem
 OpenAI-compatible endpoint. No relay, no account, no telemetry. The workspace stays in
 ~/Library/Application Support/Grox (or the platform equivalent).
 
-The interface follows the shape of [OpenMausBot](https://github.com/milind-soni/OpenMausBot), the
-open-source Grok Bot alternative: a messaging app for a roster of agents, not a single chat box. The
-implementation is new: Go services, typed MyGo bindings, a React/Vite frontend, and a local demo engine
-that keeps the app usable before you connect anything.
+The messaging interface follows [OpenMausBot](https://github.com/milind-soni/OpenMausBot). Grox uses
+Go services, typed MyGo bindings, a React/Vite frontend and a local demo engine for first-run exploration.
 
 ## Why
 
@@ -45,10 +43,11 @@ shape local and inspectable:
 - **Every bot has a memory.** Conversations, tasks, and routine runs are separate threads owned by a bot.
 - **A room for the team.** Channels have members, a lead, @mentions, and their own transcript. The lead
   answers by default; mention @Omiii and the turn is routed there.
-- **Files come with the message.** Attach images or files from the composer; bytes are copied into the
-  workspace and the local path is given to the agent.
-- **A real local computer.** The Computer panel can capture this Mac's screen, browse the bot's folder,
-  preview files, and run a command you typed yourself.
+- **Files come with the message.** Grox saves attachments in the workspace, passes paths to desktop CLIs, and
+  sends selected PNG, JPEG, WebP and UTF-8 content to compatible API models. Files shared by the agent are
+  available in the conversation and the Conversation files panel.
+- **A real local computer.** Use the Computer panel directly or have the bot use [computer tools](docs/COMPUTER.md) on the selected local or SSH machine. Terminal and screenshot calls use the bot's approval settings.
+- **Managed browser.** Bots can navigate public pages, read visible content, interact with forms and attach screenshots. Grox opens an isolated Chrome or Chromium profile for the turn. [Browser tools](docs/BROWSER.md)
 - **Voice on this machine.** Dictate into the composer, or start a call that listens with the system
   speech service and speaks the reply with the system voice.
 - **Your phone, on your Wi-Fi.** Turn on the phone companion to get a private link and QR code for the
@@ -61,14 +60,13 @@ shape local and inspectable:
 
 ## Portraits
 
-Every bot gets a deterministic 1-bit portrait generated from its name: a 32 x 32 stack of base, hair,
-eyes and facial-hair layers, rendered with only #000000 and #FFFFFF inside a circular white mask. The
-same portrait follows the bot into the sidebar, chat header, profile, call sheet and channel roster.
+Every bot gets a deterministic 32 × 32 portrait generated from its name. The 22 designs vary in head shape,
+silhouette, eyewear and clothing. Grox draws them in pure black and white and uses the same portrait in the
+sidebar, chat header, profile, call sheet and channel roster.
 
 ![Generated portrait gallery](docs/screenshots/avatars.png)
 
-Read [the portrait system](docs/AVATARS.md) for the layer dictionaries, seed hash and renderer contract, or
-open ?avatars=1 in the browser preview to inspect the layer recipes.
+Read [the portrait system](docs/AVATARS.md) or open `?avatars=1` in the browser preview to compare all designs at contact-list size.
 
 ## Screenshots
 
@@ -120,18 +118,18 @@ The table below is intentionally blunt.
 | Surface | Status |
 | --- | --- |
 | Bot roster, search, pin, hide, duplicate, delete, context menus | **Working** |
-| Per-bot persona, instructions, model, colour, mascot shape/expression | **Working** |
+| Per-bot persona, instructions, model and generated portrait | **Working** |
 | Conversations, tasks, a thread switcher, unread counts | **Working** |
 | Streaming replies, Markdown + tables + code blocks, stop, message queue | **Working** |
-| Attachments: images and files up to 32 MB, stored in the workspace | **Working** |
+| Attachments and conversation files | Local storage and previews, CLI paths, selected PNG/JPEG/WebP and UTF-8 content on compatible APIs, and files produced by the agent |
 | Channels: members, lead, @mentions, channel threads, sender labels | **Working** |
 | Question cards, approval cards, allow once / always / deny | **Working** (demo and seeded conversations) |
 | Tool activity chips above a reply | **Working** for the demo engine and parsed CLI tool events |
 | Model picker with provider rail and availability | **Working** |
 | Grok CLI, Claude Code, Codex CLI, Gemini CLI execution | **Working** headless adapters; authentication is the CLI's |
 | OpenAI-compatible API (xAI, OpenAI, OpenRouter, Ollama, LM Studio…) | **Working** streaming adapter |
-| Built-in demo engine when nothing is connected | **Working**, and clearly labelled in the reply and settings |
-| Local routines with a scheduler and a calendar | **Working**; a ticker runs due routines as tasks |
+| Built-in demo engine | **Working** when chosen during setup or in the model picker. Scripted replies are labelled in chat. |
+| Local routines with a scheduler and a calendar | Direct and channel targets, calendar scheduling and cron with IANA time zones; runs are recorded as tasks |
 | Routine runs, recent runs, open the resulting task | **Working** |
 | API keys stored locally, write-only to the page, 0600 file | **Working** |
 | Skins (Midnight / Daylight / Atelier / Foundry), reduce motion | **Working** |
@@ -140,22 +138,22 @@ The table below is intentionally blunt.
 | Bring-your-own cloud box over SSH: screen, files, terminal | **Working** against a user-supplied Linux/Unix host with a key path and known_hosts |
 | Hosted cloud computer provisioning / managed remote desktops | **Not included.** Grox connects to your box; it does not create or bill for VMs |
 | Voice input and speech-to-speech calls | **Working locally** via the webview's speech recognition and the system voice; availability depends on the webview |
-| Local computer: screenshot, folder browse, file preview, terminal | **Working** on this Mac; screen capture needs Screen Recording permission |
+| Local and SSH computer | Manual panel and agent tools for folder listing, file reading, terminal, screenshot and attaching results. Screen capture depends on OS permission and display availability |
 | Channels, multi-agent group chat, @mention routing | **Working** locally |
 | Phone companion (LAN web page, QR pairing, same roster and chats) | **Working** while the desktop app is open; plain HTTP + private token on your network |
 | Cloud sync, enterprise admin, organization billing, native App Store client | **Not included** |
-| Tool-level approvals for Grok, Claude, Codex and Gemini | **Working in Ask mode.** Each CLI gets a per-turn local hook (HTTP or a tiny command that calls Grox); its tool calls become approval cards and block until Allow/Always/Deny |
+| Tool-level approvals for Grok, Claude, Codex and Gemini | Ask configures a per-turn hook. Local broker tests cover the approval cards. Authenticated runs depend on the installed CLI and provider |
 | Composio tools inside CLI turns | **Working for all four CLIs** through a per-turn streamable-HTTP MCP endpoint; tool calls also pass the CLI's Ask hook |
 | Composio tools inside API turns | **Working for Auto/Full API bots** from the cached tool list; Ask API bots receive no tools; the manual Tools runner still works |
 | Skills (SKILL.md) | **Working per bot**: discovers global/workspace folders, off by default, previews the file, and injects only enabled instructions into CLI/API prompts. See [skills](docs/SKILLS.md) |
 | Memory (MEMORY.md) | **Working per bot**: private note file, 200-line / 24 KB load budget, conflict-safe editor, editable topic files, lexical topic recall, memory_update/tidy/forget tools, expiry markers, optional daily logs, manual/automatic archive, on/off switch. See [memory](docs/MEMORY.md) |
 | Inbound webhooks | **Working locally**: loopback receiver, capability URL, JSON/text payload, optional HMAC timestamp/signature and replay id, delivery journal and local replay, task thread per delivery, pause/edit/delete. See [webhooks](docs/WEBHOOKS.md) |
-| Team packages | **Working locally**: export one channel with bots, enabled skills, memory and routines, plus local ed25519 signatures and tamper verification; additive import. See [team packages](docs/TEAMS.md) |
+| Team packages | **Working locally**: signed Grox channel packages, OpenMaus v2/v3 interoperability, and BotMRR and Grok Bot migration. See [team packages](docs/TEAMS.md) |
 | Agent questions | **Working**: ask_user tool over MCP/API creates a real option/custom card and blocks the tool call until answered. See [questions](docs/QUESTIONS.md) |
 | MCP servers | **Working locally**: remote HTTP/HTTPS with bearer token, OAuth authorization-code/PKCE or client credentials/refresh tokens, custom headers and per-bot scope, or local stdio; per-turn config for all four CLIs. See [MCP](docs/MCP.md) |
 | New bot presets | **Working locally**: seeded and saved persona presets, profile save, settings management, New bot fill. See [presets](docs/PRESETS.md) |
 | Departments | **Working locally**: standalone shelves with add/rename/delete, empty shelves in the sidebar, bot counts, and General protection. See [departments](docs/DEPARTMENTS.md) |
-| Onboarding | **Working locally**: first-run welcome with create-bot, demo and engine actions; resettable from About. See [onboarding](docs/ONBOARDING.md) |
+| Onboarding | **Working locally**: one starter agent, an engine choice, and an optional demo. See [onboarding](docs/ONBOARDING.md). |
 | Tool policy | **Working locally**: per-bot allow/deny glob patterns over the MCP gateway and API tool loop, deny wins. See [tool policy](docs/TOOL-POLICY.md) |
 | Playbooks | **Partial**: per-bot Markdown playbooks selected by trigger words and injected as bounded process guidance. See [playbooks](docs/PLAYBOOKS.md) |
 | Continuous routines | **Partial**: continuous thread, local runs check, queued retry and failure backoff. See [routines](docs/ROUTINES.md) |
@@ -170,8 +168,7 @@ The table below is intentionally blunt.
 > Manus, Meta, or the OpenMausBot project.
 
 See the [feature ledger](docs/PARITY.md) for the exact local / partial / hosted-only boundary. This build
-deliberately prioritizes a stable core and a small set of useful add-ons; experimental migration and
-decision-provider paths were removed rather than kept half-finished. A local binary cannot truthfully port a
+deliberately prioritizes a stable core and a small set of useful add-ons; experimental decision-provider paths and older Grok Bot migration flows were removed. A local binary cannot truthfully port a
 hosted cloud computer, relay, billing service or organization admin by itself.
 
 ## How it works
@@ -241,17 +238,15 @@ Developer ID, and macos.notarize to notarize the DMG.
 
 ### First launch
 
-The first run seeds a small team — Brody (research), GitScout (code review), Emaily (inbox), Omiii
-(operations), and Onyx (personal) — so the app is useful before you configure anything. The bots are
-pointed at real models only when those engines are available; otherwise a turn falls back to the
-built-in demo and says so in a toast.
+Grox opens with Brody and an empty conversation. Choose a model from an installed CLI or configured
+provider, connect an endpoint in **Settings → Engines**, or choose **Try demo** for scripted replies.
+Sign in to the CLI before your first real turn. The model control in the conversation header shows
+the bot's selected model or the workspace-wide engine override.
 
-To put a real model behind a bot:
-
-1. **Settings → Engines** shows which CLIs are installed.
-2. **Settings → Connections** stores API keys locally (or export XAI_API_KEY, OPENAI_API_KEY,
-   ANTHROPIC_API_KEY, GEMINI_API_KEY before launching).
-3. Pick a model from the pill in the chat header. Switching mid-conversation is allowed.
+**Work** lists conversations across bots and channels. Open a row to answer a question, review an
+approval, or return to the latest output. Sidebar search matches conversation titles and message text.
+If a request fails before sending, it stays in the composer. After a failed or stopped turn, use
+**Restore request** to review the original text and attachments before sending again.
 
 ### Connect apps and a remote box
 

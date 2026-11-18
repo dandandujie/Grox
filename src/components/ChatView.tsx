@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowDown, Check, ChevronDown, Loader2, MessagesSquare, Monitor, Phone, PanelRight,
+  ArrowDown, Check, ChevronDown, FolderOpen, Loader2, MessagesSquare, Monitor, Phone, PanelRight,
   Pencil, Plus, SquarePen, Trash2, X,
 } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -18,59 +18,17 @@ function DaySeparator({ label }: { label: string }) {
 }
 
 function EmptyConversation() {
-  const { activeBot, activeGroup, activeThread, state, send } = useApp();
+  const { activeBot, activeGroup, activeThread } = useApp();
+  const name = activeGroup ? "# " + activeGroup.name : activeBot?.name;
+  if (!name) return null;
   const task = activeThread?.kind === "task";
-  if (activeGroup) {
-    const members = activeGroup.memberIds.map((id) => state.bots.find((bot) => bot.id === id)).filter((bot): bot is NonNullable<typeof bot> => Boolean(bot));
-    const prompts = ["Where are we on this?", "Summarize the channel", "What needs a decision today?"];
-    return (
-      <div className="empty-conversation">
-        <div className="group-empty-avatars">
-          <Mascot seed={activeGroup.name} size={76} />
-        </div>
-        <h2># {activeGroup.name}</h2>
-        <p>{activeGroup.description || "A shared room for the team. Mention a bot with @Name, or ask the lead."}</p>
-        <div className="suggestion-row">
-          {prompts.map((prompt) => (
-            <button type="button" key={prompt} className="suggestion" onClick={() => void send(prompt)}>
-              {prompt}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  if (!activeBot) return null;
-  const prompts = task
-    ? ["Take this task from idea to a plan", "What do you need from me first?", "Summarize the context you have"]
-    : [
-        "What should we work on today?",
-        "Help me plan the week",
-        "Review the last thing I shipped",
-      ];
   return (
     <div className="empty-conversation">
-      <Mascot
-        color={activeBot.color}
-        shape={activeBot.mascotShape}
-        expression={activeBot.expression}
-        size={76}
-        avatarUrl={activeBot.avatarUrl}
-        title={activeBot.name}
-      />
-      <h2>{task ? "A new task for " + activeBot.name : activeBot.name + " is ready"}</h2>
-      <p>
-        {task
-          ? "Describe the outcome you want. The bot will work in this task without touching the other conversations."
-          : activeBot.description || "Ask anything. Your bot keeps this conversation and its own memory."}
-      </p>
-      <div className="suggestion-row">
-        {prompts.map((prompt) => (
-          <button type="button" key={prompt} className="suggestion" onClick={() => void send(prompt)}>
-            {prompt}
-          </button>
-        ))}
-      </div>
+      <Mascot seed={name} avatarUrl={activeBot?.avatarUrl} size={64} />
+      <h2>{task ? "New task" : name}</h2>
+      <p>{activeGroup?.description || (activeGroup
+        ? "Message the channel or mention a bot by name."
+        : task ? "Describe what you want done and what the result should include." : activeBot?.description || "What would you like help with?")}</p>
     </div>
   );
 }
@@ -173,7 +131,7 @@ function ThreadPopover() {
   );
 }
 
-export function ChatView() {
+export function ChatView({ visible }: { visible: boolean }) {
   const {
     activeBot, activeGroup, activeThread, state, ui, setUI, decide, answer, newTask, toast,
   } = useApp();
@@ -200,12 +158,12 @@ export function ChatView() {
   }, [activeThread?.id, threadId]);
 
   useEffect(() => {
-    if (!nearBottom) return;
+    if (!visible || !nearBottom) return;
     const frame = requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     });
     return () => cancelAnimationFrame(frame);
-  }, [messages.length, lastLength, activeThread?.busy, nearBottom]);
+  }, [messages.length, lastLength, activeThread?.busy, nearBottom, visible]);
 
   const onScroll = () => {
     const element = scrollRef.current;
@@ -250,7 +208,7 @@ export function ChatView() {
 
   if (!activeBot && !activeGroup) {
     return (
-      <section className="chat-view empty-workspace">
+      <section className="chat-view empty-workspace" hidden={!visible}>
         <div className="empty-conversation">
           <Mascot seed="Grox" size={76} />
           <h2>No bots yet</h2>
@@ -264,7 +222,7 @@ export function ChatView() {
   }
 
   return (
-    <section className="chat-view">
+    <section className="chat-view" hidden={!visible}>
       <header className="chat-head drag-region">
         <div className="chat-head-left no-drag">
           {activeGroup ? (
@@ -279,18 +237,19 @@ export function ChatView() {
               title={activeBot.name}
             />
           ) : null}
-          <button type="button" className="chat-title" onClick={() => setUI({ panel: "profile", settingsOpen: false })} title={activeGroup ? "Open channel details" : "Open agent profile"}>
-            {activeGroup ? "# " + activeGroup.name : activeBot?.name}
-            <Pencil size={12} className="chat-title-pencil" />
-          </button>
           <button
             type="button"
-            className="thread-toggle"
+            className="chat-title"
             aria-label="Conversations"
-            title="Conversations"
+            aria-expanded={ui.threadMenuOpen}
+            title={activeThread?.title || "Conversations"}
             onClick={() => setUI({ threadMenuOpen: !ui.threadMenuOpen })}
           >
-            <ChevronDown size={14} />
+            <span className="chat-context">
+              <span className="chat-owner">{activeGroup ? "# " + activeGroup.name : activeBot?.name}</span>
+              <span className="chat-thread-title">{activeThread?.title || "Conversations"}</span>
+            </span>
+            <ChevronDown size={14} aria-hidden="true" />
           </button>
         </div>
         <div className="chat-head-actions no-drag">
@@ -306,6 +265,9 @@ export function ChatView() {
               <Monitor size={17} />
             </IconButton>
           )}
+          <IconButton label="Conversation files" active={ui.panel === "artifacts"} onClick={() => setUI({ panel: ui.panel === "artifacts" ? null : "artifacts" })}>
+            <FolderOpen size={17} />
+          </IconButton>
           <IconButton label={activeGroup ? "Channel details" : "Agent profile"} active={ui.panel === "profile"} onClick={() => setUI({ panel: ui.panel === "profile" ? null : "profile" })}>
             <PanelRight size={17} />
           </IconButton>
@@ -332,7 +294,7 @@ export function ChatView() {
         )}
       </div>
 
-      <Composer />
+      <Composer visible={visible} />
     </section>
   );
 }

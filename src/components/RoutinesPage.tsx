@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Copy, Pencil, Play, Plus, Trash2, Webhook, XCircle,
+  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Copy, Pencil, Play, Plus, Trash2, Webhook, XCircle,
 } from "lucide-react";
 import { useApp } from "@/state/store";
 import type { Routine, Webhook as WebhookTrigger } from "@/lib/bridge";
@@ -10,6 +10,19 @@ import { cn } from "@/lib/cn";
 import { relative, shortDate, weekdayShort } from "@/lib/format";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+type Cadence = "daily" | "weekdays" | "weekly" | "hourly" | "cron";
+
+function editorCadence(value: string | undefined): Cadence {
+  switch (value) {
+    case "daily":
+    case "weekly":
+    case "hourly":
+    case "cron":
+      return value;
+    default:
+      return "weekdays";
+  }
+}
 
 function startOfWeek(date: Date): Date {
   const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -32,6 +45,8 @@ function occursOn(routine: Routine, day: Date): boolean {
   if (!routine.enabled) return false;
   const weekday = ((day.getDay() + 6) % 7) + 1;
   switch (routine.cadence) {
+    case "cron":
+      return sameDay(day, new Date(routine.nextRun));
     case "weekdays":
       return weekday <= 5;
     case "weekly":
@@ -50,6 +65,7 @@ function timeLabel(value: string): string {
 
 function scheduleCopy(routine: Routine): string {
   switch (routine.cadence) {
+    case "cron": return (routine.cronExpression ?? "") + " · " + (routine.timeZone || "Local time");
     case "hourly": return "Every hour";
     case "weekdays": return "Weekdays · " + timeLabel(routine.timeOfDay);
     case "weekly": return DAY_NAMES[(routine.weekday || 1) - 1] + " · " + timeLabel(routine.timeOfDay);
@@ -58,13 +74,16 @@ function scheduleCopy(routine: Routine): string {
 }
 
 function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefined; open: boolean; onClose: () => void }) {
-  const { activeBot, state, createRoutine, updateRoutine, deleteRoutine, runRoutine } = useApp();
-  const [botId, setBotId] = useState(activeBot?.id ?? state.bots[0]?.id ?? "");
+  const { activeBot, activeGroup, state, createRoutine, updateRoutine, deleteRoutine, runRoutine } = useApp();
+  const [groupId, setGroupId] = useState("");
+  const [botId, setBotId] = useState("");
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [cadence, setCadence] = useState<"daily" | "weekdays" | "weekly" | "hourly">("weekdays");
+  const [cadence, setCadence] = useState<Cadence>("weekdays");
   const [timeOfDay, setTimeOfDay] = useState("09:00");
   const [weekday, setWeekday] = useState(1);
+  const [cronExpression, setCronExpression] = useState("");
+  const [timeZone, setTimeZone] = useState("");
   const [continuity, setContinuity] = useState(false);
   const [checkRuns, setCheckRuns] = useState(false);
   const [overlap, setOverlap] = useState<"skip" | "queue">("skip");
@@ -74,12 +93,15 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
 
   useEffect(() => {
     if (!open) return;
-    setBotId(routine?.botId ?? activeBot?.id ?? state.bots[0]?.id ?? "");
+    setGroupId(routine ? routine.groupId ?? "" : activeGroup?.id ?? "");
+    setBotId(routine?.botId ?? activeGroup?.leadId ?? activeBot?.id ?? state.bots[0]?.id ?? "");
     setName(routine?.name ?? "");
     setPrompt(routine?.prompt ?? "");
-    setCadence((routine?.cadence as typeof cadence) ?? "weekdays");
+    setCadence(editorCadence(routine?.cadence));
     setTimeOfDay(routine?.timeOfDay ?? "09:00");
     setWeekday(routine?.weekday || 1);
+    setCronExpression(routine?.cronExpression ?? "");
+    setTimeZone(routine?.timeZone ?? "");
     setContinuity(Boolean(routine?.continuity));
     setCheckRuns(Boolean(routine?.checks?.includes("runs")));
     setOverlap(routine?.overlap === "queue" ? "queue" : "skip");
@@ -90,20 +112,36 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
 
   if (!open) return null;
 
+  const group = state.groups.find((item) => item.id === groupId);
+  const availableBots = state.bots.filter((bot) => !bot.archived && (!groupId || group?.memberIds.includes(bot.id)));
+  const selectConversation = (id: string) => {
+    setGroupId(id);
+    const nextGroup = state.groups.find((item) => item.id === id);
+    if (!nextGroup || nextGroup.memberIds.includes(botId)) return;
+    setBotId(nextGroup.leadId || nextGroup.memberIds[0] || "");
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || !prompt.trim() || !botId) {
-      setError("A routine needs a bot, a name, and a prompt.");
+    if (!name.trim() || !prompt.trim() || !availableBots.some((bot) => bot.id === botId)) {
+      setError("Choose a bot and enter a name and prompt.");
       return;
     }
-    setBusy(true);
-    if (routine) {
-      await updateRoutine(routine.id, { name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], overlap, enabled });
-    } else {
-      await createRoutine({ botId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday, continuity, checks: checkRuns ? ["runs"] : [], overlap, enabled });
+    if (cadence === "cron" && cronExpression.trim().split(/\s+/).length !== 5) {
+      setError("Enter five cron fields.");
+      return;
     }
+    setError("");
+    setBusy(true);
+    const input = {
+      botId, groupId, name: name.trim(), prompt: prompt.trim(), cadence, timeOfDay, weekday,
+      cronExpression: cadence === "cron" ? cronExpression.trim() : "",
+      timeZone: cadence === "cron" ? timeZone.trim() : "",
+      continuity, checks: checkRuns ? ["runs"] : [], overlap, enabled,
+    };
+    const saved = routine ? await updateRoutine(routine.id, input) : await createRoutine(input);
     setBusy(false);
-    onClose();
+    if (saved) onClose();
   };
 
   return (
@@ -111,16 +149,25 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
       <form className="routine-form" onSubmit={submit}>
         <div className="form-two">
           <label className="panel-field">
-            <span>Bot</span>
-            <select value={botId} onChange={(event) => setBotId(event.target.value)}>
-              {state.bots.filter((bot) => !bot.archived).map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+            <span>Conversation</span>
+            <select value={groupId} onChange={(event) => selectConversation(event.target.value)}>
+              <option value="">Direct chat</option>
+              {groupId && !group && <option value={groupId}>Deleted channel</option>}
+              {state.groups.map((item) => <option key={item.id} value={item.id}># {item.name}</option>)}
             </select>
           </label>
           <label className="panel-field">
-            <span>Name</span>
-            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning research brief" />
+            <span>Bot</span>
+            <select value={botId} onChange={(event) => setBotId(event.target.value)}>
+              {!availableBots.some((bot) => bot.id === botId) && <option value={botId} disabled>Choose a bot</option>}
+              {availableBots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+            </select>
           </label>
         </div>
+        <label className="panel-field">
+          <span>Name</span>
+          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning research brief" />
+        </label>
         <label className="panel-field">
           <span>Prompt</span>
           <textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What should this bot do each time? Write it as if you were sending a message." />
@@ -135,11 +182,24 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
               { value: "weekdays", label: "Weekdays" },
               { value: "weekly", label: "Weekly" },
               { value: "hourly", label: "Hourly" },
+              { value: "cron", label: "Cron" },
             ]}
             onChange={setCadence}
           />
         </div>
-        {cadence !== "hourly" && (
+        {cadence === "cron" && (
+          <div className="form-two">
+            <label className="panel-field">
+              <span>Cron expression</span>
+              <input value={cronExpression} onChange={(event) => setCronExpression(event.target.value)} placeholder="0 10 * * 1" />
+            </label>
+            <label className="panel-field">
+              <span>Time zone</span>
+              <input value={timeZone} onChange={(event) => setTimeZone(event.target.value)} placeholder="Local time" />
+            </label>
+          </div>
+        )}
+        {cadence !== "hourly" && cadence !== "cron" && (
           <div className="form-two">
             <label className="panel-field">
               <span>Time</span>
@@ -181,7 +241,6 @@ function RoutineEditor({ routine, open, onClose }: { routine: Routine | undefine
         <div className="switch-row routine-enabled">
           <span className="row-copy">
             <span className="row-title">Enabled</span>
-            <span className="row-sub">Runs create a fresh task with this prompt.</span>
           </span>
           <Switch checked={enabled} label="Enabled" onChange={setEnabled} />
         </div>
@@ -436,7 +495,7 @@ function WebhooksPanel() {
 }
 
 export function RoutinesPage() {
-  const { state, ui, setUI, runRoutine, updateRoutine, openThread } = useApp();
+  const { state, ui, setUI, runRoutine, updateRoutine, openThread, openGroupThread } = useApp();
   const [view, setView] = useState<"day" | "3day" | "week">("week");
   const [anchor, setAnchor] = useState(new Date());
   const [tab, setTab] = useState<"routines" | "webhooks">("routines");
@@ -477,6 +536,10 @@ export function RoutinesPage() {
     : days[0]!.toLocaleDateString("en", { month: "long", day: "numeric" }) + " – " + days[days.length - 1]!.toLocaleDateString("en", { month: "long", day: "numeric" });
 
   const botName = (id: string) => state.bots.find((bot) => bot.id === id)?.name ?? "Bot";
+  const targetName = (botId: string, groupId?: string) => {
+    const group = groupId ? state.groups.find((item) => item.id === groupId) : undefined;
+    return groupId ? botName(botId) + " · " + (group ? "# " + group.name : "Deleted channel") : botName(botId);
+  };
   const botColor = (id: string) => state.bots.find((bot) => bot.id === id)?.color ?? "green";
 
   return (
@@ -563,9 +626,13 @@ export function RoutinesPage() {
                             className={cn("routine-chip", !routine.enabled && "is-paused")}
                             onClick={() => setUI({ editingRoutineId: routine.id, newRoutineOpen: false })}
                           >
-                            <span className="routine-chip-time">{routine.cadence === "hourly" ? "Hourly" : timeLabel(routine.timeOfDay)}</span>
+                            <span className="routine-chip-time">
+                              {routine.cadence === "cron"
+                                ? new Date(routine.nextRun).toLocaleTimeString("en", { hour: "numeric", minute: "2-digit" })
+                                : routine.cadence === "hourly" ? "Hourly" : timeLabel(routine.timeOfDay)}
+                            </span>
                             <span className="routine-chip-name"><span className="routine-dot" style={{ background: "var(--identity-" + botColor(routine.botId) + ")" }} />{routine.name}</span>
-                            <span className="routine-chip-bot">{botName(routine.botId)}</span>
+                            <span className="routine-chip-bot">{targetName(routine.botId, routine.groupId)}</span>
                           </button>
                         ))}
                         {dayRoutines.length === 0 && <span className="calendar-day-empty">No runs</span>}
@@ -591,7 +658,7 @@ export function RoutinesPage() {
                     <span className={cn("routine-dot", routine.enabled && "is-on")} style={routine.enabled ? { background: "var(--identity-" + botColor(routine.botId) + ")" } : undefined} />
                     <button type="button" className="routine-list-main" onClick={() => setUI({ editingRoutineId: routine.id, newRoutineOpen: false })}>
                       <span className="routine-list-title">{routine.name}</span>
-                      <span className="routine-list-sub">{botName(routine.botId)} · {scheduleCopy(routine)} · next {relative(routine.nextRun)}</span>
+                      <span className="routine-list-sub">{targetName(routine.botId, routine.groupId)} · {scheduleCopy(routine)} · {routine.enabled ? "next " + relative(routine.nextRun) : "Paused"}</span>
                     </button>
                     <button type="button" className="icon-button" aria-label={"Run " + routine.name + " now"} title="Run now" onClick={() => void runRoutine(routine.id)}><Play size={14} /></button>
                     <Switch checked={routine.enabled} label={"Enable " + routine.name} onChange={(enabled) => void updateRoutine(routine.id, { enabled })} />
@@ -611,14 +678,23 @@ export function RoutinesPage() {
                   <p className="panel-empty-line">Nothing has run yet.</p>
                 ) : runs.map((run) => {
                   const failed = run.status === "failed";
+                  const completed = run.status === "completed";
+                  const status = failed ? "Failed" : completed ? "Completed" : run.status === "running" ? "Running" : "Stopped";
+                  const owner = run.groupId
+                    ? state.groups.find((group) => group.id === run.groupId)
+                    : state.bots.find((bot) => bot.id === run.botId);
+                  const threadExists = Boolean(owner?.threads.some((thread) => thread.id === run.threadId));
                   return (
-                    <button type="button" className="run-row" key={run.id} onClick={() => { setUI({ view: "chat", panel: null }); openThread(run.botId, run.threadId); }}>
-                      {failed ? <XCircle size={15} className="run-icon error" /> : <CheckCircle2 size={15} className="run-icon ok" />}
+                    <button type="button" className="run-row" key={run.id} disabled={!threadExists} onClick={() => {
+                      if (run.groupId) openGroupThread(run.groupId, run.threadId);
+                      else openThread(run.botId, run.threadId);
+                    }}>
+                      {failed ? <XCircle size={15} className="run-icon error" /> : completed ? <CheckCircle2 size={15} className="run-icon ok" /> : <Clock3 size={15} className="run-icon" />}
                       <span className="run-copy">
                         <span className="run-title">{run.title}</span>
-                        <span className="run-sub">{run.summary || "Completed"} · {shortDate(run.startedAt)}</span>
+                        <span className="run-sub">{run.summary || targetName(run.botId, run.groupId)} · {shortDate(run.startedAt)}</span>
                       </span>
-                      <span className={cn("run-status", failed && "is-error")}>{failed ? "Failed" : "Completed"}</span>
+                      <span className={cn("run-status", failed && "is-error")}>{status}</span>
                     </button>
                   );
                 })}

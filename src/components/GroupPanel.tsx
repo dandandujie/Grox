@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, Download, Hash, MessagesSquare, Plus, Trash2, Users, X } from "lucide-react";
 import { useApp } from "@/state/store";
 import { Mascot } from "@/components/Mascot";
-import { IconButton } from "@/components/ui";
+import { IconButton, Switch } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { COLOR_NAMES, MAUS_COLORS, swatch } from "@/lib/mascot";
 
@@ -10,14 +10,21 @@ export function GroupPanel() {
   const { activeGroup, state, setUI, updateGroup, deleteGroup, newTask, backend, toast } = useApp();
   const [name, setName] = useState(activeGroup?.name ?? "");
   const [description, setDescription] = useState(activeGroup?.description ?? "");
+  const [instructions, setInstructions] = useState(activeGroup?.instructions ?? "");
   const [memberIds, setMemberIds] = useState<string[]>(activeGroup?.memberIds ?? []);
   const [leadId, setLeadId] = useState(activeGroup?.leadId ?? "");
+  const [includeMemory, setIncludeMemory] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportNotes, setExportNotes] = useState<string[]>([]);
 
   useEffect(() => {
     setName(activeGroup?.name ?? "");
     setDescription(activeGroup?.description ?? "");
+    setInstructions(activeGroup?.instructions ?? "");
     setMemberIds(activeGroup?.memberIds ?? []);
     setLeadId(activeGroup?.leadId ?? "");
+    setIncludeMemory(false);
+    setExportNotes([]);
   }, [activeGroup?.id]);
 
   if (!activeGroup) return null;
@@ -49,22 +56,33 @@ export function GroupPanel() {
     });
   };
 
-  const exportTeam = async () => {
-    if (!activeGroup) return;
+  const exportTeam = async (format: "grox" | "openmaus") => {
+    if (!activeGroup || exporting) return;
+    setExporting(true);
+    setExportNotes([]);
     try {
-      const raw = await backend.exportTeam(activeGroup.id);
-      const blob = new Blob([raw], { type: "application/json" });
+      const outcome = format === "openmaus"
+        ? await backend.exportOpenMausTeam(activeGroup.id, includeMemory)
+        : {
+          document: await backend.exportTeam(activeGroup.id),
+          filename: (activeGroup.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "team") + ".grox-team.json",
+          warnings: [],
+        };
+      const blob = new Blob([outcome.document], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = activeGroup.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".grox-team.json";
+      anchor.download = outcome.filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      toast({ kind: "success", title: "Team package exported", body: "Bots, enabled skills, memory and routines are in the file." });
+      setExportNotes(outcome.warnings ?? []);
+      toast({ kind: "success", title: "Team package exported" });
     } catch (cause) {
       toast({ kind: "error", title: "Could not export the team", body: cause instanceof Error ? cause.message : "Try again." });
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -97,9 +115,21 @@ export function GroupPanel() {
             <span><Users size={13} /> {members.length} bots</span>
             <span><MessagesSquare size={13} /> {messages} messages</span>
           </div>
-          <button type="button" className="btn btn-secondary group-export" onClick={() => void exportTeam()}>
-            <Download size={14} /> Export team package
-          </button>
+        </section>
+
+        <section className="group-section">
+          <div className="group-section-title"><Download size={13} /> Share team</div>
+          <div className="data-row">
+            <span className="data-hint">Include starter notes in OpenMaus file</span>
+            <Switch checked={includeMemory} label="Include starter notes in OpenMaus file" onChange={setIncludeMemory} disabled={exporting} />
+          </div>
+          <div className="data-row">
+            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => void exportTeam("openmaus")}>Export OpenMaus file</button>
+            <button type="button" className="btn btn-secondary" disabled={exporting} onClick={() => void exportTeam("grox")}>Export Grox file</button>
+          </div>
+          {exportNotes.length > 0 && (
+            <ul className="about-note" role="status">{exportNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>
+          )}
         </section>
 
         <section className="group-section">
@@ -111,6 +141,14 @@ export function GroupPanel() {
           <label className="panel-field">
             <span>About</span>
             <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} onBlur={saveIdentity} placeholder="What happens here?" />
+          </label>
+          <label className="panel-field">
+            <span>Shared instructions</span>
+            <textarea rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} onBlur={() => {
+              if (instructions.trim() !== (activeGroup.instructions ?? "")) {
+                void updateGroup(activeGroup.id, { instructions: instructions.trim() });
+              }
+            }} />
           </label>
           <div className="avatar-section-label">Color</div>
           <div className="color-grid" role="group" aria-label="Channel color">

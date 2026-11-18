@@ -51,3 +51,37 @@ func TestClockAndLabel(t *testing.T) {
 		t.Fatalf("Label = %q", got)
 	}
 }
+
+func TestCronUsesItsOwnTimeZone(t *testing.T) {
+	routine := model.Routine{Cadence: "cron", CronExpression: "0 10 * * MON", TimeZone: "America/New_York"}
+	for _, check := range []struct {
+		day  time.Time
+		want time.Time
+	}{
+		{time.Date(2027, 3, 1, 13, 30, 0, 0, time.UTC), time.Date(2027, 3, 1, 15, 0, 0, 0, time.UTC)},
+		{time.Date(2027, 3, 15, 13, 30, 0, 0, time.UTC), time.Date(2027, 3, 15, 14, 0, 0, 0, time.UTC)},
+	} {
+		if err := Validate(routine, check.day); err != nil {
+			t.Fatal(err)
+		}
+		if got := Next(routine, check.day); !got.Equal(check.want) {
+			t.Errorf("next from %s = %s, want %s", check.day, got, check.want)
+		}
+	}
+}
+
+func TestCronRejectsInvalidSchedule(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	for _, invalid := range []model.Routine{
+		{Cadence: "cron", CronExpression: "0 0 10 * * *"},
+		{Cadence: "cron", CronExpression: "0 10 31 2 *"},
+		{Cadence: "cron", CronExpression: "0 10 * * 1", TimeZone: "Region/Unknown"},
+	} {
+		if err := Validate(invalid, now); err == nil {
+			t.Errorf("expected invalid cron for %+v", invalid)
+		}
+		if next := Next(invalid, now); !next.IsZero() {
+			t.Errorf("invalid cron was given a fallback run: %s", next)
+		}
+	}
+}

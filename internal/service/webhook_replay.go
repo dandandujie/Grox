@@ -56,6 +56,7 @@ func (s *Service) ReplayWebhookDelivery(deliveryID string) (string, error) {
 		s.mu.Unlock()
 		return "", fmt.Errorf("the delivery has no payload or instruction")
 	}
+	before := s.snapshotLocked()
 	now := time.Now()
 	thread := model.Thread{
 		ID: newID("thread"), BotID: bot.ID, Title: "Webhook replay: " + hook.Name + " · " + now.Format("Jan 2 15:04"),
@@ -77,14 +78,10 @@ func (s *Service) ReplayWebhookDelivery(deliveryID string) (string, error) {
 	if len(s.st.State.WebhookDeliveries) > 50 {
 		s.st.State.WebhookDeliveries = s.st.State.WebhookDeliveries[len(s.st.State.WebhookDeliveries)-50:]
 	}
-	threadID := thread.ID
-	botID := bot.ID
-	s.touchLocked()
-	s.saveLocked()
-	s.emitStateLocked()
+	err := s.admitTurnLocked(before, bot, nil, &bot.Threads[0], text, nil, "", false)
 	s.mu.Unlock()
-	if err := s.startTurn(botID, threadID, text, "", ""); err != nil {
+	if err != nil {
 		return "", err
 	}
-	return threadID, nil
+	return thread.ID, nil
 }

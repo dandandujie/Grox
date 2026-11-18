@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"os"
 	"os/exec"
@@ -42,48 +43,61 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 	return original, nil
 }
 
-func (s *Service) computerRootLocked(bot *model.Bot) string {
-	dir := strings.TrimSpace(bot.WorkingDir)
-	if dir != "" {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return dir
-		}
-	}
-	home, _ := os.UserHomeDir()
-	return home
+type computerTarget struct {
+	root   string
+	remote *remoteConfig
 }
 
-func (s *Service) resolveComputerPathLocked(bot *model.Bot, path string) (string, string, error) {
-	root := s.computerRootLocked(bot)
+func (s *Service) computerTargetLocked(bot *model.Bot) (computerTarget, error) {
+	if bot.ComputerMode == "ssh" {
+		cfg, err := s.remoteConfigLocked(bot)
+		return computerTarget{root: cfg.Root, remote: &cfg}, err
+	}
+	dir := strings.TrimSpace(bot.WorkingDir)
+	if dir != "" {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			return computerTarget{}, fmt.Errorf("the selected working folder is unavailable")
+		}
+	} else {
+		dir, _ = os.UserHomeDir()
+	}
+	if dir == "" {
+		return computerTarget{}, fmt.Errorf("no working folder is available")
+	}
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return computerTarget{}, err
+	}
+	root, err = filepath.EvalSymlinks(root)
+	return computerTarget{root: root}, err
+}
+
+func (s *Service) computerTarget(botID string) (computerTarget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bot := s.findBotLocked(botID)
+	if bot == nil {
+		return computerTarget{}, fmt.Errorf("bot not found")
+	}
+	return s.computerTargetLocked(bot)
+}
+
+func resolveComputerPath(root, path string) (string, string, error) {
 	if root == "" {
 		return "", "", fmt.Errorf("no working folder is available")
 	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", "", err
-	}
+	rootAbs := root
 	clean := strings.TrimSpace(path)
 	if clean == "" {
 		clean = rootAbs
 	} else if !filepath.IsAbs(clean) {
 		clean = filepath.Join(rootAbs, clean)
 	}
-	abs, err := filepath.Abs(clean)
+	abs, err := filepath.EvalSymlinks(clean)
 	if err != nil {
 		return "", "", err
 	}
 	rel, err := filepath.Rel(rootAbs, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("that path is outside this bot's folder")
-	}
-	// Resolve symlinks so a link inside the folder cannot read outside it.
-	if resolvedRoot, err := filepath.EvalSymlinks(rootAbs); err == nil {
-		rootAbs = resolvedRoot
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	rel, err = filepath.Rel(rootAbs, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", "", fmt.Errorf("that path is outside this bot's folder")
 	}
@@ -92,22 +106,18 @@ func (s *Service) resolveComputerPathLocked(bot *model.Bot, path string) (string
 
 // ListComputerFiles returns one folder inside the bot's local computer.
 func (s *Service) ListComputerFiles(botID, path string) (model.FolderListing, error) {
-	s.mu.Lock()
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return model.FolderListing{}, fmt.Errorf("bot not found")
+	target, err := s.computerTarget(botID)
+	if err != nil {
+		return model.FolderListing{}, err
 	}
-	if bot.ComputerMode == "ssh" {
-		cfg, err := s.remoteConfigLocked(bot)
-		s.mu.Unlock()
-		if err != nil {
-			return model.FolderListing{}, err
-		}
-		return s.remoteList(cfg, path)
+	return s.listComputerFiles(context.Background(), target, path)
+}
+
+func (s *Service) listComputerFiles(ctx context.Context, target computerTarget, path string) (model.FolderListing, error) {
+	if target.remote != nil {
+		return s.remoteList(ctx, *target.remote, path)
 	}
-	root, abs, err := s.resolveComputerPathLocked(bot, path)
-	s.mu.Unlock()
+	root, abs, err := resolveComputerPath(target.root, path)
 	if err != nil {
 		return model.FolderListing{}, err
 	}
@@ -115,7 +125,16 @@ func (s *Service) ListComputerFiles(botID, path string) (model.FolderListing, er
 	if err != nil || !info.IsDir() {
 		return model.FolderListing{}, fmt.Errorf("that folder does not exist")
 	}
-	items, err := os.ReadDir(abs)
+	folder, err := os.OpenRoot(root)
+	if err != nil {
+		return model.FolderListing{}, err
+	}
+	defer folder.Close()
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return model.FolderListing{}, err
+	}
+	items, err := fs.ReadDir(folder.FS(), filepath.ToSlash(rel))
 	if err != nil {
 		return model.FolderListing{}, err
 	}
@@ -151,27 +170,23 @@ func (s *Service) ListComputerFiles(botID, path string) (model.FolderListing, er
 
 // ReadComputerFile returns a bounded text or image preview.
 func (s *Service) ReadComputerFile(botID, path string) (model.FilePreview, error) {
-	s.mu.Lock()
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return model.FilePreview{}, fmt.Errorf("bot not found")
+	target, err := s.computerTarget(botID)
+	if err != nil {
+		return model.FilePreview{}, err
 	}
-	if bot.ComputerMode == "ssh" {
-		cfg, err := s.remoteConfigLocked(bot)
-		s.mu.Unlock()
-		if err != nil {
-			return model.FilePreview{}, err
-		}
-		return s.remoteRead(cfg, path)
+	return s.readComputerFile(context.Background(), target, path)
+}
+
+func (s *Service) readComputerFile(ctx context.Context, target computerTarget, path string) (model.FilePreview, error) {
+	if target.remote != nil {
+		return s.remoteRead(ctx, *target.remote, path)
 	}
-	_, abs, err := s.resolveComputerPathLocked(bot, path)
-	s.mu.Unlock()
+	root, abs, err := resolveComputerPath(target.root, path)
 	if err != nil {
 		return model.FilePreview{}, err
 	}
 	info, err := os.Stat(abs)
-	if err != nil || info.IsDir() {
+	if err != nil || !info.Mode().IsRegular() {
 		return model.FilePreview{}, fmt.Errorf("that file does not exist")
 	}
 	mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(abs)))
@@ -179,23 +194,35 @@ func (s *Service) ReadComputerFile(botID, path string) (model.FilePreview, error
 		mimeType = "application/octet-stream"
 	}
 	preview := model.FilePreview{Path: abs, Name: filepath.Base(abs), Mime: mimeType, Size: info.Size(), Kind: "text"}
+	folder, err := os.OpenRoot(root)
+	if err != nil {
+		return model.FilePreview{}, err
+	}
+	defer folder.Close()
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return model.FilePreview{}, err
+	}
+	file, err := folder.Open(rel)
+	if err != nil {
+		return model.FilePreview{}, err
+	}
+	defer file.Close()
 	if strings.HasPrefix(mimeType, "image/") {
 		if info.Size() > maxPreviewImage {
 			return model.FilePreview{}, fmt.Errorf("this image is too large to preview")
 		}
-		data, err := os.ReadFile(abs)
+		data, err := io.ReadAll(io.LimitReader(file, maxPreviewImage+1))
 		if err != nil {
 			return model.FilePreview{}, err
+		}
+		if len(data) > maxPreviewImage {
+			return model.FilePreview{}, fmt.Errorf("this image is too large to preview")
 		}
 		preview.Kind = "image"
 		preview.Data = base64.StdEncoding.EncodeToString(data)
 		return preview, nil
 	}
-	file, err := os.Open(abs)
-	if err != nil {
-		return model.FilePreview{}, err
-	}
-	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxPreviewText+1))
 	if err != nil {
 		return model.FilePreview{}, err
@@ -214,22 +241,14 @@ func (s *Service) ReadComputerFile(botID, path string) (model.FilePreview, error
 
 // OpenComputerPath opens a local file or folder with the system handler.
 func (s *Service) OpenComputerPath(botID, path string) error {
-	s.mu.Lock()
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return fmt.Errorf("bot not found")
+	target, err := s.computerTarget(botID)
+	if err != nil {
+		return err
 	}
-	if bot.ComputerMode == "ssh" {
-		cfg, err := s.remoteConfigLocked(bot)
-		s.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		return s.remoteOpen(cfg, path)
+	if target.remote != nil {
+		return s.remoteOpen(*target.remote, path)
 	}
-	_, abs, err := s.resolveComputerPathLocked(bot, path)
-	s.mu.Unlock()
+	_, abs, err := resolveComputerPath(target.root, path)
 	if err != nil {
 		return err
 	}
@@ -246,37 +265,25 @@ func (s *Service) OpenComputerPath(botID, path string) error {
 }
 
 // RunComputerCommand runs a command the person typed in the Computer panel.
-// It is intentionally not exposed to the agent as an unattended tool.
 func (s *Service) RunComputerCommand(botID, command string) (model.CommandResult, error) {
+	target, err := s.computerTarget(botID)
+	if err != nil {
+		return model.CommandResult{}, err
+	}
+	return s.runComputerCommand(context.Background(), target, command)
+}
+
+func (s *Service) runComputerCommand(ctx context.Context, target computerTarget, command string) (model.CommandResult, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return model.CommandResult{}, fmt.Errorf("type a command first")
 	}
-	s.mu.Lock()
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return model.CommandResult{}, fmt.Errorf("bot not found")
-	}
-	if bot.ComputerMode == "ssh" {
-		cfg, err := s.remoteConfigLocked(bot)
-		s.mu.Unlock()
-		if err != nil {
-			return model.CommandResult{}, err
-		}
+	if target.remote != nil {
 		start := time.Now()
-		stdout, stderr, code, err := s.remoteRun(cfg, command, 60*time.Second)
-		if err != nil {
-			return model.CommandResult{Command: command, Stdout: stdout, Stderr: stderr, ExitCode: code, DurationMS: time.Since(start).Milliseconds()}, err
-		}
-		return model.CommandResult{Command: command, Stdout: stdout, Stderr: stderr, ExitCode: code, DurationMS: time.Since(start).Milliseconds()}, nil
+		stdout, stderr, code, err := s.remoteRun(ctx, *target.remote, command, 60*time.Second, maxCommandBytes)
+		return model.CommandResult{Command: command, Stdout: stdout, Stderr: stderr, ExitCode: code, DurationMS: time.Since(start).Milliseconds()}, err
 	}
-	_, root, err := s.resolveComputerPathLocked(bot, "")
-	s.mu.Unlock()
-	if err != nil {
-		return model.CommandResult{}, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -284,7 +291,8 @@ func (s *Service) RunComputerCommand(botID, command string) (model.CommandResult
 	} else {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-lc", command)
 	}
-	cmd.Dir = root
+	cmd.Dir = target.root
+	configureCommandCancellation(cmd)
 	stdout := &cappedBuffer{max: maxCommandBytes}
 	stderr := &cappedBuffer{max: maxCommandBytes}
 	cmd.Stdout = stdout
@@ -301,8 +309,16 @@ func (s *Service) RunComputerCommand(botID, command string) (model.CommandResult
 	if ctx.Err() == context.DeadlineExceeded {
 		return result, fmt.Errorf("the command ran for more than a minute")
 	}
-	if runErr != nil && result.Stderr == "" {
-		result.Stderr = runErr.Error()
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
+	if runErr != nil {
+		if cmd.ProcessState == nil {
+			return result, runErr
+		}
+		if result.Stderr == "" {
+			result.Stderr = runErr.Error()
+		}
 	}
 	return result, nil
 }
@@ -310,21 +326,19 @@ func (s *Service) RunComputerCommand(botID, command string) (model.CommandResult
 // CaptureComputerScreen takes a PNG screenshot of the local desktop. The OS
 // may ask for screen-recording permission the first time.
 func (s *Service) CaptureComputerScreen(botID string) (string, error) {
-	s.mu.Lock()
-	bot := s.findBotLocked(botID)
-	if bot == nil {
-		s.mu.Unlock()
-		return "", fmt.Errorf("bot not found")
+	target, err := s.computerTarget(botID)
+	if err != nil {
+		return "", err
 	}
-	if bot.ComputerMode == "ssh" {
-		cfg, err := s.remoteConfigLocked(bot)
-		s.mu.Unlock()
-		if err != nil {
-			return "", err
-		}
-		return s.remoteScreen(cfg)
+	return s.captureComputerScreen(context.Background(), target)
+}
+
+func (s *Service) captureComputerScreen(ctx context.Context, target computerTarget) (string, error) {
+	if target.remote != nil {
+		return s.remoteScreen(ctx, *target.remote)
 	}
-	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	file, err := os.CreateTemp("", "grox-screen-*.png")
 	if err != nil {
 		return "", err
@@ -335,12 +349,12 @@ func (s *Service) CaptureComputerScreen(botID string) (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("screencapture", "-x", "-t", "png", path)
+		cmd = exec.CommandContext(ctx, "screencapture", "-x", "-t", "png", path)
 	case "linux":
 		if _, err := exec.LookPath("grim"); err == nil {
-			cmd = exec.Command("grim", path)
+			cmd = exec.CommandContext(ctx, "grim", path)
 		} else if _, err := exec.LookPath("scrot"); err == nil {
-			cmd = exec.Command("scrot", "-o", path)
+			cmd = exec.CommandContext(ctx, "scrot", "-o", path)
 		} else {
 			return "", fmt.Errorf("install grim or scrot to capture the desktop")
 		}

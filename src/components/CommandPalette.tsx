@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  CalendarDays, Command, Keyboard, MessageSquarePlus, Palette, Plug, Plus, Search,
+  CalendarDays, Clock3, Command, Keyboard, MessageSquarePlus, Palette, Plug, Plus, Search,
   Settings, Sparkles, PanelRight, UserRound, Download,
 } from "lucide-react";
 import { useApp } from "@/state/store";
@@ -47,6 +47,7 @@ export function CommandPalette() {
       { id: "new-bot", label: "New bot", sub: "Create a new contact", icon: <Plus size={16} />, section: "Actions", run: () => setUI({ paletteOpen: false, newBotOpen: true }) },
       { id: "new-task", label: "New task", sub: "Start a fresh conversation", icon: <MessageSquarePlus size={16} />, section: "Actions", run: () => { setUI({ paletteOpen: false }); newTask(); } },
       { id: "profile", label: "Open agent profile", sub: "Avatar, instructions, approvals", icon: <PanelRight size={16} />, section: "Actions", run: () => setUI({ paletteOpen: false, panel: "profile" }) },
+      { id: "work", label: "Work", sub: "Pending actions and recent conversations", icon: <Clock3 size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, view: "work", panel: null }) },
       { id: "routines", label: "Tasks & routines", sub: "Schedule a recurring task", icon: <CalendarDays size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, view: "routines", panel: null }) },
       { id: "apps", label: "Connected apps", sub: "Marketplace of tools", icon: <Plug size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, view: "apps", panel: null }) },
       { id: "settings", label: "Settings", sub: "General, engines, keys", icon: <Settings size={16} />, section: "Navigate", run: () => setUI({ paletteOpen: false, settingsOpen: true, settingsSection: "general" }) },
